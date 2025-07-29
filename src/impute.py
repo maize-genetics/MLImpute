@@ -23,9 +23,10 @@ def save_output(results, output_path):
     Save the imputed haplotypes to an extended BED format.
     """
     logging.info(f"Saving results to {output_path}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
-        f.write("chrom\tstart\tend\t...\timputed_parent1\timputed_parent2\n")
         # TODO: Format and write actual results
+        f.write("chrom\tstart\tend\timputed_parent1\timputed_parent2\n")
         for row in results.get("rows", []):
             f.write("\t".join(map(str, row)) + "\n")
 
