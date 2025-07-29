@@ -1,0 +1,14 @@
+name: ml-impute-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12.7
+  - numpy
+  - pandas
+  - pytorch
+  - scikit-learn
+  - transformers  # if using ModernBERT
+  - pip
+  - pip:
+      - mamba-ssm  # if using a pip-only Mamba2 variant
