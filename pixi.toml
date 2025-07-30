@@ -1,0 +1,22 @@
+[project]
+name = "ml-impute-env-pixi"
+channels = ["conda-forge"]
+platforms = ["linux-64"]  # or ["osx-arm64", "linux-64", "win-64"] as needed
+
+[system-requirements]
+cuda = "12" # Replace "12" with your specific CUDA version (e.g., "11.8", "12.4")
+
+[dependencies]
+python = "3.10.*"
+pip = "*"
+numpy = "*"
+pandas = "*"
+pytorch-gpu = "*"
+cuda-version = "12.8.*"
+scikit-learn = "*"
+cuda = "*"
+torchvision = "*"
+
+[pypi-dependencies]
+transformers = "*"
+mamba-ssm = "*"
