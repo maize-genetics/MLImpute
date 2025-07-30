@@ -3,18 +3,21 @@ import logging
 import time
 import sys
 from pathlib import Path
+from io.ps4g import convert_ps4g
+
 
 # Example model imports (these would be your implementations)
 # from models.knn import run_knn
 # from models.mamba import run_mamba
 # from models.bert import run_modernbert
 
-def load_input(path):
+def load_input(ps4g_file, weight="global", collapse=False):
     """
     Load the custom haplotype input file.
     You can replace this with your real parser.
     """
-    logging.info(f"Loading input from {path}")
+    logging.info(f"Loading input from {ps4g_file}")
+    ps4g_data = convert_ps4g(ps4g_file, weight, collapse)
     # TODO: Replace with real parser
     return {"data": "mock_data"}
 
@@ -50,6 +53,8 @@ def main():
     parser.add_argument("--input", "-i", type=Path, required=True, help="Path to input file")
     parser.add_argument("--output", "-o", type=Path, required=True, help="Path to output BED file")
     parser.add_argument("--model", "-m", choices=["knn", "mamba", "modernbert"], required=True, help="Imputation model")
+    parser.add_argument("--weight", "-w", choices=["global", "read", "unweighted"], default="global", help="Weighting strategy for PS4G data")
+    parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
