@@ -1,0 +1,31 @@
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+class SimpleDataset(Dataset):
+    """
+    A simple dataset class for loading
+    """
+    def __init__(self, X):
+        self.X = X
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return torch.tensor(self.X[idx], dtype=torch.float32)
+
+#TODO determine if we need to set batch_size(likely) and shuffle (likely not) as parameters
+def build_simple_dataloader(X, batch_size=512, shuffle=True):
+    """
+    Build a DataLoader for the dataset.
+
+    Args:
+        X (np.ndarray): Input data.
+        batch_size (int): Size of each batch.
+        shuffle (bool): Whether to shuffle the data.
+
+    Returns:
+        DataLoader: A PyTorch DataLoader instance.
+    """
+    dataset = SimpleDataset(X)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4)

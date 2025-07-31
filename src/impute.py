@@ -14,12 +14,11 @@ from io.ps4g import convert_ps4g
 def load_input(ps4g_file, weight="global", collapse=False):
     """
     Load the custom haplotype input file.
-    You can replace this with your real parser.
+    Note we leave this in a numpy array as not every model uses torch.
     """
     logging.info(f"Loading input from {ps4g_file}")
     ps4g_data = convert_ps4g(ps4g_file, weight, collapse)
-    # TODO: Replace with real parser
-    return {"data": "mock_data"}
+    return ps4g_data
 
 def save_output(results, output_path):
     """
