@@ -3,7 +3,7 @@ import logging
 import time
 import sys
 from pathlib import Path
-from io.ps4g import convert_ps4g
+from ps4g_io.ps4g import convert_ps4g
 
 
 # Example model imports (these would be your implementations)

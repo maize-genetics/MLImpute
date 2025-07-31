@@ -12,3 +12,5 @@ dependencies:
   - pip
   - pip:
       - mamba-ssm  # if using a pip-only Mamba2 variant
+      - pytest
+      - pytest-cov

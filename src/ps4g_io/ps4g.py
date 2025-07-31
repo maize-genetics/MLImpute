@@ -63,7 +63,7 @@ def extract_metadata(ps4g_file):
         comments = [line.strip() for line in file if line.startswith('#')]
 
     for line in comments:
-        metadata["sample_name"] = ps4g_file.split('-')[1].split('_')[0]
+        metadata["sample_name"] = ps4g_file.split('_')[0]
         if line.startswith("##filename1="):
             metadata["filename1"] = line.split("=")[1]
         elif line.startswith("#Command:"):
@@ -113,7 +113,11 @@ def create_multihot_matrix(ps4g, gamete_data, weight, collapse):
         logging.info("not collapsed")
         X_multihot = np.zeros((len(ps4g), num_classes), dtype=np.float32)
 
+        print('ps4g\n'+str(ps4g))
+        print('X_Multi shape: '+ str(X_multihot.shape))
         for i, indices in enumerate(ps4g['gameteSet']):
+            print('i'+str(i))
+            print('idx'+str(indices))
             X_multihot[i, indices] = 1  # vectorized assignment
 
     if weight == "read":

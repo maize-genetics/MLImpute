@@ -1,0 +1,10 @@
+#TotalUniqueCounts: 4
+#gamete	gameteIndex	count
+#B73:0	0	4
+#CML247:0	1	2
+#W22:0	2	1
+gameteSet	pos	count
+0	1	1
+0,1	1	1
+0	2	1
+0,1,2	2	1
