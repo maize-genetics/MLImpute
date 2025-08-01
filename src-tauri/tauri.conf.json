@@ -3,7 +3,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
+    "devPath": "http://localhost:3000",
     "distDir": "../dist"
   },
   "package": {
@@ -20,9 +20,9 @@
     },
     "windows": [
       {
-        "title": "ml-impute",
-        "width": 800,
-        "height": 600
+        "title": "ML Impute",
+        "width": 900,
+        "height": 700
       }
     ],
     "security": {
