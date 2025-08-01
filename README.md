@@ -1,7 +1,36 @@
-# Tauri + React + Typescript
+# MLImpute
+Simple tool to run Machine Learning based imputation techniques
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
 
-## Recommended IDE Setup
+# Installation Conda Environment
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+```bash
+conda env create -f environment.yml
+```
+
+# Installation using pixi
+
+Install pixi if you haven't already:
+
+```bash
+curl -sSf https://pixi.sh/install.sh | bash
+```
+
+Then, you can install the MLImpute package using:
+
+```bash
+pixi install
+```
+
+
+# Run CLI Script
+
+Conda:
+```bash
+python impute.py --input <input_file> --output <output_file> --model <imputation_method>
+```
+
+Pixi:
+```bash
+pixi run -- python impute.py --input <input_file> --output <output_file> --model <imputation_method>
+```
