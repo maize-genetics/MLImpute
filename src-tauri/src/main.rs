@@ -10,7 +10,7 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn greet_py(name: &str) -> String {
     let output = std::process::Command::new("python3")
-        .arg("../src/greet.py")  // adjust path if needed
+        .arg("../src/python/greet.py")  // adjust path if needed
         .arg(name)
         .output()
         .expect("Failed to execute Python script");
