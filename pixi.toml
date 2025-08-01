@@ -16,6 +16,8 @@ cuda-version = "12.8.*"
 scikit-learn = "*"
 cuda = "*"
 torchvision = "*"
+bokeh = ">=3.7.3,<4"
+rust = ">=1.88.0,<1.89"
 
 [pypi-dependencies]
 transformers = "*"
