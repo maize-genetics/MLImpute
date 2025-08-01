@@ -270,6 +270,7 @@ def main():
     bed_df = pd.DataFrame({
         "chrom_idx": chroms[:len(final_predictions)],
         "pos": positions[:len(final_predictions)],
+        # TODO: convert idx to parent name
         "parent1_idx": final_predictions[:, 0],
         "parent2_idx": final_predictions[:, 1]
     })
