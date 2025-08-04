@@ -6,10 +6,12 @@ from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
 
 
+
 # Example model imports (these would be your implementations)
 # from models.knn import run_knn
 # from models.mamba import run_mamba
 # from models.bert import run_modernbert
+
 
 def load_input(ps4g_file, weight="global", collapse=False):
     """
@@ -19,6 +21,7 @@ def load_input(ps4g_file, weight="global", collapse=False):
     logging.info(f"Loading input from {ps4g_file}")
     ps4g_data = convert_ps4g(ps4g_file, weight, collapse)
     return ps4g_data
+
 
 def save_output(results, output_path):
     """
@@ -54,6 +57,7 @@ def main():
     parser.add_argument("--model", "-m", choices=["knn", "mamba", "modernbert"], required=True, help="Imputation model")
     parser.add_argument("--weight", "-w", choices=["global", "read", "unweighted"], default="global", help="Weighting strategy for PS4G data")
     parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
+
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()

@@ -34,3 +34,21 @@ Pixi:
 ```bash
 pixi run -- python impute.py --input <input_file> --output <output_file> --model <imputation_method>
 ```
+
+# Development
+
+## Prerequisites
+
+* Node.js
+* Rust
+
+## Run Tauri dev container
+
+```bash
+npm run tauri dev
+```
+
+
+
+
+
