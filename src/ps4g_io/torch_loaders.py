@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
 class SimpleDataset(Dataset):
@@ -6,7 +7,9 @@ class SimpleDataset(Dataset):
     A simple dataset class for loading
     """
     def __init__(self, X):
-        self.X = X
+        if not np.issubdtype(X.dtype, np.number):
+            raise ValueError("Input data must be numeric.")
+        self.X = X.astype(np.float32)
 
     def __len__(self):
         return len(self.X)
