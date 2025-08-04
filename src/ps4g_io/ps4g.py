@@ -121,7 +121,7 @@ def create_multihot_matrix(ps4g, gamete_data, weight, collapse):
             X_multihot[i, indices] = 1  # vectorized assignment
 
     if weight == "read":
-        input_matrix = process_read_weight_mode(X_multihot, collapsed_df, num_classes, pos_to_idx, ps4g, unique_positions)
+        input_matrix = process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions)
 
     elif weight == "global":
         input_matrix = process_global_weight_mode(X_multihot, gamete_data, num_classes)
@@ -152,7 +152,7 @@ def process_global_weight_mode(X_multihot, gamete_data, num_classes):
     return input_matrix
 
 
-def process_read_weight_mode(X_multihot, collapsed_df, num_classes, pos_to_idx, ps4g, unique_positions):
+def process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions):
     """
     Process the read weight mode for the multihot encoded matrix.
     Args:
@@ -167,6 +167,7 @@ def process_read_weight_mode(X_multihot, collapsed_df, num_classes, pos_to_idx, 
     """
 
     logging.info("read count")
+    X_multihot, collapsed_df = collapse_ps4g(num_classes, ps4g, unique_positions)
     # Initialize output matrix
     count_matrix = np.zeros((len(unique_positions), num_classes), dtype=np.float32)
     # Accumulate counts per position per gamete

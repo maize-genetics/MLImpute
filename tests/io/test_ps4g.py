@@ -34,7 +34,7 @@ def test_convert_unweighted(sample_ps4g_file):
 def test_convert_read_weight(sample_ps4g_file):
     result = convert_ps4g(sample_ps4g_file, weight="read", collapse=False)
     assert isinstance(result, np.ndarray)
-    assert result.shape[0] == 4
+    assert result.shape[0] == 2
     assert result.shape[1] > 0
 
 def test_convert_global_weight(sample_ps4g_file):
