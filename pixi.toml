@@ -16,6 +16,8 @@ cuda-version = "12.8.*"
 scikit-learn = "*"
 cuda = "*"
 torchvision = "*"
+numba = ">=0.61.2,<0.62"
+wandb = ">=0.21.0,<0.22"
 
 [pypi-dependencies]
 transformers = "*"
