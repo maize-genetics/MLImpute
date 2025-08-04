@@ -86,7 +86,7 @@ def main():
     parser.add_argument("--global-weights", type=str, default=None)
     parser.add_argument("--HMM", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
-    parser.add_argument("--ps4g_file", type=str, default=None)
+    parser.add_argument("--ps4g-file", type=str, default=None)
     args = parser.parse_args()
 
     window_size = 512
@@ -267,12 +267,33 @@ def main():
     decoded = np.vstack(np.vectorize(decode_position)(spline_pos)).T
     chroms, positions = zip(*decoded)
 
+    with open(args.ps4g_file, 'r') as file:
+        comments = [line for line in file if line.startswith('#')]
+
+    gamete_data = []
+
+    for line in comments:
+        line = line.strip()
+        if line.startswith("#") and ":" in line and "\t" in line:
+            # Example line: "#B73:0\t1\t10730006"
+            line = line[1:]  # Remove leading "#"
+            gamete_full, idx, count = line.split("\t")
+            gamete_name = gamete_full.split(":")[0]
+            gamete_data.append({
+                "gamete": gamete_name,
+                "gamete_index": int(idx),
+            })
+
+    index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
+    max_index = max(index_to_name.keys())  # ensure all indices fit
+    index_array = [index_to_name[i] for i in range(max_index + 1)]
+
     bed_df = pd.DataFrame({
+        # TODO: convert chr_idx to chr
         "chrom_idx": chroms[:len(final_predictions)],
         "pos": positions[:len(final_predictions)],
-        # TODO: convert idx to parent name
-        "parent1_idx": final_predictions[:, 0],
-        "parent2_idx": final_predictions[:, 1]
+        "parent1": np.array(index_array)[final_predictions[:, 0]],
+        "parent2": np.array(index_array)[final_predictions[:, 1]],
     })
 
     # Save to BED file
