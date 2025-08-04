@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import pytest
 
-from ps4g_io.torch_loaders import SimpleDataset, build_simple_dataloader
+from python.ps4g_io.torch_loaders import SimpleDataset, build_simple_dataloader
 
 def test_simple_dataset():
     data = np.array([[1, 2], [3, 4], [5, 6]])

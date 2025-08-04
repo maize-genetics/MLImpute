@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import pandas as pd
-from ps4g_io.ps4g import load_ps4g_file, extract_metadata, convert_ps4g
+from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata, convert_ps4g
 
 @pytest.fixture
 def sample_ps4g_file():
