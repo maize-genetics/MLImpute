@@ -113,11 +113,7 @@ def create_multihot_matrix(ps4g, gamete_data, weight, collapse):
         logging.info("not collapsed")
         X_multihot = np.zeros((len(ps4g), num_classes), dtype=np.float32)
 
-        print('ps4g\n'+str(ps4g))
-        print('X_Multi shape: '+ str(X_multihot.shape))
         for i, indices in enumerate(ps4g['gameteSet']):
-            print('i'+str(i))
-            print('idx'+str(indices))
             X_multihot[i, indices] = 1  # vectorized assignment
 
     if weight == "read":
