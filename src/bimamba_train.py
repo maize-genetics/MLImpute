@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import os
 import wandb
-from bimamba_train import BiMambaSmooth
+from bimamba_model import BiMambaSmooth
 import numba
 import pandas as pd
 
@@ -42,10 +42,7 @@ class WindowIndexDataset(Dataset):
         matrix = np.load(path, allow_pickle=True, mmap_mode='r')
         key = path.split("/")[2].split("_")[0]
 
-        df = pd.read_csv(f"training_data/ps4g_weights/{key}.csv", sep='\t')
-        weights = [None] * len(df)
-        for _, row in df.iterrows():
-            weights[row['gamete_index']] = row['weight']
+        weights = np.load(f"training_data/weights/{key}_weights.npy", allow_pickle=True)
 
         start = window_idx * self.step_size
         end = start + self.window_size
@@ -173,8 +170,8 @@ def train_model(model, train_loader, optimizer, epochs, device, test_loader, tes
     })
 
     # Set intervals for mid-epoch checkpoints and evaluations
-    checkpoint_interval = 1000
-    eval_interval = 1000
+    checkpoint_interval = 5000
+    eval_interval = 5000
 
     for epoch in range(epochs):
         model.train()
@@ -215,7 +212,7 @@ def train_model(model, train_loader, optimizer, epochs, device, test_loader, tes
                     print(f"Evaluating model at Epoch {epoch + 1}, Batch {batch_idx + 1}")
                     model.eval()
                     avg_val_loss, snp_accuracy, _ = evaluate_model(model, test_loader, test_matrix, window_size,
-                                                            step_size, device, batch_size)
+                                                            window_size, device, batch_size)
                     wandb.log({"Mid-Epoch Evaluation Loss": avg_val_loss,
                                "Accuracy": snp_accuracy,
                                "Step": epoch * len(train_loader) + batch_idx})
@@ -301,6 +298,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lambda_smooth", type=float, default=0.2)
     parser.add_argument("--save_path", type=str, default="saved_models/")
+    parser.add_argument("--step_size", type=int, default=512)
 
     args = parser.parse_args()
 
@@ -310,7 +308,7 @@ def main():
     epochs = args.epochs
     d_model = args.d_model
     num_layers = args.num_layers
-    step_size = window_size // 4
+    step_size = args.step_size
     lr = args.lr
     lambda_smooth = args.lambda_smooth
 
@@ -335,7 +333,7 @@ def main():
     train_dataset = WindowIndexDataset(train_paths, window_size=window_size, top_n=num_classes,
                                    step_size=step_size, return_decode=False)
     test_dataset = WindowIndexDataset(test_paths, window_size=window_size, top_n=num_classes,
-                                  step_size=step_size, return_decode=True)
+                                  step_size=window_size, return_decode=True)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
