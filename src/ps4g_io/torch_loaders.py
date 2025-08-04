@@ -4,7 +4,11 @@ from torch.utils.data import Dataset, DataLoader
 
 class SimpleDataset(Dataset):
     """
-    A simple dataset class for loading
+        A simple dataset class for loading numeric numpy arrays into PyTorch tensors.
+
+        This class takes a numeric numpy array as input and provides a PyTorch Dataset
+        interface, returning each item as a torch.float32 tensor. Useful for quickly
+        wrapping numpy data for use with PyTorch DataLoader.
     """
     def __init__(self, X):
         if not np.issubdtype(X.dtype, np.number):

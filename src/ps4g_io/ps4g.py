@@ -8,7 +8,7 @@ def convert_ps4g(ps4g_file, weight, collapse):
     This function converts PS4G file into a multihot encoded matrix with optional weighting and collapsing.
 
     Args:
-        data (str): PS4G file
+        ps4g_file (str): Path to the PS4G file.
         weight (str): Weighting strategy, can be 'global', 'read', or 'unweighted'.
         collapse (bool): If True, collapses the gamete sets into a single row per position.
 
