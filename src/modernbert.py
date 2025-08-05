@@ -18,7 +18,7 @@ from torch import set_float32_matmul_precision
 import logging
 from lightning.pytorch.utilities.rank_zero import rank_zero_only
 from torch.utils.data import DataLoader
-from bimamba_train import WindowIndexDataset
+from bimamba_train import WindowIndexDataset, gather_npy_paths
 
 with open("wandb_key.txt", 'r') as f:
     key = f.read().strip()
@@ -46,17 +46,13 @@ def rank_zero_logger(logger: logging.Logger) -> RankZeroLogger:
 
 logger = rank_zero_logger(logging.getLogger(__name__))
 
-
 class SNPLoss(nn.Module):
     def __init__(self):
         super(SNPLoss, self).__init__()
         self.loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
 
-    # def forward(self, logits, unmasked_input, masked):
     def forward(self, logits, unmasked_input):
         return self.loss_fn(logits, unmasked_input)
-        # targets = (unmasked_input[masked] > 0).to(torch.float32)
-        # return self.loss_fn(logits[masked], targets)  # (B, T, C)
 
 @dataclass
 class BERTImputeConfig:
@@ -79,15 +75,6 @@ class BERTImputeConfig:
     train_eval_frequency: Optional[int] = 250
     enable_visualization: bool = True
 
-def validate_config(config: BERTImputeConfig) -> None:
-    if config.max_sequence_length is None:
-        raise ValueError("max_sequence_length must be set")
-    if config.token_embedding_dim > config.hidden_size:
-        raise ValueError(
-            "token_embedding_dim must be less than or equal to hidden_size; "
-            f"got {config.token_embedding_dim=} and {config.hidden_size=}"
-        )
-
 class BERTImpute(L.LightningModule):
     def __init__(
         self,
@@ -98,7 +85,6 @@ class BERTImpute(L.LightningModule):
         torch_compile: bool = False,
     ):
         super(BERTImpute, self).__init__()
-        # validate_config(config)
         self.config = config
         self.learning_rate = learning_rate
         self.learning_rate_decay = learning_rate_decay
@@ -205,22 +191,20 @@ class BERTImpute(L.LightningModule):
         return self.criterion(logits, unmasked.transpose(1, 2))
 
 def train_model():
-    train_paths = "/workdir/smm477/imputation/bimamba_imputation/training_data/train"
-    test_paths = "/workdir/smm477/imputation/bimamba_imputation/training_data/test"
-    checkpoint = "/workdir/smm477/imputation/bimamba_imputation/saved_models"
+    checkpoint = "saved_models/"
     seed = 12345
-    checkpoint_frequency = 1000
+    checkpoint_frequency = 5000
     strategy = "ddp_find_unused_parameters_true"
 
     epochs = 10
-    output_dir="/workdir/smm477/imputation/bimamba_imputation/output"
+    output_dir="output/"
     log_frequency = 5
     gpu = 1
     num_nodes = 1
     val_check_interval = .25
     limit_val_batches = 1.0
-    accumulate_grad_batches = 16
-    batch_size = 16
+    accumulate_grad_batches = 64
+    batch_size = 64
 
     window_size = 512
     train_eval_frequency = 250
@@ -239,10 +223,13 @@ def train_model():
     set_float32_matmul_precision("medium")
     L.seed_everything(seed)
 
+    train_paths = gather_npy_paths("training_data/train")
+    test_paths = gather_npy_paths("training_data/test")
+
     train_dataset = WindowIndexDataset(train_paths, window_size=window_size, top_n=25,
                                    step_size=window_size, return_decode=False)
     test_dataset = WindowIndexDataset(test_paths, window_size=window_size, top_n=25,
-                                  step_size=window_size, return_decode=True)
+                                  step_size=window_size, return_decode=False)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -262,12 +249,13 @@ def train_model():
 
     # setup wandb logger
     logger.info(
-        f"Setting up WandB logger with project=PHG_Imputation, run=SimpleModernBERT_zack"
+        f"Setting up WandB logger with project=PHG_Imputation, run=SimpleModernBERT_sarah"
     )
 
     wandb_logger = WandbLogger(
-        name="SimpleModernBERT_zack",
+        name="SimpleModernBERT_sarah",
         project="PHG_Imputation",
+        entity="maize-genetics",
         save_dir=output_dir,
     )
     csv_dir = os.path.join(output_dir, "logs/csv")
@@ -338,7 +326,7 @@ def train_model():
         model=model,
         train_dataloaders=train_loader,
         val_dataloaders=test_loader,
-        ckpt_path=checkpoint,
+        #ckpt_path=checkpoint,
     )
 
     logger.info(f"Training complete (see {output_dir})")
