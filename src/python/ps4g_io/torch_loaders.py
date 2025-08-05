@@ -61,11 +61,6 @@ class WindowIndexDataset(Dataset):
         matrix = np.load(path, allow_pickle=True, mmap_mode='r')
         key = path.split("/")[2].split("_")[0]
 
-        df = pd.read_csv(f"training_data/ps4g_weights/{key}.csv", sep='\t')
-        weights = [None] * len(df)
-        for _, row in df.iterrows():
-            weights[row['gamete_index']] = row['weight']
-
         start = window_idx * self.step_size
         end = start + self.window_size
         window_matrix_unmasked = matrix[start:end]
@@ -76,7 +71,7 @@ class WindowIndexDataset(Dataset):
         top_parents = np.argpartition(combined, -self.top_n)[-self.top_n:]
         top_parents = top_parents[np.argsort(combined[top_parents])[::-1]]
 
-        weights = np.array(weights, dtype=np.float16)
+        weights = self.build_weights(key)
         weight_vector = weights[top_parents]
         weighted_window = window_matrix_unmasked[:, top_parents] * weight_vector
         #unweighted_window = window_matrix_unmasked[:, top_parents]
@@ -89,6 +84,13 @@ class WindowIndexDataset(Dataset):
             )
         else:
             return torch.tensor(weighted_window, dtype=torch.float32)
+
+    def build_weights(self, key):
+        df = pd.read_csv(f"training_data/ps4g_weights/{key}.csv", sep='\t')
+        weights = [None] * len(df)
+        for _, row in df.iterrows():
+            weights[row['gamete_index']] = row['weight']
+        return np.array(weights, dtype=np.float16)
 
 
 @numba.njit
