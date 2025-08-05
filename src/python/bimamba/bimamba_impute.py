@@ -6,7 +6,8 @@ import math
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from python.bimamba.bimamba_model import BiMambaSmooth
-from python.bimamba.bimamba_train import WindowIndexDataset
+from python.ps4g_io.torch_loaders import WindowIndexDataset
+
 
 def decode_position(encoded_pos):
     """
