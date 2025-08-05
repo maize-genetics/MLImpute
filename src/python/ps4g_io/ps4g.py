@@ -196,3 +196,15 @@ def collapse_ps4g(num_classes, ps4g, unique_positions):
     for i, indices in enumerate(collapsed_df['gameteSet']):
         X_multihot[i, indices] = 1  # vectorized assignment
     return X_multihot, collapsed_df
+
+
+def decode_position(encoded_pos):
+    """
+    Decode a 32-bit integer that packs:
+      • the upper-8 bits → an index (0-255)
+      • the lower-24 bits → a position, but quantised in bins of 256 bp
+    This is lossy because we multiplied by 256 during encoding.
+    """
+    idx = (encoded_pos >> 24) & 0xFF           # top-byte index (unsigned)
+    pos = (encoded_pos & 0x0FFFFFF) * 256      # restore to bp units
+    return idx, pos
