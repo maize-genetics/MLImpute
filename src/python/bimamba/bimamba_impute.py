@@ -11,16 +11,12 @@ from python.ps4g_io.ps4g import decode_position
 from python.ps4g_io.torch_loaders import WindowIndexDataset
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-path", type=str, default=None)
-    parser.add_argument("--output-bed", type=str, default="imputed_path.bed")
-    parser.add_argument("--global-weights", type=str, default=None)
-    parser.add_argument("--HMM", type=bool, default=False)
-    parser.add_argument("--diploid", type=bool, default=False)
-    parser.add_argument("--ps4g-file", type=str, default=None)
-    args = parser.parse_args()
+def run_bimamba_imputation(args):
+    # check to see if the required arguments are provided
+    if args.input_path is None or args.output_bed is None or args.global_weights is None or args.ps4g_file is None:
+        raise ValueError("Missing required arguments: --input-path, --output-bed, --global-weights, --ps4g-file")
 
+    # Set up model parameters
     window_size = 512
     num_classes = 25
     batch_size = 64
@@ -30,7 +26,8 @@ def main():
     step_size = window_size
     lambda_smooth = 0.2
 
-    model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth)
+    model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers,
+                          lambda_smooth=lambda_smooth)
     model_checkpoint = "bimamba_model.pth"
     model.load_state_dict(torch.load(model_checkpoint))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -38,12 +35,9 @@ def main():
 
     # Load in test matrix
     test_paths = [args.input_path]
-
     test_dataset = WindowIndexDataset(test_paths, window_size=window_size, top_n=num_classes,
                                       step_size=step_size, return_decode=True)
-
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-
     # Reconstruct test_matrix just for SNP accuracy computation
     test_matrix_parts = []
     for path in test_paths:
@@ -59,11 +53,11 @@ def main():
 
     if not args.diploid and not args.HMM:  # haploid ML only
         final_predictions = haploid_bimamba_only(device, model, test_loader)
-    elif args.diploid and not args.HMM: # diploid ML only
+    elif args.diploid and not args.HMM:  # diploid ML only
         final_predictions = diploid_bimamba_only(device, model, test_loader)
-    elif args.diploid and args.HMM: # diploid ML + HMM
+    elif args.diploid and args.HMM:  # diploid ML + HMM
         final_predictions = diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size)
-    else: # haploid ML + HMM
+    else:  # haploid ML + HMM
         final_predictions = haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size)
 
     spline_pos = pd.read_csv(args.ps4g_file, sep="\t", comment="#")['pos']
@@ -73,8 +67,8 @@ def main():
     with open(args.ps4g_file, 'r') as file:
         comments = [line for line in file if line.startswith('#')]
 
+    # Parse gamete data from comments
     gamete_data = []
-
     for line in comments:
         line = line.strip()
         if line.startswith("#") and ":" in line and "\t" in line:
@@ -87,10 +81,12 @@ def main():
                 "gamete_index": int(idx),
             })
 
+    # Create a mapping from gamete index to name
     index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
     max_index = max(index_to_name.keys())  # ensure all indices fit
     index_array = [index_to_name[i] for i in range(max_index + 1)]
 
+    # Create a DataFrame for the BED file
     bed_df = pd.DataFrame({
         # TODO: convert chr_idx to chr
         "chrom_idx": chroms[:len(final_predictions)],
@@ -106,12 +102,14 @@ def main():
 def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
     final_logits = []
     decode_dicts = []
+
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
             final_logits.append(outputs)
             decode_dicts.append(decode_dict)
+
     decode_dict_full = torch.cat(decode_dicts, dim=0)
     logits_concat = torch.cat(final_logits, dim=0)  # Shape: [T, 512, 25]
     flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
@@ -124,11 +122,14 @@ def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     log_A = torch.full((N, N), math.log(p_switch / (N - 1)))
     log_A.fill_diagonal_(math.log(p_stay))
     log_start_probs = torch.log(torch.full((N,), 1.0 / N))
+
+    # Viterbi decoding
     final_predictions = viterbi_decode(
         log_emit=log_e.to(device),
         log_trans=log_A.to(device),
         log_start=log_start_probs.to(device)
     )
+
     final_predictions = np.stack([final_predictions, final_predictions], axis=1).astype(np.int16)
     final_predictions = np.array([
         (
@@ -143,12 +144,15 @@ def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
 def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
     final_logits = []
     decode_dicts = []
+
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
             final_logits.append(outputs)
             decode_dicts.append(decode_dict)
+
+    # Concatenate all decode_dicts and logits
     decode_dict_full = torch.cat(decode_dicts, dim=0)
     logits_concat = torch.cat(final_logits, dim=0)  # Shape: [T, 512, 25]
     flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
@@ -164,10 +168,12 @@ def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     pair_states = build_pair_states(N)
     P = len(pair_states)
     log_dip_em = torch.empty(log_e.shape[0], P)
+
     for k, (i, j) in enumerate(pair_states):
         log_dip_em[:, k] = log_e[:, i] + log_e[:, j]
         if i == j:  # penalise homozygotes
             log_dip_em[:, k] += homo_penalty
+
     # diploid transition: allow **at most one chromosome to switch**
     log_dip_tr = torch.full((P, P), float('-inf'))
     for p, (a, b) in enumerate(pair_states):
@@ -183,6 +189,7 @@ def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
             # two switches (disallowed / very low prob)
             else:
                 log_dip_tr[p, q] = -1e6  # huge penalty
+
     log_start = torch.full((P,), -math.log(P))
     idx_path = viterbi_decode(log_dip_em.to(device), log_dip_tr.to(device), log_start.to(device))
     final_predictions = np.array([pair_states[i] for i in idx_path], dtype=np.int16)
@@ -243,6 +250,19 @@ def haploid_bimamba_only(device, model, test_loader):
     final_predictions = torch.cat(final_predictions).cpu().numpy()  # shape (N,)
     final_predictions = np.stack([final_predictions, final_predictions], axis=1)
     return final_predictions
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-path", type=str, default=None)
+    parser.add_argument("--output-bed", type=str, default="imputed_path.bed")
+    parser.add_argument("--global-weights", type=str, default=None)
+    parser.add_argument("--HMM", type=bool, default=False)
+    parser.add_argument("--diploid", type=bool, default=False)
+    parser.add_argument("--ps4g-file", type=str, default=None)
+    args = parser.parse_args()
+
+    run_bimamba_imputation(args)
 
 
 if __name__ == '__main__':
