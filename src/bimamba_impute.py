@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from bimamba_model import BiMambaSmooth
 from bimamba_train import WindowIndexDataset
+from modernbert import BERTImpute, BERTImputeConfig
 
 def decode_position(encoded_pos):
     """
@@ -87,6 +88,7 @@ def main():
     parser.add_argument("--HMM", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
     parser.add_argument("--ps4g-file", type=str, default=None)
+    parser.add_argument("--ML-model", type=str, default=None)
     args = parser.parse_args()
 
     window_size = 512
@@ -98,9 +100,31 @@ def main():
     step_size = window_size
     lambda_smooth = 0.2
 
-    model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth)
-    model_checkpoint = "bimamba_model.pth"
-    model.load_state_dict(torch.load(model_checkpoint))
+    learning_rate = 8e-4
+    learning_rate_decay = "none"
+    torch_compile = "no"
+
+    if args.ML_model == "bimamba":
+        model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth)
+        model_checkpoint = "bimamba_model.pth"
+        model.load_state_dict(torch.load(model_checkpoint))
+
+    else:
+        config = BERTImputeConfig(
+            architecture="encoder-only",
+            max_sequence_length=window_size,
+
+        )
+        model = BERTImpute(
+            config,
+            learning_rate=learning_rate,
+            learning_rate_decay=learning_rate_decay,
+            torch_compile=torch_compile == "yes",
+        )
+
+        checkpoint = torch.load("modernbert.ckpt", map_location="cpu", weights_only=False)
+        model.load_state_dict(checkpoint["state_dict"] if "state_dict" in checkpoint else checkpoint)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
@@ -112,7 +136,7 @@ def main():
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
-    # Reconstruct test_matrix just for SNP accuracy computation
+    # Reconstruct test_matrix just for SNP accuracy computationg
     test_matrix_parts = []
     for path in test_paths:
         matrix = np.load(path, allow_pickle=True, mmap_mode='r')
@@ -130,7 +154,11 @@ def main():
         with torch.no_grad():
             for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
                 batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
-                outputs, mask = model(batch_data)
+                if args.ML_model == "bimamba":
+                    outputs, mask = model(batch_data)
+                else:
+                    outputs = model(batch_data)
+                    outputs = outputs.permute(0, 2, 1)
                 batch_predictions = torch.argmax(outputs, dim=-1)  # [B, L]
                 B, L = batch_predictions.shape  # batch size and window size
                 pred_labels = batch_predictions.reshape(-1)  # [B*L]
@@ -144,7 +172,11 @@ def main():
         with torch.no_grad():
             for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
                 batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
-                outputs, mask = model(batch_data)
+                if args.ML_model == "bimamba":
+                    outputs, mask = model(batch_data)
+                else:
+                    outputs = model(batch_data)
+                    outputs = outputs.permute(0, 2, 1)
                 probs = torch.sigmoid(outputs)  # [B, L, num_classes]
                 top2_probs, top2_parents = torch.topk(probs, k=2, dim=-1)  # [B, L, 2]
                 ratio = top2_probs[..., 1] / top2_probs[..., 0].clamp(min=1e-8)  # [B, L]
@@ -176,7 +208,11 @@ def main():
         with torch.no_grad():
             for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
                 batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
-                outputs, mask = model(batch_data)
+                if args.ML_model == "bimamba":
+                    outputs, mask = model(batch_data)
+                else:
+                    outputs = model(batch_data)
+                    outputs = outputs.permute(0, 2, 1)
                 final_logits.append(outputs)
                 decode_dicts.append(decode_dict)
         decode_dict_full = torch.cat(decode_dicts, dim=0)
@@ -231,7 +267,11 @@ def main():
         with torch.no_grad():
             for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
                 batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
-                outputs, mask = model(batch_data)
+                if args.ML_model == "bimamba":
+                    outputs, mask = model(batch_data)
+                else:
+                    outputs = model(batch_data)
+                    outputs = outputs.permute(0, 2, 1)
                 final_logits.append(outputs)
                 decode_dicts.append(decode_dict)
         decode_dict_full = torch.cat(decode_dicts, dim=0)
