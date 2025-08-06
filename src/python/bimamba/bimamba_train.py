@@ -5,8 +5,8 @@ from torch.utils.data import DataLoader, Dataset
 import os
 import wandb
 from bimamba_model import BiMambaSmooth
-import numba
-import pandas as pd
+
+from python.ps4g_io.torch_loaders import WindowIndexDataset, longest_consec
 
 with open("wandb_key.txt", 'r') as f:
     key = f.read().strip()
@@ -68,41 +68,6 @@ class WindowIndexDataset(Dataset):
         else:
             return torch.tensor(weighted_window, dtype=torch.float32)
 
-# Evaluation Function
-# def evaluate_model(model, test_loader, test_matrix, sequence_length, step_size, device, batch_size):
-#     model.eval()
-#     total_loss = 0.0
-#     total_positions = test_matrix.shape[0]
-#     label_counts = torch.zeros((total_positions, test_matrix.shape[1]), dtype=torch.int32, device=device)
-#
-#     with torch.no_grad():
-#         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
-#             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)
-#             outputs, mask = model(batch_data)
-#             batch_predictions = torch.argmax(outputs, dim=-1)
-#             loss = model.compute_loss(outputs, batch_data, mask)
-#             total_loss += loss.item()
-#             for i, pred in enumerate(batch_predictions):
-#                 # get associated indices for window
-#                 start = batch_idx * step_size * batch_size + i * step_size
-#                 end = start + sequence_length
-#                 for pos in range(sequence_length):
-#                     if start + pos < total_positions:  # Avoid index overflow
-#                         label = decode_dict[pred[pos]]
-#                         label_counts[start + pos, label] += 1
-#
-#             if batch_idx % 1000 == 0:
-#                 print(f"Validation Batch {batch_idx}/{len(test_loader)}, Loss: {loss.item():.4f}")
-#
-#     final_predictions = torch.argmax(label_counts, dim=-1)
-#     avg_loss = total_loss / len(test_loader)
-#     row_indices = torch.arange(total_positions, device=device)
-#     snps = test_matrix[row_indices, final_predictions]
-#     snp_accuracy = snps.float().mean().item()
-#
-#     wandb.log({"Loss": avg_loss, "Accuracy": snp_accuracy})
-#
-#     return avg_loss, snp_accuracy, final_predictions
 
 def evaluate_model(model, test_loader, test_matrix, window_size, step_size, device, batch_size):
     model.eval()
