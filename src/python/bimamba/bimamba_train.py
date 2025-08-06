@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 import os
 import wandb
 from bimamba_model import BiMambaSmooth
@@ -22,42 +22,52 @@ def gather_npy_paths(root_dir):
         for f in files if f.endswith(".npy")
     ]
 
+class WindowIndexDataset(Dataset):
+    def __init__(self, file_list, window_size=512, top_n=25, step_size=128, return_decode=False):
+        self.entries = []
+        self.window_size = window_size
+        self.top_n = top_n
+        self.step_size = step_size
+        self.return_decode = return_decode
+        for path in file_list:
+            matrix = np.load(path, allow_pickle=True, mmap_mode='r')
+            n_windows = (matrix.shape[0] - window_size) // step_size + 1
+            self.entries.extend([(path, i) for i in range(n_windows)])
 
-# Evaluation Function
-# def evaluate_model(model, test_loader, test_matrix, sequence_length, step_size, device, batch_size):
-#     model.eval()
-#     total_loss = 0.0
-#     total_positions = test_matrix.shape[0]
-#     label_counts = torch.zeros((total_positions, test_matrix.shape[1]), dtype=torch.int32, device=device)
-#
-#     with torch.no_grad():
-#         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
-#             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)
-#             outputs, mask = model(batch_data)
-#             batch_predictions = torch.argmax(outputs, dim=-1)
-#             loss = model.compute_loss(outputs, batch_data, mask)
-#             total_loss += loss.item()
-#             for i, pred in enumerate(batch_predictions):
-#                 # get associated indices for window
-#                 start = batch_idx * step_size * batch_size + i * step_size
-#                 end = start + sequence_length
-#                 for pos in range(sequence_length):
-#                     if start + pos < total_positions:  # Avoid index overflow
-#                         label = decode_dict[pred[pos]]
-#                         label_counts[start + pos, label] += 1
-#
-#             if batch_idx % 1000 == 0:
-#                 print(f"Validation Batch {batch_idx}/{len(test_loader)}, Loss: {loss.item():.4f}")
-#
-#     final_predictions = torch.argmax(label_counts, dim=-1)
-#     avg_loss = total_loss / len(test_loader)
-#     row_indices = torch.arange(total_positions, device=device)
-#     snps = test_matrix[row_indices, final_predictions]
-#     snp_accuracy = snps.float().mean().item()
-#
-#     wandb.log({"Loss": avg_loss, "Accuracy": snp_accuracy})
-#
-#     return avg_loss, snp_accuracy, final_predictions
+    def __len__(self):
+        return len(self.entries)
+
+    def __getitem__(self, idx):
+        path, window_idx = self.entries[idx]
+        matrix = np.load(path, allow_pickle=True, mmap_mode='r')
+        key = path.split("/")[2].split("_")[0]
+
+        weights = np.load(f"training_data/weights/{key}_weights.npy", allow_pickle=True)
+
+        start = window_idx * self.step_size
+        end = start + self.window_size
+        window_matrix_unmasked = matrix[start:end]
+
+        consecutive_hit = longest_consec(window_matrix_unmasked)
+        parent_support = window_matrix_unmasked.sum(axis=0)
+        combined = consecutive_hit + parent_support
+        top_parents = np.argpartition(combined, -self.top_n)[-self.top_n:]
+        top_parents = top_parents[np.argsort(combined[top_parents])[::-1]]
+
+        weights = np.array(weights, dtype=np.float16)
+        weight_vector = weights[top_parents]
+        weighted_window = window_matrix_unmasked[:, top_parents] * weight_vector
+        #unweighted_window = window_matrix_unmasked[:, top_parents]
+
+        if self.return_decode:
+            decode_info = top_parents.tolist()
+            return (
+                torch.tensor(weighted_window, dtype=torch.float32),
+                torch.tensor(decode_info, dtype=torch.int64)
+            )
+        else:
+            return torch.tensor(weighted_window, dtype=torch.float32)
+
 
 def evaluate_model(model, test_loader, test_matrix, window_size, step_size, device, batch_size):
     model.eval()
@@ -125,8 +135,8 @@ def train_model(model, train_loader, optimizer, epochs, device, test_loader, tes
     })
 
     # Set intervals for mid-epoch checkpoints and evaluations
-    checkpoint_interval = 1000
-    eval_interval = 1000
+    checkpoint_interval = 5000
+    eval_interval = 5000
 
     for epoch in range(epochs):
         model.train()
@@ -167,7 +177,7 @@ def train_model(model, train_loader, optimizer, epochs, device, test_loader, tes
                     print(f"Evaluating model at Epoch {epoch + 1}, Batch {batch_idx + 1}")
                     model.eval()
                     avg_val_loss, snp_accuracy, _ = evaluate_model(model, test_loader, test_matrix, window_size,
-                                                            step_size, device, batch_size)
+                                                            window_size, device, batch_size)
                     wandb.log({"Mid-Epoch Evaluation Loss": avg_val_loss,
                                "Accuracy": snp_accuracy,
                                "Step": epoch * len(train_loader) + batch_idx})
@@ -182,6 +192,22 @@ def train_model(model, train_loader, optimizer, epochs, device, test_loader, tes
         torch.save(model.state_dict(), epoch_save_path)
         wandb.save(epoch_save_path)
 
+@numba.njit
+def longest_consec(arr):
+    n_rows, n_cols = arr.shape
+    max_lengths = np.zeros(n_cols, dtype=np.int32)
+    for col in range(n_cols):
+        max_len = 0
+        cur_len = 0
+        for row in range(n_rows):
+            if arr[row, col] == 1:
+                cur_len += 1
+                if cur_len > max_len:
+                    max_len = cur_len
+            else:
+                cur_len = 0
+        max_lengths[col] = max_len
+    return max_lengths
 
 def subset(matrix, window_size=512, top_n=25, exclude_index=None):
     step_size = window_size // 4
@@ -237,6 +263,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lambda_smooth", type=float, default=0.2)
     parser.add_argument("--save_path", type=str, default="saved_models/")
+    parser.add_argument("--step_size", type=int, default=512)
 
     args = parser.parse_args()
 
@@ -246,7 +273,7 @@ def main():
     epochs = args.epochs
     d_model = args.d_model
     num_layers = args.num_layers
-    step_size = window_size // 4
+    step_size = args.step_size
     lr = args.lr
     lambda_smooth = args.lambda_smooth
 
@@ -269,9 +296,9 @@ def main():
     test_paths = gather_npy_paths("training_data/test")
 
     train_dataset = WindowIndexDataset(train_paths, window_size=window_size, top_n=num_classes,
-                                       step_size=step_size, return_decode=False)
+                                   step_size=step_size, return_decode=False)
     test_dataset = WindowIndexDataset(test_paths, window_size=window_size, top_n=num_classes,
-                                      step_size=step_size, return_decode=True)
+                                  step_size=window_size, return_decode=True)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
