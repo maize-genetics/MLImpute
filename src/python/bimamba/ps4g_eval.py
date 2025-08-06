@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
-from torch.utils.data import DataLoader
 import torch
-from bimamba_model import BiMambaSmooth
+from python.bimamba.bimamba_model import BiMambaSmooth
 from torch.utils.data import DataLoader, Dataset
 import numba
 
