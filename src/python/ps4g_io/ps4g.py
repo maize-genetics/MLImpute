@@ -3,13 +3,13 @@ import numpy as np
 import logging
 
 
-def convert_ps4g(ps4g_file, weight, collapse):
+def convert_ps4g(ps4g_file, weight_strat, collapse):
     """
     This function converts PS4G file into a multihot encoded matrix with optional weighting and collapsing.
 
     Args:
         ps4g_file (str): Path to the PS4G file.
-        weight (str): Weighting strategy, can be 'global', 'read', or 'unweighted'.
+        weight_strat (str): Weighting strategy, can be 'global', 'read', or 'unweighted'.
         collapse (bool): If True, collapses the gamete sets into a single row per position.
 
     Returns:
@@ -19,9 +19,9 @@ def convert_ps4g(ps4g_file, weight, collapse):
     ps4g_data = load_ps4g_file(ps4g_file)
     metadata, gamete_data = extract_metadata(ps4g_file)
 
-    input_matrix = create_multihot_matrix(ps4g_data, gamete_data, weight, collapse)
-    logging.info(f"Converted PS4G file {ps4g_file} with weight '{weight}' and collapse={collapse}.")
-    return input_matrix
+    input_matrix, weights = create_multihot_matrix(ps4g_data, gamete_data, weight_strat, collapse)
+    logging.info(f"Converted PS4G file {ps4g_file} with weight '{weight_strat}' and collapse={collapse}.")
+    return input_matrix,weights
 
 
 
@@ -84,14 +84,14 @@ def extract_metadata(ps4g_file):
 
     return metadata, gamete_data
 
-def create_multihot_matrix(ps4g, gamete_data, weight, collapse):
+def create_multihot_matrix(ps4g, gamete_data, weight_strat, collapse):
     """
     Create a multihot encoded matrix from the PS4G data.
 
     Args:
         ps4g (pd.DataFrame): DataFrame containing the PS4G data.
         gamete_data (list): List of dictionaries containing gamete data.
-        weight (str): Weighting strategy.
+        weight_strat (str): Weighting strategy.
         collapse (bool): If True, collapses the gamete sets.
 
     Returns:
@@ -116,17 +116,19 @@ def create_multihot_matrix(ps4g, gamete_data, weight, collapse):
         for i, indices in enumerate(ps4g['gameteSet']):
             X_multihot[i, indices] = 1  # vectorized assignment
 
-    if weight == "read":
-        input_matrix = process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions)
+    if weight_strat == "read":
+        input_matrix,weights = process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions)
 
-    elif weight == "global":
-        input_matrix = process_global_weight_mode(X_multihot, gamete_data, num_classes)
+    elif weight_strat == "global":
+        input_matrix, weights = process_global_weight_mode(X_multihot, gamete_data, num_classes)
 
     else:
         logging.info("unweighted")
         input_matrix = X_multihot
+        weights = np.ones(num_classes, dtype=np.float32)
 
-    return input_matrix
+
+    return input_matrix, weights
 
 
 def process_global_weight_mode(X_multihot, gamete_data, num_classes):
@@ -144,8 +146,8 @@ def process_global_weight_mode(X_multihot, gamete_data, num_classes):
     index_to_weight = {entry["gamete_index"]: entry["weight"] for entry in gamete_data}
     # Create aligned weight vector for all columns
     global_weights = np.array([index_to_weight.get(i, 0.0) for i in range(num_classes)], dtype=np.float32)
-    input_matrix = X_multihot * global_weights
-    return input_matrix
+
+    return X_multihot, global_weights
 
 
 def process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions):
@@ -171,10 +173,11 @@ def process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_p
         pos_idx = pos_to_idx[row['pos']]
         for gamete in row['gameteSet']:
             count_matrix[pos_idx, gamete] += row['count']
-    input_matrix = np.empty(X_multihot.shape, dtype=np.float32)
+
+    weights = np.zeros(num_classes, dtype=np.float32)
     for i in range(len(X_multihot)):
-        input_matrix[i] = X_multihot[i] * count_matrix[i] / collapsed_df['count'][i]
-    return input_matrix
+        weights[i] = count_matrix[i] / collapsed_df['count'][i]
+    return X_multihot, weights
 
 
 def collapse_ps4g(num_classes, ps4g, unique_positions):

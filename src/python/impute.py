@@ -19,8 +19,8 @@ def load_input(ps4g_file, weight="global", collapse=False):
     Note we leave this in a numpy array as not every model uses torch.
     """
     logging.info(f"Loading input from {ps4g_file}")
-    ps4g_data = convert_ps4g(ps4g_file, weight, collapse)
-    return ps4g_data
+    ps4g_data, weights = convert_ps4g(ps4g_file, weight, collapse)
+    return ps4g_data, weights
 
 
 def save_output(results, output_path):
@@ -35,10 +35,11 @@ def save_output(results, output_path):
         for row in results.get("rows", []):
             f.write("\t".join(map(str, row)) + "\n")
 
-def run_model(model_name, data):
+def run_model(args, data, weights):
     """
     Dispatch to the appropriate model based on the name.
     """
+    model_name = args.model
     logging.info(f"Running model: {model_name}")
 
     if model_name == "knn":
@@ -50,6 +51,7 @@ def run_model(model_name, data):
     else:
         raise ValueError(f"Unsupported model: {model_name}")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Haplotype Imputation Tool")
     parser.add_argument("--input", "-i", type=Path, required=True, help="Path to input file")
@@ -59,6 +61,9 @@ def main():
     parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--global-weights", type=str, default=None)
+    parser.add_argument("--HMM", type=bool, default=False)
+    parser.add_argument("--diploid", type=bool, default=False)
 
     args = parser.parse_args()
 
@@ -71,10 +76,10 @@ def main():
         start_time = time.time()
 
         # Load input data
-        data = load_input(args.input)
+        data, weights = load_input(args.input)
 
         # Run selected model
-        results = run_model(args.model, data)
+        results = run_model(args, data, weights)
 
         # Save output
         save_output(results, args.output)
