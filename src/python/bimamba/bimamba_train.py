@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import os
 import wandb
-from bimamba_train import BiMambaSmooth
+from bimamba_model import BiMambaSmooth
 
 from python.ps4g_io.torch_loaders import WindowIndexDataset, longest_consec
 
