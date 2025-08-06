@@ -121,9 +121,8 @@ def main():
             learning_rate_decay=learning_rate_decay,
             torch_compile=torch_compile == "yes",
         )
-
-        checkpoint = torch.load("modernbert.ckpt", map_location="cpu", weights_only=False)
-        model.load_state_dict(checkpoint["state_dict"] if "state_dict" in checkpoint else checkpoint)
+        model_checkpoint = "modernbert.pth"
+        model.load_state_dict(torch.load(model_checkpoint))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
