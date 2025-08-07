@@ -52,7 +52,25 @@ class SNPLoss(nn.Module):
         self.loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
 
     def forward(self, logits, unmasked_input):
-        return self.loss_fn(logits, unmasked_input)
+        targets = (unmasked_input > 0).to(torch.float32)
+        logits = logits.permute(0, 2, 1)
+        targets = targets.permute(0, 2, 1)
+        return self.loss_fn(logits, targets)
+
+class SNPLossSmoothAll(nn.Module):
+    def __init__(self, lambda_smooth=0.2):
+        super(SNPLossSmoothAll, self).__init__()
+        self.loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
+        self.lambda_smooth = lambda_smooth
+
+    def forward(self, logits, unmasked_input):
+        logits = logits.permute(0, 2, 1)
+        targets = (unmasked_input > 0).to(torch.float32)
+        targets = targets.permute(0, 2, 1)
+        diff = logits[:, 1:] - logits[:, :-1]
+        smoothness_penalty = torch.mean(torch.abs(diff))
+        logits = torch.clamp(logits, min=-10.0, max=10.0)
+        return self.loss_fn(logits, targets) + self.lambda_smooth * smoothness_penalty
 
 @dataclass
 class BERTImputeConfig:
@@ -197,7 +215,7 @@ def train_model():
     strategy = "ddp_find_unused_parameters_true"
 
     epochs = 10
-    output_dir="output/"
+    output_dir="outputflipped/"
     log_frequency = 5
     gpu = 1
     num_nodes = 1
