@@ -82,7 +82,6 @@ def haploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
-            outputs = outputs.permute(0, 2, 1)#need to transpose last 2 dims as they are not the same as bimamba
 
             final_logits.append(outputs)
             decode_dicts.append(decode_dict)
@@ -121,7 +120,6 @@ def diploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
-            outputs = outputs.permute(0, 2, 1) #need to transpose last 2 dims as they are not the same as bimamba
 
             final_logits.append(outputs)
             decode_dicts.append(decode_dict)
@@ -178,7 +176,6 @@ def diploid_modernBERT_only(device, model, test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
-            outputs = outputs.permute(0, 2, 1) #need to transpose last 2 dims as they are not the same as bimamba
 
             probs = torch.sigmoid(outputs)  # [B, L, num_classes]
             top2_probs, top2_parents = torch.topk(probs, k=2, dim=-1)  # [B, L, 2]
@@ -214,7 +211,6 @@ def haploid_modernBERT_only(device, model, test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
-            outputs = outputs.permute(0, 2, 1)  #need to transpose last 2 dims as they are not the same as bimamba
 
             batch_predictions = torch.argmax(outputs, dim=-1)  # [B, L]
             B, L = batch_predictions.shape  # batch size and window size
