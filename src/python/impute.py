@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--input", "-i", type=Path, required=True, help="Path to input file")
     parser.add_argument("--output", "-o", type=Path, required=True, help="Path to output BED file")
     parser.add_argument("--model", "-m", choices=["knn", "mamba", "modernbert"], required=True, help="Imputation model")
-    parser.add_argument("--weight", "-w", choices=["global", "read", "unweighted"], default="global", help="Weighting strategy for PS4G data")
+    parser.add_argument("--weight", "-w", choices=["global", "unweighted"], default="global", help="Weighting strategy for PS4G data")
     parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
