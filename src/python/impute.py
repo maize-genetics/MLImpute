@@ -4,7 +4,8 @@ import time
 import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
-
+from python.modernBERT.modernBERT_impute import run_modernBERT_imputation
+from bed_io.bed import output_predictions
 
 
 # Example model imports (these would be your implementations)
@@ -19,26 +20,22 @@ def load_input(ps4g_file, weight="global", collapse=False):
     Note we leave this in a numpy array as not every model uses torch.
     """
     logging.info(f"Loading input from {ps4g_file}")
-    ps4g_data = convert_ps4g(ps4g_file, weight, collapse)
-    return ps4g_data
+    ps4g_data, weights = convert_ps4g(ps4g_file, weight, collapse)
+    return ps4g_data, weights
 
 
-def save_output(results, output_path):
+def save_output(ps4g_file, output_path, results):
     """
     Save the imputed haplotypes to an extended BED format.
     """
     logging.info(f"Saving results to {output_path}")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        # TODO: Format and write actual results
-        f.write("chrom\tstart\tend\timputed_parent1\timputed_parent2\n")
-        for row in results.get("rows", []):
-            f.write("\t".join(map(str, row)) + "\n")
+    output_predictions(ps4g_file, output_path, results)
 
-def run_model(model_name, data):
+def run_model(args, data, weights):
     """
     Dispatch to the appropriate model based on the name.
     """
+    model_name = args.model
     logging.info(f"Running model: {model_name}")
 
     if model_name == "knn":
@@ -46,9 +43,10 @@ def run_model(model_name, data):
     elif model_name == "mamba":
         return {"rows": [["chr1", 100, 200, "A", "C"]]}  # replace with run_mamba(data)
     elif model_name == "modernbert":
-        return {"rows": [["chr1", 100, 200, "B", "B"]]}  # replace with run_modernbert(data)
+        return run_modernBERT_imputation(args, data, weights)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Haplotype Imputation Tool")
@@ -59,6 +57,9 @@ def main():
     parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--global-weights", type=str, default=None)
+    parser.add_argument("--HMM", type=bool, default=False)
+    parser.add_argument("--diploid", type=bool, default=False)
 
     args = parser.parse_args()
 
@@ -71,13 +72,13 @@ def main():
         start_time = time.time()
 
         # Load input data
-        data = load_input(args.input)
+        data, weights = load_input(args.input)
 
         # Run selected model
-        results = run_model(args.model, data)
+        results = run_model(args, data, weights)
 
         # Save output
-        save_output(results, args.output)
+        save_output(args.input, args.output, results)
 
         logging.info(f"Finished in {time.time() - start_time:.2f} seconds.")
 

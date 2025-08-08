@@ -85,7 +85,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 batch_predictions = torch.argmax(outputs, dim=-1)  # [B, L]
                 B, L = batch_predictions.shape  # batch size and window size
                 pred_labels = batch_predictions.reshape(-1)  # [B*L]
@@ -103,7 +102,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 probs = torch.sigmoid(outputs)  # [B, L, num_classes]
                 top2_probs, top2_parents = torch.topk(probs, k=2, dim=-1)  # [B, L, 2]
                 ratio = top2_probs[..., 1] / top2_probs[..., 0].clamp(min=1e-8)  # [B, L]
@@ -139,7 +137,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 final_logits.append(outputs)
                 decode_dicts.append(decode_dict)
         decode_dict_full = torch.cat(decode_dicts, dim=0)
@@ -198,7 +195,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 final_logits.append(outputs)
                 decode_dicts.append(decode_dict)
         decode_dict_full = torch.cat(decode_dicts, dim=0)

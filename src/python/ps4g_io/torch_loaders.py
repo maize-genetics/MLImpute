@@ -93,6 +93,42 @@ class WindowIndexDataset(Dataset):
         return np.array(weights, dtype=np.float16)
 
 
+class WindowIndexDatasetFromMatrix(Dataset):
+    def __init__(self, matrix,weights, window_size=512, top_n=25, step_size=128, return_decode=False):
+        self.matrix = matrix
+        self.weights = weights
+        self.window_size = window_size
+        self.top_n = top_n
+        self.step_size = step_size
+        self.return_decode = return_decode
+        self.n_windows = (matrix.shape[0] - window_size) // step_size + 1
+
+    def __len__(self):
+        return self.n_windows
+
+    def __getitem__(self, idx):
+        start = idx * self.step_size # idx is the window index now as we are only loading from one matrix
+        end = start + self.window_size
+        window_matrix_unmasked = self.matrix[start:end]
+
+        consecutive_hit = longest_consec(window_matrix_unmasked)
+        parent_support = window_matrix_unmasked.sum(axis=0)
+        combined = consecutive_hit + parent_support
+        top_parents = np.argpartition(combined, -self.top_n)[-self.top_n:]
+        top_parents = top_parents[np.argsort(combined[top_parents])[::-1]]
+
+        weight_vector = self.weights[top_parents]
+        weighted_window = window_matrix_unmasked[:, top_parents] * weight_vector
+
+        if self.return_decode:
+            decode_info = top_parents.tolist()
+            return (
+                torch.tensor(weighted_window, dtype=torch.float32),
+                torch.tensor(decode_info, dtype=torch.int64)
+            )
+        else:
+            return torch.tensor(weighted_window, dtype=torch.float32)
+
 @numba.njit
 def longest_consec(arr):
     n_rows, n_cols = arr.shape
