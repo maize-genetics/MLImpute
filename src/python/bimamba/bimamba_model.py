@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from mamba_ssm.modules.mamba_simple import Mamba
 
-
 # add citations
 
 #########################################    DEFINE BIMAMBA ARCHITECTURE    ############################################
@@ -21,13 +20,10 @@ def create_block(
         dtype=None,
         d_conv=4,
 ):
-    factory_kwargs = {"device": device, "dtype": dtype, "bidirectional": bidirectional,
-                      "bidirectional_strategy": bidirectional_strategy,
-                      "bidirectional_weight_tie": bidirectional_weight_tie, "d_conv": d_conv}
+    factory_kwargs = {"device": device, "dtype": dtype, "bidirectional": bidirectional, "bidirectional_strategy": bidirectional_strategy, "bidirectional_weight_tie": bidirectional_weight_tie, "d_conv": d_conv}
     mixer_cls = BiMambaWrapper(d_model=d_model, **factory_kwargs)
     norm_cls = nn.LayerNorm(d_model, eps=norm_epsilon, device=device, dtype=dtype)
     return nn.Sequential(norm_cls, mixer_cls)
-
 
 class BiMambaWrapper(nn.Module):
     def __init__(
@@ -36,7 +32,7 @@ class BiMambaWrapper(nn.Module):
             bidirectional: bool = True,
             bidirectional_strategy: str = "add",
             bidirectional_weight_tie: bool = True,
-            d_conv=4,
+            d_conv = 4,
             **mamba_kwargs,
     ):
         super().__init__()
@@ -63,10 +59,8 @@ class BiMambaWrapper(nn.Module):
                 out = out * out_rev
         return out
 
-
 class BiMambaMixerModel(nn.Module):
-    def __init__(self, d_model, n_layer, norm_epsilon=1e-5, bidirectional=True, bidirectional_strategy="add", d_conv=4,
-                 device=None, dtype=None):
+    def __init__(self, d_model, n_layer, norm_epsilon=1e-5, bidirectional=True, bidirectional_strategy="add", d_conv=4, device=None, dtype=None):
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
         self.layers = nn.ModuleList(
@@ -82,7 +76,7 @@ class BiMambaMixerModel(nn.Module):
                 )
                 for i in range(n_layer)
             ]
-        )
+	)
         self.norm_f = nn.LayerNorm(d_model, eps=norm_epsilon, **factory_kwargs)
 
     def forward(self, input_features, output_hidden_states=False):
@@ -97,14 +91,12 @@ class BiMambaMixerModel(nn.Module):
             all_hidden_states.append(hidden_states)
         return hidden_states, all_hidden_states
 
-
 class BiMamba(nn.Module):
     def __init__(self, d_model, n_layer, norm_epsilon=1e-5, bidirectional=True, bidirectional_strategy="add",
                  device=None, dtype=None, d_conv=4):
         super().__init__()
         factory_kwargs = {"device": device, "dtype": dtype}
-        self.backbone = BiMambaMixerModel(d_model, n_layer, norm_epsilon, bidirectional, bidirectional_strategy,
-                                          d_conv=d_conv,
+        self.backbone = BiMambaMixerModel(d_model, n_layer, norm_epsilon, bidirectional, bidirectional_strategy, d_conv=d_conv,
                                           **factory_kwargs)
 
     def forward(self, input_features, output_hidden_states=False, return_dict=False):
@@ -128,7 +120,6 @@ class SNPLoss(nn.Module):
         targets = (unmasked_input[masked] > 0).to(torch.float32)
         return self.loss_fn(logits[masked], targets)  # (B, T, C)
 
-
 class SNPLossSmooth(nn.Module):
     def __init__(self, lambda_smooth=0.2):
         super(SNPLossSmooth, self).__init__()
@@ -149,10 +140,12 @@ class SNPLossSmoothAll(nn.Module):
         self.lambda_smooth = lambda_smooth
 
     def forward(self, logits, unmasked_input, mask):
+        targets = (unmasked_input > 0).to(torch.float32)
         diff = logits[:, 1:] - logits[:, :-1]
         smoothness_penalty = torch.mean(torch.abs(diff))
         logits = torch.clamp(logits, min=-10.0, max=10.0)
-        return self.loss_fn(logits, unmasked_input) + self.lambda_smooth * smoothness_penalty
+        return self.loss_fn(logits, targets) + self.lambda_smooth * smoothness_penalty
+
 
 
 #################################################    DEFINE MODEL    ###################################################
@@ -165,34 +158,29 @@ class BiMambaSmooth(nn.Module):
         self.bimamba = BiMamba(d_model, n_layer, d_conv=d_conv, **factory_kwargs)
         self.classification_head = nn.Sequential(
             nn.Linear(d_model, d_model * 2),
-            # nn.Softplus(),
             nn.GELU(),
             nn.Linear(d_model * 2, num_classes)
         )
-        # self.conv1d = nn.Conv1d(num_classes, num_classes, kernel_size=9, padding=4)
-        # self.loss = SNPLoss()
         self.loss = SNPLossSmoothAll(lambda_smooth=lambda_smooth)
 
     def forward(self, input_features, hidden=False):
         with torch.cuda.amp.autocast():
-            B, L, _ = input_features.shape  # input_features: (B, L, input_dim)
+            B, L, _ = input_features.shape # input_features: (B, L, input_dim)
             if self.training:
-                mask = torch.rand(B, L,
-                                  device=input_features.device) < 0.1  # randomly change 10% of input to 0 for training
+                mask = torch.rand(B, L, device=input_features.device) < 0.1 # randomly change 10% of input to 0 for training
                 input_masked = input_features.masked_fill(mask.unsqueeze(-1), 0)
             else:
                 # No masking during evaluation
                 mask = torch.zeros(B, L, dtype=torch.bool, device=input_features.device)
                 input_masked = input_features
-
+            
             x = self.input_projection(input_masked)  # (B, L, d_model)
             hidden_states, _ = self.bimamba(x)  # (B, L, d_model)
-
+            
             if hidden: return hidden_states
             predictions = self.classification_head(hidden_states)
             return predictions, mask
-            # predictions_smoothed = self.conv1d(predictions.transpose(1, 2))
-            # return predictions_smoothed.transpose(1, 2), mask
+
 
     def compute_loss(self, logits, unmasked, masked):
         return self.loss(logits, unmasked, masked)

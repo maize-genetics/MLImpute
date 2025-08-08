@@ -263,8 +263,27 @@ def run_bimamba_imputation(args):
         "parent2": np.array(index_array)[final_predictions[:, 1]],
     })
 
+    # Define group boundaries where parent1, parent2, or chrom changes
+    group_change = (
+        (bed_df["parent1"] != bed_df["parent1"].shift()) |
+        (bed_df["parent2"] != bed_df["parent2"].shift()) |
+        (bed_df["chrom_idx"] != bed_df["chrom_idx"].shift())
+    )
+    group_id = group_change.cumsum()
+
+    # Collapse into ranges
+    ranges_df = bed_df.groupby(group_id).agg({
+        "chrom_idx": "first",
+        "pos": ["min", "max"],
+        "parent1": "first",
+        "parent2": "first"
+    }).reset_index(drop=True)
+
+    # Clean up MultiIndex columns
+    ranges_df.columns = ["chrom_idx", "start", "end", "parent1", "parent2"]
+
     # Save to BED file
-    bed_df.to_csv(args.output_bed, sep="\t", index=False)
+    ranges_df.to_csv(args.output_bed, sep="\t", index=False)
 
 
 def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
