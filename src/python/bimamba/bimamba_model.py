@@ -158,12 +158,9 @@ class BiMambaSmooth(nn.Module):
         self.bimamba = BiMamba(d_model, n_layer, d_conv=d_conv, **factory_kwargs)
         self.classification_head = nn.Sequential(
             nn.Linear(d_model, d_model * 2),
-            #nn.Softplus(),
             nn.GELU(),
             nn.Linear(d_model * 2, num_classes)
         )
-        #self.conv1d = nn.Conv1d(num_classes, num_classes, kernel_size=9, padding=4)
-        #self.loss = SNPLoss()
         self.loss = SNPLossSmoothAll(lambda_smooth=lambda_smooth)
 
     def forward(self, input_features, hidden=False):
@@ -183,8 +180,7 @@ class BiMambaSmooth(nn.Module):
             if hidden: return hidden_states
             predictions = self.classification_head(hidden_states)
             return predictions, mask
-            #predictions_smoothed = self.conv1d(predictions.transpose(1, 2))
-            #return predictions_smoothed.transpose(1, 2), mask
+
 
     def compute_loss(self, logits, unmasked, masked):
         return self.loss(logits, unmasked, masked)
