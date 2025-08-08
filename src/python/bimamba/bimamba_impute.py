@@ -53,9 +53,9 @@ def run_bimamba_imputation(args, data, weights):
     elif args.diploid and not args.HMM:  # diploid ML only
         final_predictions = diploid_bimamba_only(device, model, test_loader)  # shape (N, 2)
     elif args.diploid and args.HMM:  # diploid ML + HMM
-        final_predictions = diploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size)
+        final_predictions = diploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights)
     else:  # haploid ML + HMM
-        final_predictions = haploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size)
+        final_predictions = haploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights)
 
     return final_predictions
 
@@ -329,7 +329,7 @@ def run_bimamba_imputation_old(args):
     ranges_df.to_csv(args.output_bed, sep="\t", index=False)
 
 
-def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
+def haploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights):
     final_logits = []
     decode_dicts = []
 
@@ -345,7 +345,7 @@ def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
     truncated = flattened[:, :test_matrix.shape[1]]
     log_e = F.log_softmax(truncated, dim=-1)
-    weights = np.load(args.global_weights, allow_pickle=True)['weights']
+
     N = log_e.shape[1]
     p_stay = float(weights.max()) * 0.20  # tweak if needed
     p_switch = (1.0 - p_stay)
@@ -371,7 +371,7 @@ def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     return final_predictions
 
 
-def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
+def diploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights):
     final_logits = []
     decode_dicts = []
 
@@ -388,7 +388,6 @@ def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
     truncated = flattened[:, :test_matrix.shape[1]]
     log_e = F.log_softmax(truncated, dim=-1)
-    weights = np.load(args.global_weights, allow_pickle=True)['weights']
     homo_penalty = -0.1
     N = log_e.shape[1]
     p_stay = float(weights.max()) * 0.20  # tweak if needed

@@ -30,7 +30,7 @@ def save_output(ps4g_file, output_path, results, collapse_bed_regions=True):
     Save the imputed haplotypes to an extended BED format.
     """
     logging.info(f"Saving results to {output_path}")
-    output_predictions(ps4g_file, output_path, results)
+    output_predictions(ps4g_file, output_path, results, collapse_bed_regions)
 
 def run_model(args, data, weights):
     """
