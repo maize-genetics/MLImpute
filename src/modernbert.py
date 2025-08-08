@@ -53,8 +53,6 @@ class SNPLoss(nn.Module):
 
     def forward(self, logits, unmasked_input):
         targets = (unmasked_input > 0).to(torch.float32)
-        logits = logits.permute(0, 2, 1)
-        targets = targets.permute(0, 2, 1)
         return self.loss_fn(logits, targets)
 
 class SNPLossSmoothAll(nn.Module):
@@ -64,9 +62,7 @@ class SNPLossSmoothAll(nn.Module):
         self.lambda_smooth = lambda_smooth
 
     def forward(self, logits, unmasked_input):
-        logits = logits.permute(0, 2, 1)
         targets = (unmasked_input > 0).to(torch.float32)
-        targets = targets.permute(0, 2, 1)
         diff = logits[:, 1:] - logits[:, :-1]
         smoothness_penalty = torch.mean(torch.abs(diff))
         logits = torch.clamp(logits, min=-10.0, max=10.0)
@@ -108,7 +104,13 @@ class BERTImpute(L.LightningModule):
         self.learning_rate_decay = learning_rate_decay
         self.learning_rate_warmup_ratio = learning_rate_warmup_ratio
         self.torch_compile = torch_compile
-        self.criterion = SNPLoss()
+        self.criterion = SNPLossSmoothAll()
+        self.input_proj = nn.Linear(25, self.config.hidden_size)
+        self.classifier= nn.Sequential(
+            nn.Linear(self.config.hidden_size, self.config.hidden_size * 2),
+            nn.GELU(),
+            nn.Linear(self.config.hidden_size * 2, 25)
+        )
 
         self.head_config = None
         self.head_encoder = None
@@ -159,10 +161,6 @@ class BERTImpute(L.LightningModule):
         self.log("valid/loss", loss, sync_dist=False)
         return loss
 
-        # outputs, mask = self.model(batch)
-        # loss = self._compute_loss(outputs, batch, mask)
-        # return loss
-
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             self.parameters(), lr=self.learning_rate, weight_decay=1e-5
@@ -197,16 +195,21 @@ class BERTImpute(L.LightningModule):
     # -------------------------------------------------------------------------
 
     def forward(self, inputs_embeds: Tensor | None = None) -> Tensor:
-        logits = self.head_encoder.forward(
-                inputs_embeds=inputs_embeds.transpose(1, 2)
+        B, L, _ = inputs_embeds.shape  # input_features: (B, L, input_dim)
+        mask = torch.rand(B, L, device=inputs_embeds.device) < 0.1  # randomly change 10% of input to 0 for training
+        input_masked = inputs_embeds.masked_fill(mask.unsqueeze(-1), 0)
+        projection = self.input_proj(input_masked)
+        hidden = self.head_encoder.forward(
+                inputs_embeds=projection
             ).last_hidden_state
+        logits = self.classifier(hidden)
         if self.training:
             self.log("train/logit_mean", float(logits.mean()))
         return logits
 
 
     def _compute_loss(self, logits, unmasked):
-        return self.criterion(logits, unmasked.transpose(1, 2))
+        return self.criterion(logits, unmasked)
 
 def train_model():
     checkpoint = "saved_models/"
@@ -215,7 +218,7 @@ def train_model():
     strategy = "ddp_find_unused_parameters_true"
 
     epochs = 10
-    output_dir="outputflipped/"
+    output_dir="outputfinal/"
     log_frequency = 5
     gpu = 1
     num_nodes = 1
