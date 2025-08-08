@@ -4,6 +4,7 @@ import time
 import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
+from python.bimamba.bimamba_impute import run_bimamba_imputation
 from python.modernBERT.modernBERT_impute import run_modernBERT_imputation
 from bed_io.bed import output_predictions
 
@@ -24,12 +25,12 @@ def load_input(ps4g_file, weight="global", collapse=False):
     return ps4g_data, weights
 
 
-def save_output(ps4g_file, output_path, results):
+def save_output(ps4g_file, output_path, results, collapse_bed_regions=True):
     """
     Save the imputed haplotypes to an extended BED format.
     """
     logging.info(f"Saving results to {output_path}")
-    output_predictions(ps4g_file, output_path, results)
+    output_predictions(ps4g_file, output_path, results, collapse_bed_regions)
 
 def run_model(args, data, weights):
     """
@@ -41,7 +42,7 @@ def run_model(args, data, weights):
     if model_name == "knn":
         return {"rows": [["chr1", 100, 200, "A", "B"]]}  # replace with run_knn(data)
     elif model_name == "mamba":
-        return {"rows": [["chr1", 100, 200, "A", "C"]]}  # replace with run_mamba(data)
+        return run_bimamba_imputation(args,data, weights) # replace with run_mamba(data)
     elif model_name == "modernbert":
         return run_modernBERT_imputation(args, data, weights)
     else:
@@ -53,7 +54,7 @@ def main():
     parser.add_argument("--input", "-i", type=Path, required=True, help="Path to input file")
     parser.add_argument("--output", "-o", type=Path, required=True, help="Path to output BED file")
     parser.add_argument("--model", "-m", choices=["knn", "mamba", "modernbert"], required=True, help="Imputation model")
-    parser.add_argument("--weight", "-w", choices=["global", "read", "unweighted"], default="global", help="Weighting strategy for PS4G data")
+    parser.add_argument("--weight", "-w", choices=["global", "unweighted"], default="global", help="Weighting strategy for PS4G data")
     parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
@@ -61,6 +62,7 @@ def main():
     parser.add_argument("--HMM", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
 
+    parser.add_argument("--collapse-bed", action="store_true", help="Collapse contiguous BED regions in output")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -78,7 +80,7 @@ def main():
         results = run_model(args, data, weights)
 
         # Save output
-        save_output(args.input, args.output, results)
+        save_output(args.input, args.output, results, args.collapse_bed)
 
         logging.info(f"Finished in {time.time() - start_time:.2f} seconds.")
 
