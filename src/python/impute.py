@@ -4,6 +4,7 @@ import time
 import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
+from python.bimamba.bimamba_impute import run_bimamba_imputation
 from python.modernBERT.modernBERT_impute import run_modernBERT_imputation
 from bed_io.bed import output_predictions
 
@@ -41,7 +42,7 @@ def run_model(args, data, weights):
     if model_name == "knn":
         return {"rows": [["chr1", 100, 200, "A", "B"]]}  # replace with run_knn(data)
     elif model_name == "mamba":
-        return {"rows": [["chr1", 100, 200, "A", "C"]]}  # replace with run_mamba(data)
+        return run_bimamba_imputation(args,data, weights) # replace with run_mamba(data)
     elif model_name == "modernbert":
         return run_modernBERT_imputation(args, data, weights)
     else:
