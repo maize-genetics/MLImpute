@@ -104,7 +104,7 @@ class WindowIndexDatasetFromMatrix(Dataset):
         self.n_windows = (matrix.shape[0] - window_size) // step_size + 1
 
     def __len__(self):
-        return len(self.n_windows)
+        return self.n_windows
 
     def __getitem__(self, idx):
         start = idx * self.step_size # idx is the window index now as we are only loading from one matrix

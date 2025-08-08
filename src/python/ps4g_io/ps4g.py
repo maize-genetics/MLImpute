@@ -116,12 +116,9 @@ def create_multihot_matrix(ps4g, gamete_data, weight_strat, collapse):
         for i, indices in enumerate(ps4g['gameteSet']):
             X_multihot[i, indices] = 1  # vectorized assignment
 
-    if weight_strat == "read":
-        input_matrix,weights = process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions)
 
-    elif weight_strat == "global":
+    if weight_strat == "global":
         input_matrix, weights = process_global_weight_mode(X_multihot, gamete_data, num_classes)
-
     else:
         logging.info("unweighted")
         input_matrix = X_multihot
@@ -149,35 +146,6 @@ def process_global_weight_mode(X_multihot, gamete_data, num_classes):
 
     return X_multihot, global_weights
 
-
-def process_read_weight_mode(X_multihot, num_classes, pos_to_idx, ps4g, unique_positions):
-    """
-    Process the read weight mode for the multihot encoded matrix.
-    Args:
-        X_multihot (np.ndarray): The multihot encoded matrix.
-        collapsed_df (pd.DataFrame): DataFrame containing collapsed PS4G data.
-        num_classes (int): Number of unique gametes.
-        pos_to_idx (dict): Mapping from position to index.
-        ps4g (pd.DataFrame): DataFrame containing the PS4G data.
-        unique_positions (np.ndarray): Array of unique positions.
-    Returns:
-        np.ndarray: The input matrix with read weights applied.
-    """
-
-    logging.info("read count")
-    X_multihot, collapsed_df = collapse_ps4g(num_classes, ps4g, unique_positions)
-    # Initialize output matrix
-    count_matrix = np.zeros((len(unique_positions), num_classes), dtype=np.float32)
-    # Accumulate counts per position per gamete
-    for _, row in ps4g.iterrows():
-        pos_idx = pos_to_idx[row['pos']]
-        for gamete in row['gameteSet']:
-            count_matrix[pos_idx, gamete] += row['count']
-
-    weights = np.zeros(num_classes, dtype=np.float32)
-    for i in range(len(X_multihot)):
-        weights[i] = count_matrix[i] / collapsed_df['count'][i]
-    return X_multihot, weights
 
 
 def collapse_ps4g(num_classes, ps4g, unique_positions):

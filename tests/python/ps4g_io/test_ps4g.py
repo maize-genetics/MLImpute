@@ -31,12 +31,6 @@ def test_convert_unweighted(sample_ps4g_file):
     assert result.shape[0] == 4  # 4 rows
     assert result.shape[1] > 0   # should have columns
 
-def test_convert_read_weight(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight_strat="read", collapse=False)
-    assert isinstance(result, np.ndarray)
-    assert result.shape[0] == 2
-    assert result.shape[1] > 0
-
 def test_convert_global_weight(sample_ps4g_file):
     result = convert_ps4g(sample_ps4g_file, weight_strat="global", collapse=False)
     assert isinstance(result, np.ndarray)
