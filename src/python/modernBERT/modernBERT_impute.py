@@ -22,11 +22,6 @@ def run_modernBERT_imputation(args, data, weights):
     window_size = 512
     num_classes = 25
     batch_size = 64
-    d_model = 128
-    num_layers = 3
-    num_features = 25
-    step_size = window_size
-    lambda_smooth = 0.2
 
     learning_rate = 8e-4
     learning_rate_decay = "none"
@@ -50,7 +45,7 @@ def run_modernBERT_imputation(args, data, weights):
     model = model.to(device)
 
     test_dataset = WindowIndexDatasetFromMatrix(data, weights, window_size=window_size, top_n=num_classes,
-                                      step_size=step_size, return_decode=True)
+                                      step_size=window_size, return_decode=True)
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -72,14 +67,14 @@ def run_modernBERT_imputation(args, data, weights):
         final_predictions = diploid_modernBERT_only(args, device, model, test_loader)
     elif args.diploid and args.HMM:  # diploid ML + HMM
         final_predictions = diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix,
-                                                   window_size)
+                                                   window_size, weights)
     else:  # haploid ML + HMM
         final_predictions = haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix,
-                                                   window_size)
+                                                   window_size, weights)
     return final_predictions
 
 
-def haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
+def haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size, weights):
     final_logits = []
     decode_dicts = []
     with torch.no_grad():
@@ -96,7 +91,6 @@ def haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_m
     flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
     truncated = flattened[:, :test_matrix.shape[1]]
     log_e = F.log_softmax(truncated, dim=-1)
-    weights = np.load(args.global_weights, allow_pickle=True)['weights']
     N = log_e.shape[1]
     p_stay = float(weights.max()) * 0.20  # tweak if needed
     p_switch = (1.0 - p_stay)
@@ -119,7 +113,7 @@ def haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_m
     return final_predictions
 
 
-def diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
+def diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size, weights):
     final_logits = []
     decode_dicts = []
     with torch.no_grad():
@@ -136,7 +130,6 @@ def diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_m
     flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
     truncated = flattened[:, :test_matrix.shape[1]]
     log_e = F.log_softmax(truncated, dim=-1)
-    weights = np.load(args.global_weights, allow_pickle=True)['weights']
     homo_penalty = -0.1
     N = log_e.shape[1]
     p_stay = float(weights.max()) * 0.20  # tweak if needed
