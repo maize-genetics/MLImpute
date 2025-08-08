@@ -62,19 +62,19 @@ def run_modernBERT_imputation(args, data, weights):
     model.eval()
 
     if not args.diploid and not args.HMM:  # haploid ML only
-        final_predictions = haploid_modernBERT_only(args, device, model, test_loader)
+        final_predictions = haploid_modernBERT_only(device, model, test_loader)
     elif args.diploid and not args.HMM:  # diploid ML only
-        final_predictions = diploid_modernBERT_only(args, device, model, test_loader)
+        final_predictions = diploid_modernBERT_only(device, model, test_loader)
     elif args.diploid and args.HMM:  # diploid ML + HMM
-        final_predictions = diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix,
+        final_predictions = diploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
                                                    window_size, weights)
     else:  # haploid ML + HMM
-        final_predictions = haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix,
+        final_predictions = haploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
                                                    window_size, weights)
     return final_predictions
 
 
-def haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size, weights):
+def haploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights):
     final_logits = []
     decode_dicts = []
     with torch.no_grad():
@@ -113,7 +113,7 @@ def haploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_m
     return final_predictions
 
 
-def diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size, weights):
+def diploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights):
     final_logits = []
     decode_dicts = []
     with torch.no_grad():
@@ -171,7 +171,7 @@ def diploid_modernBERT_hmm(args, device, model, num_classes, test_loader, test_m
     return final_predictions
 
 
-def diploid_modernBERT_only(args, device, model, test_loader):
+def diploid_modernBERT_only(device, model, test_loader):
     final_predictions = []
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
@@ -207,7 +207,7 @@ def diploid_modernBERT_only(args, device, model, test_loader):
     return final_predictions
 
 
-def haploid_modernBERT_only(args, device, model, test_loader):
+def haploid_modernBERT_only(device, model, test_loader):
     final_predictions = []
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
