@@ -8,27 +8,20 @@ from torch.utils.data import DataLoader
 from python.bimamba.bimamba_model import BiMambaSmooth
 from python.hmm.viterbi import build_pair_states, viterbi_decode
 from python.ps4g_io.ps4g import decode_position
-from python.ps4g_io.torch_loaders import WindowIndexDataset
+from python.ps4g_io.torch_loaders import WindowIndexDataset, WindowIndexDatasetFromMatrix
 from modernbert import BERTImpute, BERTImputeConfig
 
 
-def run_bimamba_imputation(args):
+def run_bimamba_imputation(args, data, weights):
     # check to see if the required arguments are provided
-    if args.input_path is None or args.output_bed is None or args.global_weights is None or args.ps4g_file is None:
-        raise ValueError("Missing required arguments: --input-path, --output-bed, --global-weights, --ps4g-file")
-
     window_size = 512
     num_classes = 25
     batch_size = 64
     d_model = 128
     num_layers = 3
     num_features = 25
-    step_size = window_size
     lambda_smooth = 0.2
 
-    learning_rate = 8e-4
-    learning_rate_decay = "none"
-    torch_compile = "no"
 
 
     model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers,
@@ -39,21 +32,16 @@ def run_bimamba_imputation(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
-    # Load in test matrix
-    test_paths = [args.input_path]
-
-    test_dataset = WindowIndexDataset(test_paths, window_size=window_size, top_n=num_classes,
-                                      step_size=step_size, return_decode=True)
+    test_dataset = WindowIndexDatasetFromMatrix(data, weights, window_size=window_size, top_n=num_classes,
+                                      step_size=window_size, return_decode=True)
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
-    # Reconstruct test_matrix just for SNP accuracy computationg
+    # Reconstruct test_matrix just for SNP accuracy computation
     test_matrix_parts = []
-    for path in test_paths:
-        matrix = np.load(path, allow_pickle=True, mmap_mode='r')
-        end = matrix.shape[0] - (matrix.shape[0] % window_size)
-        truncated_matrix = matrix[:end]
-        test_matrix_parts.append(truncated_matrix)
+    end = data.shape[0] - (data.shape[0] % window_size)
+    truncated_matrix = data[:end]
+    test_matrix_parts.append(truncated_matrix)
 
     test_matrix = np.concatenate(test_matrix_parts, axis=0)
     test_matrix = torch.tensor(test_matrix, dtype=torch.float32, device=device)
@@ -69,61 +57,7 @@ def run_bimamba_imputation(args):
     else:  # haploid ML + HMM
         final_predictions = haploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size)
 
-    spline_pos = pd.read_csv(args.ps4g_file, sep="\t", comment="#")['pos']
-    decoded = np.vstack(np.vectorize(decode_position)(spline_pos)).T
-    chroms, positions = zip(*decoded)
-
-    with open(args.ps4g_file, 'r') as file:
-        comments = [line for line in file if line.startswith('#')]
-
-    gamete_data = []
-
-    for line in comments:
-        line = line.strip()
-        if line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-            })
-
-    index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
-    max_index = max(index_to_name.keys())  # ensure all indices fit
-    index_array = [index_to_name[i] for i in range(max_index + 1)]
-
-    bed_df = pd.DataFrame({
-        # TODO: convert chr_idx to chr
-        "chrom_idx": chroms[:len(final_predictions)],
-        "pos": positions[:len(final_predictions)],
-        "parent1": np.array(index_array)[final_predictions[:, 0]],
-        "parent2": np.array(index_array)[final_predictions[:, 1]],
-    })
-
-    # Define group boundaries where parent1, parent2, or chrom changes
-    group_change = (
-        (bed_df["parent1"] != bed_df["parent1"].shift()) |
-        (bed_df["parent2"] != bed_df["parent2"].shift()) |
-        (bed_df["chrom_idx"] != bed_df["chrom_idx"].shift())
-    )
-    group_id = group_change.cumsum()
-
-    # Collapse into ranges
-    ranges_df = bed_df.groupby(group_id).agg({
-        "chrom_idx": "first",
-        "pos": ["min", "max"],
-        "parent1": "first",
-        "parent2": "first"
-    }).reset_index(drop=True)
-
-    # Clean up MultiIndex columns
-    ranges_df.columns = ["chrom_idx", "start", "end", "parent1", "parent2"]
-
-    # Save to BED file
-    ranges_df.to_csv(args.output_bed, sep="\t", index=False)
-
+    return final_predictions
 
 
 def run_bimamba_imputation_old(args):
@@ -558,7 +492,7 @@ def main():
     parser.add_argument("--ps4g-file", type=str, default=None)
     args = parser.parse_args()
 
-    run_bimamba_imputation(args)
+    run_bimamba_imputation_old(args)
 
 
 if __name__ == '__main__':
