@@ -25,7 +25,7 @@ def load_input(ps4g_file, weight="global", collapse=False):
     return ps4g_data, weights
 
 
-def save_output(ps4g_file, output_path, results):
+def save_output(ps4g_file, output_path, results, collapse_bed_regions=True):
     """
     Save the imputed haplotypes to an extended BED format.
     """
@@ -62,6 +62,7 @@ def main():
     parser.add_argument("--HMM", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
 
+    parser.add_argument("--collapse-bed", action="store_true", help="Collapse contiguous BED regions in output")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -79,7 +80,7 @@ def main():
         results = run_model(args, data, weights)
 
         # Save output
-        save_output(args.input, args.output, results)
+        save_output(args.input, args.output, results, args.collapse_bed)
 
         logging.info(f"Finished in {time.time() - start_time:.2f} seconds.")
 
