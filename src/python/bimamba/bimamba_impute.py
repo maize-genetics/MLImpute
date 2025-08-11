@@ -192,7 +192,7 @@ def run_bimamba_imputation_old(args):
         truncated = flattened[:, :test_matrix.shape[1]]
         log_e = F.log_softmax(truncated, dim=-1)
 
-        weights = np.load(args.global_weights, allow_pickle=True)['weights']
+        weights = np.load(args.global_weights, allow_pickle=True)
         homo_penalty = -0.1
         N = log_e.shape[1]
         p_stay = float(weights.max()) * 0.20  # tweak if needed
@@ -250,7 +250,7 @@ def run_bimamba_imputation_old(args):
         truncated = flattened[:, :test_matrix.shape[1]]
         log_e = F.log_softmax(truncated, dim=-1)
 
-        weights = np.load(args.global_weights, allow_pickle=True)['weights']
+        weights = np.load(args.global_weights, allow_pickle=True)
         N = log_e.shape[1]
         p_stay = float(weights.max()) * 0.20  # tweak if needed
         p_switch = (1.0 - p_stay)
