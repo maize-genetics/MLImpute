@@ -28,10 +28,12 @@ def run_hmm_imputation(args):
     test_matrix = np.concatenate(test_matrix_parts, axis=0)
     test_matrix = torch.tensor(test_matrix, dtype=torch.float32, device=device)
 
+    weights = torch.tensor(np.load(args.global_weights, allow_pickle=True), device=device)
+
     if args.diploid:
-        final_predictions = diploid_hmm(device, test_matrix, args.global_weights)
+        final_predictions = diploid_hmm(device, test_matrix, weights)
     else:
-        final_predictions = haploid_hmm(device, test_matrix, args.global_weights)
+        final_predictions = haploid_hmm(device, test_matrix, weights)
 
     spline_pos = pd.read_csv(args.ps4g_file, sep="\t", comment="#")['pos']
     decoded = np.vstack(np.vectorize(decode_position)(spline_pos)).T
@@ -103,6 +105,8 @@ def haploid_hmm(device, test_matrix, weights):
         log_trans=log_A.to(device),
         log_start=log_start_probs.to(device)
     )
+
+    final_predictions = final_predictions.cpu()
 
     final_predictions = np.stack([final_predictions, final_predictions], axis=1).astype(np.int16)
     return final_predictions
