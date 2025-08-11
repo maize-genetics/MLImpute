@@ -286,25 +286,27 @@ def run_bimamba_imputation(args):
     ranges_df.to_csv(args.output_bed, sep="\t", index=False)
 
 
-def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
-    final_logits = []
-    decode_dicts = []
+def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights, batch_size):
+    num_positions = test_matrix.shape[0]  # total positions
+    num_parents = test_matrix.shape[-1]  # total parents
+    final_logits = torch.zeros((num_positions, num_parents), device=device)
 
+    model.eval()
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
-            final_logits.append(outputs)
-            decode_dicts.append(decode_dict)
 
-    decode_dict_full = torch.cat(decode_dicts, dim=0)
-    logits_concat = torch.cat(final_logits, dim=0)  # Shape: [T, 512, 25]
-    flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
-    truncated = flattened[:, :test_matrix.shape[1]]
-    log_e = F.log_softmax(truncated, dim=-1)
-    weights = np.load(args.global_weights, allow_pickle=True)['weights']
+            for b in range(outputs.shape[0]):
+                original_indices = decode_dict[(batch_idx * batch_size) + b]  # len = window_size
+                for i, orig_idx in enumerate(original_indices):
+                    for pos in range(window_size):
+                        position = pos + (batch_idx * batch_size) + b
+                        final_logits[position, orig_idx] = outputs[b, i, pos]
+
+    log_e = F.log_softmax(final_logits, dim=-1)  # [L, num_classes]
+    p_stay = max(weights) * 0.2
     N = log_e.shape[1]
-    p_stay = float(weights.max()) * 0.20  # tweak if needed
     p_switch = (1.0 - p_stay)
     log_A = torch.full((N, N), math.log(p_switch / (N - 1)))
     log_A.fill_diagonal_(math.log(p_stay))
@@ -318,34 +320,28 @@ def haploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     )
 
     final_predictions = np.stack([final_predictions, final_predictions], axis=1).astype(np.int16)
-    final_predictions = np.array([
-        (
-            decode_dict_full[i // window_size, p1].item(),
-            decode_dict_full[i // window_size, p2].item()
-        )
-        for i, (p1, p2) in enumerate(final_predictions)
-    ], dtype=np.int16)
     return final_predictions
 
 
-def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matrix, window_size):
-    final_logits = []
-    decode_dicts = []
+def diploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights, batch_size):
+    num_positions = test_matrix.shape[0]  # total positions
+    num_parents = test_matrix.shape[-1]  # total parents
+    final_logits = torch.zeros((num_positions, num_parents), device=device)
 
+    model.eval()
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
-            final_logits.append(outputs)
-            decode_dicts.append(decode_dict)
 
-    # Concatenate all decode_dicts and logits
-    decode_dict_full = torch.cat(decode_dicts, dim=0)
-    logits_concat = torch.cat(final_logits, dim=0)  # Shape: [T, 512, 25]
-    flattened = logits_concat.view(-1, num_classes)  # Shape: [T * 512, 25]
-    truncated = flattened[:, :test_matrix.shape[1]]
-    log_e = F.log_softmax(truncated, dim=-1)
-    weights = np.load(args.global_weights, allow_pickle=True)['weights']
+            for b in range(outputs.shape[0]):
+                original_indices = decode_dict[(batch_idx * batch_size) + b]  # len = window_size
+                for i, orig_idx in enumerate(original_indices):
+                    for pos in range(window_size):
+                        position = pos + (batch_idx * batch_size) + b
+                        final_logits[position, orig_idx] = outputs[b, i, pos]
+
+    log_e = F.log_softmax(final_logits, dim=-1)
     homo_penalty = -0.1
     N = log_e.shape[1]
     p_stay = float(weights.max()) * 0.20  # tweak if needed
@@ -380,13 +376,6 @@ def diploid_bimamba_hmm(args, device, model, num_classes, test_loader, test_matr
     log_start = torch.full((P,), -math.log(P))
     idx_path = viterbi_decode(log_dip_em.to(device), log_dip_tr.to(device), log_start.to(device))
     final_predictions = np.array([pair_states[i] for i in idx_path], dtype=np.int16)
-    final_predictions = np.array([
-        (
-            decode_dict_full[i // window_size, p1].item(),
-            decode_dict_full[i // window_size, p2].item()
-        )
-        for i, (p1, p2) in enumerate(final_predictions)
-    ], dtype=np.int16)
     return final_predictions
 
 
