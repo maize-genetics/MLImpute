@@ -477,7 +477,7 @@ def main():
     parser.add_argument("--output-bed", type=str, default="imputed_path.bed")
     parser.add_argument("--global-weights", type=str, default=None)
     parser.add_argument("--HMM", type=bool, default=False)
-    parser.add_argument("--diploid", type=bool, default=False)
+    parser.add_argument("--diploid", action="store_true")
     parser.add_argument("--ps4g-file", type=str, default=None)
     args = parser.parse_args()
 
