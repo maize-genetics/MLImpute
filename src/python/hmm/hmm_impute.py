@@ -106,8 +106,6 @@ def haploid_hmm(device, test_matrix, weights):
         log_start=log_start_probs.to(device)
     )
 
-    final_predictions = final_predictions.cpu()
-
     final_predictions = np.stack([final_predictions, final_predictions], axis=1).astype(np.int16)
     return final_predictions
 
