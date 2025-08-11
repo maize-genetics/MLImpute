@@ -4,8 +4,8 @@ import time
 import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
-from python.bimamba.bimamba_impute import run_bimamba_imputation
-from python.modernBERT.modernBERT_impute import run_modernBERT_imputation
+from bimamba.bimamba_impute import run_bimamba_imputation
+from modernBERT.modernBERT_impute import run_modernBERT_imputation
 from bed_io.bed import output_predictions
 
 
