@@ -19,7 +19,11 @@ curl -sSf https://pixi.sh/install.sh | bash
 Then, you can install the MLImpute package using:
 
 ```bash
+# For CPU only
 pixi install
+
+# For Linux + GPU machines
+pixi install --environment gpu
 ```
 
 

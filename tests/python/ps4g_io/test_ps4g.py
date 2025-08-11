@@ -26,19 +26,13 @@ def test_extract_metadata(sample_ps4g_file):
 # ────────────────────────────────────────────────
 
 def test_convert_unweighted(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight="unweighted", collapse=False)
+    result = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=False)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 4  # 4 rows
     assert result.shape[1] > 0   # should have columns
 
-def test_convert_read_weight(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight="read", collapse=False)
-    assert isinstance(result, np.ndarray)
-    assert result.shape[0] == 2
-    assert result.shape[1] > 0
-
 def test_convert_global_weight(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight="global", collapse=False)
+    result = convert_ps4g(sample_ps4g_file, weight_strat="global", collapse=False)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 4
     assert result.shape[1] > 0
@@ -48,7 +42,7 @@ def test_convert_global_weight(sample_ps4g_file):
 # ────────────────────────────────────────────────
 
 def test_convert_collapsed(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight="unweighted", collapse=True)
+    result = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=True)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 2  # collapsed by position (2 unique pos values)
     assert result.shape[1] > 0

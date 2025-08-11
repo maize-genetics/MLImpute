@@ -1,26 +1,45 @@
 [project]
-name = "ml-impute-env-pixi"
-channels = ["conda-forge"]
-platforms = ["linux-64"]  # or ["osx-arm64", "linux-64", "win-64"] as needed
+name      = "ml-impute-env-pixi"
+channels  = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
 
-[system-requirements]
-cuda = "12" # Replace "12" with your specific CUDA version (e.g., "11.8", "12.4")
 
+# Base "CPU only" dependencies
 [dependencies]
-python = "3.10.*"
-pip = "*"
-numpy = "*"
-pandas = "*"
-pytorch-gpu = "*"
-cuda-version = "12.8.*"
+python       = "3.10.*"
+pip          = "*"
+numpy        = "*"
+pandas       = "*"
 scikit-learn = "*"
-cuda = "*"
-torchvision = "*"
-numba = ">=0.61.2,<0.62"
-wandb = ">=0.21.0,<0.22"
+numba        = ">=0.61.2,<0.62"
+wandb        = ">=0.21.0,<0.22"
+pytorch      = "*"
+torchvision  = "*"
 
 [pypi-dependencies]
 transformers = "*"
+pytest       = "*"
+pytest-cov   = "*"
+
+
+# "GPU only" dependencies (only for Linux)
+[feature.gpu]
+platforms = ["linux-64"]
+
+[feature.gpu.system-requirements]
+cuda = "12"
+
+[feature.gpu.dependencies]
+cuda-version = "12.8.*"
+pytorch-gpu  = "*"
+torchvision  = "*"
+
+[feature.gpu.pypi-dependencies]
 mamba-ssm = "*"
-pytest = "*"
-pytest-cov = "*"
+
+
+# Set up environments
+[environments]
+default = []      # pixi install
+gpu     = ["gpu"] # pixi install --environment gpu
+

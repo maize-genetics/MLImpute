@@ -8,12 +8,59 @@ from torch.utils.data import DataLoader
 from python.bimamba.bimamba_model import BiMambaSmooth
 from python.hmm.viterbi import build_pair_states, viterbi_decode
 from python.ps4g_io.ps4g import decode_position
-from python.ps4g_io.torch_loaders import WindowIndexDataset
+from python.ps4g_io.torch_loaders import WindowIndexDataset, WindowIndexDatasetFromMatrix
 from modernbert import BERTImpute, BERTImputeConfig
 
 
+def run_bimamba_imputation(args, data, weights):
+    # check to see if the required arguments are provided
+    window_size = 512
+    num_classes = 25
+    batch_size = 64
+    d_model = 128
+    num_layers = 3
+    num_features = 25
+    lambda_smooth = 0.2
 
-def run_bimamba_imputation(args):
+
+
+    model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers,
+                          lambda_smooth=lambda_smooth)
+    model_checkpoint = "bimamba_model.pth"
+    model.load_state_dict(torch.load(model_checkpoint))
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+
+    test_dataset = WindowIndexDatasetFromMatrix(data, weights, window_size=window_size, top_n=num_classes,
+                                      step_size=window_size, return_decode=True)
+
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+    # Reconstruct test_matrix just for SNP accuracy computation
+    test_matrix_parts = []
+    end = data.shape[0] - (data.shape[0] % window_size)
+    truncated_matrix = data[:end]
+    test_matrix_parts.append(truncated_matrix)
+
+    test_matrix = np.concatenate(test_matrix_parts, axis=0)
+    test_matrix = torch.tensor(test_matrix, dtype=torch.float32, device=device)
+
+    model.eval()
+
+    if not args.diploid and not args.HMM:  # haploid ML only
+        final_predictions = haploid_bimamba_only(device, model, test_loader)
+    elif args.diploid and not args.HMM:  # diploid ML only
+        final_predictions = diploid_bimamba_only(device, model, test_loader)  # shape (N, 2)
+    elif args.diploid and args.HMM:  # diploid ML + HMM
+        final_predictions = diploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights)
+    else:  # haploid ML + HMM
+        final_predictions = haploid_bimamba_hmm(device, model, num_classes, test_loader, test_matrix, window_size, weights)
+
+    return final_predictions
+
+
+def run_bimamba_imputation_old(args):
     # check to see if the required arguments are provided
     if args.input_path is None or args.output_bed is None or args.global_weights is None or args.ps4g_file is None:
         raise ValueError("Missing required arguments: --input-path, --output-bed, --global-weights, --ps4g-file")
@@ -85,7 +132,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 batch_predictions = torch.argmax(outputs, dim=-1)  # [B, L]
                 B, L = batch_predictions.shape  # batch size and window size
                 pred_labels = batch_predictions.reshape(-1)  # [B*L]
@@ -103,7 +149,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 probs = torch.sigmoid(outputs)  # [B, L, num_classes]
                 top2_probs, top2_parents = torch.topk(probs, k=2, dim=-1)  # [B, L, 2]
                 ratio = top2_probs[..., 1] / top2_probs[..., 0].clamp(min=1e-8)  # [B, L]
@@ -139,7 +184,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 final_logits.append(outputs)
                 decode_dicts.append(decode_dict)
         decode_dict_full = torch.cat(decode_dicts, dim=0)
@@ -198,7 +242,6 @@ def run_bimamba_imputation(args):
                     outputs, mask = model(batch_data)
                 else:
                     outputs = model(batch_data)
-                    outputs = outputs.permute(0, 2, 1)
                 final_logits.append(outputs)
                 decode_dicts.append(decode_dict)
         decode_dict_full = torch.cat(decode_dicts, dim=0)
@@ -438,7 +481,7 @@ def main():
     parser.add_argument("--ps4g-file", type=str, default=None)
     args = parser.parse_args()
 
-    run_bimamba_imputation(args)
+    run_bimamba_imputation_old(args)
 
 
 if __name__ == '__main__':
