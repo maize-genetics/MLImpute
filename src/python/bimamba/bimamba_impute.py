@@ -63,22 +63,26 @@ def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
     logging.info("Running haploid bimamba HMM")
     num_positions = test_matrix.shape[0]  # total positions
     num_parents = test_matrix.shape[-1]  # total parents
-    final_logits = torch.zeros((num_positions, num_parents), device=device)
+    final_logits = torch.zeros((num_positions, num_parents), device=device, dtype=torch.float16)
+
     logging.info(f"Final logits shape: {final_logits.shape} (positions: {num_positions}, parents: {num_parents})")
+
     model.eval()
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
 
-            logging.info(f"Batch {batch_idx}: outputs shape: {outputs.shape}, mask shape: {mask.shape}")    
+            logging.info(f"Batch {batch_idx}: outputs shape: {outputs.shape}, mask shape: {mask.shape}")
 
-            for b in range(outputs.shape[0]):
-                original_indices = decode_dict[(batch_idx * batch_size) + b]  # len = window_size
-                for i, orig_idx in enumerate(original_indices):
-                    for pos in range(window_size):
-                        position = pos + (batch_idx * batch_size) + b
-                        final_logits[position, orig_idx] = outputs[b, pos, i]
+            B, W, K = outputs.shape
+            start = batch_idx * W * batch_size
+            end = start + B * W
+
+            rows = torch.arange(start, end, device=outputs.device)
+            cols = decode_dict.long().repeat_interleave(W, dim=0)
+            vals = outputs.reshape(B * W, K)
+            final_logits[rows.unsqueeze(1), cols] = vals
 
     log_e = F.log_softmax(final_logits, dim=-1)  # [L, num_classes]
     p_stay = max(weights) * 0.2
@@ -100,9 +104,12 @@ def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
 
 
 def diploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights, batch_size):
+    logging.info("Running diploid bimamba HMM")
     num_positions = test_matrix.shape[0]  # total positions
     num_parents = test_matrix.shape[-1]  # total parents
-    final_logits = torch.zeros((num_positions, num_parents), device=device)
+    final_logits = torch.zeros((num_positions, num_parents), device=device, dtype=torch.float16)
+
+    logging.info(f"Final logits shape: {final_logits.shape} (positions: {num_positions}, parents: {num_parents})")
 
     model.eval()
     with torch.no_grad():
@@ -110,12 +117,16 @@ def diploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
 
-            for b in range(outputs.shape[0]):
-                original_indices = decode_dict[(batch_idx * batch_size) + b]  # len = window_size
-                for i, orig_idx in enumerate(original_indices):
-                    for pos in range(window_size):
-                        position = pos + (batch_idx * batch_size) + b
-                        final_logits[position, orig_idx] = outputs[b, pos, i]
+            logging.info(f"Batch {batch_idx}: outputs shape: {outputs.shape}, mask shape: {mask.shape}")
+
+            B, W, K = outputs.shape
+            start = batch_idx * W * batch_size
+            end = start + B * W
+
+            rows = torch.arange(start, end, device=outputs.device)
+            cols = decode_dict.long().repeat_interleave(W, dim=0)
+            vals = outputs.reshape(B * W, K)
+            final_logits[rows.unsqueeze(1), cols] = vals
 
     log_e = F.log_softmax(final_logits, dim=-1)
     homo_penalty = -0.1
