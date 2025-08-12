@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 import torch
@@ -58,10 +60,11 @@ def run_bimamba_imputation(args, data, weights):
 
 
 def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights, batch_size):
+    logging.info("Running haploid bimamba HMM")
     num_positions = test_matrix.shape[0]  # total positions
     num_parents = test_matrix.shape[-1]  # total parents
     final_logits = torch.zeros((num_positions, num_parents), device=device)
-
+    logging.info(f"Final logits shape: {final_logits.shape} (positions: {num_positions}, parents: {num_parents})")
     model.eval()
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
