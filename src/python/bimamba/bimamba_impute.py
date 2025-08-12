@@ -23,7 +23,7 @@ def run_bimamba_imputation(args, data, weights):
 
     model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers,
                           lambda_smooth=lambda_smooth)
-    model_checkpoint = "bimamba_model.pth"
+    model_checkpoint = "src/bimamba_model.pth"
     model.load_state_dict(torch.load(model_checkpoint))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
