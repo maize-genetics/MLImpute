@@ -71,6 +71,8 @@ def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
 
+            logging.info(f"Batch {batch_idx}: outputs shape: {outputs.shape}, mask shape: {mask.shape}")    
+
             for b in range(outputs.shape[0]):
                 original_indices = decode_dict[(batch_idx * batch_size) + b]  # len = window_size
                 for i, orig_idx in enumerate(original_indices):
