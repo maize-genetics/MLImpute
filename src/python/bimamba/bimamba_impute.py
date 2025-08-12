@@ -65,15 +65,11 @@ def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
     num_parents = test_matrix.shape[-1]  # total parents
     final_logits = torch.zeros((num_positions, num_parents), device=device, dtype=torch.float16)
 
-    logging.info(f"Final logits shape: {final_logits.shape} (positions: {num_positions}, parents: {num_parents})")
-
     model.eval()
     with torch.no_grad():
         for batch_idx, (batch_data, decode_dict) in enumerate(test_loader):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
             outputs, mask = model(batch_data)
-
-            logging.info(f"Batch {batch_idx}: outputs shape: {outputs.shape}, mask shape: {mask.shape}")
 
             B, W, K = outputs.shape
             start = batch_idx * W * batch_size
