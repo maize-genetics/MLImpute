@@ -10,7 +10,7 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn greet_py(name: &str) -> String {
     let output = std::process::Command::new("python3")
-        .arg("../src/python/greet.py")  // adjust path if needed
+        .arg("../src/python/greet.py") // adjust path if needed
         .arg(name)
         .output()
         .expect("Failed to execute Python script");
@@ -24,6 +24,8 @@ fn greet_py(name: &str) -> String {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![greet, greet_py])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

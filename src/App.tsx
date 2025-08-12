@@ -1,7 +1,7 @@
 import D3Matrix from "./components/D3Matrix";
 import "./App.css";
 import { generateRandomMatrix, generateRandomHighlights } from "./components/utils.ts";
-
+import { platform } from '@tauri-apps/plugin-os';
 
 function App() {
   const { matrix: sampleMatrix, rowLabels: samples, colLabels: positions } =
@@ -9,6 +9,9 @@ function App() {
 
   // Generate random highlights
   const highlights = generateRandomHighlights(samples, positions);
+
+  const currentPlatform = platform();
+  console.log("Test: " + currentPlatform);
 
   return (
     <main className="container">
