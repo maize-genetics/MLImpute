@@ -50,9 +50,9 @@ def run_bimamba_imputation(args, data, weights):
     elif args.diploid and not args.HMM:  # diploid ML only
         final_predictions = diploid_bimamba_only(device, model, test_loader)  # shape (N, 2)
     elif args.diploid and args.HMM:  # diploid ML + HMM
-        final_predictions = diploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights)
+        final_predictions = diploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights, batch_size)
     else:  # haploid ML + HMM
-        final_predictions = haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights)
+        final_predictions = haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, weights, batch_size)
 
     return final_predictions
 
