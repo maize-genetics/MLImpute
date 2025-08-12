@@ -38,7 +38,7 @@ def run_modernBERT_imputation(args, data, weights):
         learning_rate_decay=learning_rate_decay,
         torch_compile=torch_compile == "yes",
     )
-    model_checkpoint = "modernbert.pth"
+    model_checkpoint = "src/modernbert.pth"
     model.load_state_dict(torch.load(model_checkpoint))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
