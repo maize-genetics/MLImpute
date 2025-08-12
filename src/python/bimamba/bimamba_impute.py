@@ -78,7 +78,7 @@ def haploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
                 for i, orig_idx in enumerate(original_indices):
                     for pos in range(window_size):
                         position = pos + (batch_idx * batch_size) + b
-                        final_logits[position, orig_idx] = outputs[b, i, pos]
+                        final_logits[position, orig_idx] = outputs[b, pos, i]
 
     log_e = F.log_softmax(final_logits, dim=-1)  # [L, num_classes]
     p_stay = max(weights) * 0.2
@@ -115,7 +115,7 @@ def diploid_bimamba_hmm(device, model, test_loader, test_matrix, window_size, we
                 for i, orig_idx in enumerate(original_indices):
                     for pos in range(window_size):
                         position = pos + (batch_idx * batch_size) + b
-                        final_logits[position, orig_idx] = outputs[b, i, pos]
+                        final_logits[position, orig_idx] = outputs[b, pos, i]
 
     log_e = F.log_softmax(final_logits, dim=-1)
     homo_penalty = -0.1
