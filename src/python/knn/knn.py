@@ -1,4 +1,6 @@
 import numpy as np
+import logging
+from tqdm import tqdm
 
 def run_knn(args, matrix):
     """
@@ -15,12 +17,14 @@ def run_knn(args, matrix):
     window_size = args.window_size #window size is k
     assert window_size % 2 == 1, "Window size must be odd to have a center position."
     num_positions, num_samples = matrix.shape
+    logging.info("Num positions: {}".format(num_positions))
     half_window = window_size // 2
 
     path = []
 
     # Predict each site in the full matrix window
-    for center in range(half_window, num_positions - half_window):
+
+    for center in tqdm(range(half_window, num_positions - half_window)):
         start = max(center - half_window,0)
         end = min(center + half_window + 1, num_positions)
 
