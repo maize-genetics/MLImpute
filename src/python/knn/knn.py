@@ -17,10 +17,10 @@ def run_knn(args, matrix):
     window_size = args.window_size #window size is k
     assert window_size % 2 == 1, "Window size must be odd to have a center position."
     num_positions, num_samples = matrix.shape
-    logging.info("Num positions: {}".format(num_positions))
     half_window = window_size // 2
 
-    path = []
+    path1 = []
+    path2 = []
 
     # Predict each site in the full matrix window
 
@@ -32,8 +32,9 @@ def run_knn(args, matrix):
         sample_sums = window.sum(axis=0)
         predicted_sample = np.argmax(sample_sums)
 
-        path.append(predicted_sample)
+        path1.append(predicted_sample)
+        path2.append(predicted_sample)
 
 
     # Return the path of predicted samples
-    return np.stack([path, path], axis=1)
+    return np.stack([path1, path2], axis=1)
