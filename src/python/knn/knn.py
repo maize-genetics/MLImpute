@@ -36,4 +36,4 @@ def run_knn(args, matrix):
 
 
     # Return the path of predicted samples
-    return path
+    return np.stack([path, path], axis=1)
