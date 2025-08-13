@@ -2,6 +2,7 @@ import "./App.css";
 
 import D3Matrix from "./components/D3Matrix";
 import SystemInfoTable, { type AdapterInfo } from "./components/SystemInfoTable";
+import ArrayVisualization from "./components/ArrayVisualization";
 import { generateRandomMatrix, generateRandomHighlights } from "./components/utils";
 
 import { arch, platform } from "@tauri-apps/plugin-os";
@@ -54,6 +55,9 @@ function App() {
 
       <SystemInfoTable system={system} adapters={adapters} />
 
+      <ArrayVisualization />
+
+      <h2>D3 Matrix Demo</h2>
       <D3Matrix
         data={sampleMatrix}
         rowLabels={samples}
