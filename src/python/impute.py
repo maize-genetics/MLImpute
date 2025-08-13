@@ -56,6 +56,7 @@ def main():
     parser.add_argument("--global-weights", type=str, default=None)
     parser.add_argument("--HMM", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
+    parser.add_argument("--window-size", type=int, default=21, help="Size of the sliding window for KNN model (must be odd)")
 
     parser.add_argument("--collapse-bed", action="store_true", help="Collapse contiguous BED regions in output")
     args = parser.parse_args()
