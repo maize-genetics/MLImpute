@@ -36,6 +36,7 @@ def load_ps4g_file(ps4g_file):
     Returns:
         pd.DataFrame: DataFrame containing the PS4G data.
     """
+    logging.info(f"Loading PS4G file {ps4g_file}")
     ps4g = pd.read_csv(ps4g_file, delimiter="\t", comment="#")
     ps4g['gameteSet'] = ps4g['gameteSet'].apply(lambda x: list(map(int, x.split(','))))
     return ps4g
@@ -51,6 +52,7 @@ def extract_metadata(ps4g_file):
         dict: A dictionary containing metadata such as sample name, filename, command, and total reads.
         list: A list of dictionaries containing gamete data with gamete name, index, read count, and weight.
     """
+    logging.info(f"Extracting metadata from PS4G file {ps4g_file}")
     metadata = {
         "sample_name": None,
         "filename1": None,
@@ -97,6 +99,7 @@ def create_multihot_matrix(ps4g, gamete_data, weight_strat, collapse):
     Returns:
         np.ndarray: A multihot encoded matrix.
     """
+    logging.info("Creating multihot matrix from PS4G data")
     # Get number of unique gametes
     gamete_indices = [entry["gamete_index"] for entry in gamete_data]
     num_classes = len(gamete_indices)
