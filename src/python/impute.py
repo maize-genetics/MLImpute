@@ -35,7 +35,7 @@ def run_model(args, data, weights):
     logging.info(f"Running model: {model_name}")
 
     if model_name == "knn":
-        return run_knn(args, data)
+        return run_knn(data, args.window_size, args.diploid)
     elif model_name == "mamba":
         return run_bimamba_imputation(args, data, weights)
     elif model_name == "modernbert":
