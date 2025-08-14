@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from src.modernbert import SNPLoss, SNPLossSmoothAll, BERTImpute, BERTImputeConfig
+from src.python.modernBERT.modernBERT_model import SNPLoss, SNPLossSmoothAll, BERTImpute, BERTImputeConfig
 
 
 class TestSNPLoss(unittest.TestCase):
@@ -39,6 +39,7 @@ class TestModelForward(unittest.TestCase):
         self.learning_rate_decay = "none"
         self.torch_compile = "no"
         self.batch_size = 64
+        self.num_classes = 25
 
         config = BERTImputeConfig(
             architecture="encoder-only",

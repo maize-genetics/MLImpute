@@ -8,6 +8,14 @@ from lightning.pytorch.utilities import grad_norm
 from torch import nn as nn, Tensor
 from transformers import ModernBertConfig, ModernBertModel
 
+class SNPLoss(nn.Module):
+    def __init__(self):
+        super(SNPLoss, self).__init__()
+        self.loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
+
+    def forward(self, logits, unmasked_input):
+        targets = (unmasked_input > 0).to(torch.float32)
+        return self.loss_fn(logits, targets)
 
 class SNPLossSmoothAll(nn.Module):
     def __init__(self, lambda_smooth=0.2):
