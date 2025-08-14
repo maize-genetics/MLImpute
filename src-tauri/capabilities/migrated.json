@@ -9,6 +9,9 @@
     "core:default",
     "shell:allow-open",
     "shell:default",
-    "os:default"
+    "os:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }
