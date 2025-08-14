@@ -41,7 +41,7 @@ def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygot
         sample_sums = window.sum(axis=0)
 
         top_parents = np.argsort(sample_sums)[-2:][::-1]  # sorted descending
-        top_scores = mean_props[top_parents]
+        top_scores = sample_sums[top_parents]
         s1, s2 = sample_sums[top_scores[0]], sample_sums[top_scores[1]]
 
         # tie-break: optionally bias toward previous call for smoother paths
