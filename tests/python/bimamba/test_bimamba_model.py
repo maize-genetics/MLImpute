@@ -1,6 +1,6 @@
 import unittest
 import torch
-
+import torch.nn.functional as F
 from src.python.bimamba.bimamba_model import SNPLoss, SNPLossSmooth, SNPLossSmoothAll, BiMambaSmooth
 
 
@@ -18,6 +18,28 @@ class TestSNPLoss(unittest.TestCase):
     def test_not_nan(self):
         self.assertFalse(torch.isnan(self.loss))
 
+    def test_zero(self):
+        # make logits perfectly match targets: large + for 1s, large - for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [0., 1., 0.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(20.), torch.tensor(-20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertLess(loss.item(), 1e-6)
+
+    def test_nonzero(self):
+        # make logits oppositely match targets: large - for 1s, large + for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [0., 1., 0.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(-20.), torch.tensor(20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertGreater(loss.item(), 1e-6)
+
 
 class TestSNPLossSmooth(unittest.TestCase):
     def setUp(self):
@@ -33,6 +55,39 @@ class TestSNPLossSmooth(unittest.TestCase):
     def test_not_nan(self):
         self.assertFalse(torch.isnan(self.loss))
 
+    def test_zero(self):
+        # make logits perfectly match targets: large + for 1s, large - for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [1., 0., 1.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(20.), torch.tensor(-20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertLess(loss.item(), 1e-6)
+
+    def test_nonzero_smooth(self):
+        # make logits oppositely match targets: large - for 1s, large + for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [1., 0., 1.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(-20.), torch.tensor(20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertGreater(loss.item(), 1e-6)
+
+    def test_nonzero_nonsmooth(self):
+        # make logits perfectly match targets: large + for 1s, large - for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [0., 1., 0.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(20.), torch.tensor(-20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertGreater(loss.item(), 1e-6)
+
 
 class TestSNPLossSmoothAll(unittest.TestCase):
     def setUp(self):
@@ -47,6 +102,41 @@ class TestSNPLossSmoothAll(unittest.TestCase):
 
     def test_not_nan(self):
         self.assertFalse(torch.isnan(self.loss))
+
+    def test_zero(self):
+        # make logits perfectly match targets: large + for 1s, large - for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [1., 0., 1.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(20.), torch.tensor(-20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        CLAMP = 10.0
+        eps = F.softplus(torch.tensor(-CLAMP)).item()
+        self.assertLess(loss.item(), eps + 1e-6)
+
+    def test_nonzero_smooth(self):
+        # make logits oppositely match targets: large - for 1s, large + for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [1., 0., 1.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(-20.), torch.tensor(20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertGreater(loss.item(), 1e-6)
+
+    def test_nonzero_nonsmooth(self):
+        # make logits perfectly match targets: large + for 1s, large - for 0s
+        targets = torch.tensor([[
+            [1., 0., 1.],
+            [0., 1., 0.],
+        ]])
+        logits = torch.where(targets == 1., torch.tensor(20.), torch.tensor(-20.))
+        mask = torch.tensor([[True, True]])
+        loss = self.loss_fn(logits, targets, mask)
+        self.assertGreater(loss.item(), 1e-6)
 
 class TestModelForward(unittest.TestCase):
     def setUp(self):
@@ -65,6 +155,13 @@ class TestModelForward(unittest.TestCase):
         input = torch.randn(self.batch_size, self.window_size, self.num_classes, device=self.device)
         outputs, mask = self.model(input)
         self.assertEqual(outputs.shape, (torch.Size([self.batch_size, self.window_size, self.num_classes])))
+
+    def test_forward_shape_hidden(self):
+        self.model.to(self.device)
+        self.model.eval()
+        input = torch.randn(self.batch_size, self.window_size, self.num_classes, device=self.device)
+        hidden_states = self.model(input, hidden=True)
+        self.assertEqual(hidden_states.shape, (torch.Size([self.batch_size, self.window_size, self.d_model])))
 
 if __name__ == "__main__":
     unittest.main()
