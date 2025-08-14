@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from bimamba_model import BiMambaSmooth
 from bimamba_train import WindowIndexDataset
-from modernbert import BERTImpute, BERTImputeConfig
+from python.modernBERT.modernBERT_model import BERTImputeConfig, BERTImpute
+
 
 def decode_position(encoded_pos):
     """

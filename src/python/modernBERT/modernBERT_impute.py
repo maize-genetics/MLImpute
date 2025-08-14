@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from python.bed_io.bed import output_predictions
 from python.hmm.viterbi import build_pair_states, viterbi_decode
 from python.ps4g_io.torch_loaders import WindowIndexDatasetFromMatrix
-from modernbert import BERTImpute, BERTImputeConfig
+from python.modernBERT.modernBERT_model import BERTImputeConfig, BERTImpute
 
 
 def run_modernBERT_imputation(args, data, weights):
@@ -38,7 +38,7 @@ def run_modernBERT_imputation(args, data, weights):
         learning_rate_decay=learning_rate_decay,
         torch_compile=torch_compile == "yes",
     )
-    model_checkpoint = "modernbert.pth"
+    model_checkpoint = "src/modernbert.pth"
     model.load_state_dict(torch.load(model_checkpoint))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

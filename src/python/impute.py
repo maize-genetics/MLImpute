@@ -4,8 +4,8 @@ import time
 import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
-from python.bimamba.bimamba_impute import run_bimamba_imputation
-from python.modernBERT.modernBERT_impute import run_modernBERT_imputation
+from bimamba.bimamba_impute import run_bimamba_imputation
+from modernBERT.modernBERT_impute import run_modernBERT_imputation
 from bed_io.bed import output_predictions
 
 
@@ -21,7 +21,7 @@ def load_input(ps4g_file, weight="global", collapse=False):
     Note we leave this in a numpy array as not every model uses torch.
     """
     logging.info(f"Loading input from {ps4g_file}")
-    ps4g_data, weights = convert_ps4g(ps4g_file, weight, collapse)
+    ps4g_data, weights = convert_ps4g(str(ps4g_file), weight, collapse)
     return ps4g_data, weights
 
 

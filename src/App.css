@@ -114,3 +114,20 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+}
+.table th, .table td {
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+}
+.table thead th {
+    background: #f9fafb;
+    font-weight: 600;
+}
+.kv th { width: 220px; background: #fafafa; }
