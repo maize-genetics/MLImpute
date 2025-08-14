@@ -163,5 +163,14 @@ class TestModelForward(unittest.TestCase):
         hidden_states = self.model(input, hidden=True)
         self.assertEqual(hidden_states.shape, (torch.Size([self.batch_size, self.window_size, self.d_model])))
 
+    def test_load_pretrained(self):
+        before = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+        checkpoint = "src/bimamba_model.pth"
+        self.model.load_state_dict(torch.load(checkpoint))
+        after = {k: v.detach().cpu() for k, v in self.model.state_dict().items()}
+        # verify something actually changed
+        changed = any(not torch.allclose(before[k], after[k]) for k in before.keys() if k in after)
+        self.assertTrue(changed, "Weights did not change after loading checkpoint")
+
 if __name__ == "__main__":
     unittest.main()
