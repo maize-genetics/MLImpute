@@ -7,7 +7,7 @@ import argparse
 import math
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import tqdm
+from tqdm import tqdm
 from python.bimamba.bimamba_model import BiMambaSmooth
 from python.hmm.viterbi import build_pair_states, viterbi_decode
 from python.ps4g_io.torch_loaders import WindowIndexDatasetFromMatrix
