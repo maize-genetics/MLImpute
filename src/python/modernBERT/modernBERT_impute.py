@@ -78,7 +78,7 @@ def haploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
     final_logits = []
     decode_dicts = []
     with torch.no_grad():
-        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader)):
+        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader), total=len(test_loader)):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
@@ -116,7 +116,7 @@ def diploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
     final_logits = []
     decode_dicts = []
     with torch.no_grad():
-        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader)):
+        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader), total=len(test_loader)):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
@@ -172,7 +172,7 @@ def diploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
 def diploid_modernBERT_only(device, model, test_loader):
     final_predictions = []
     with torch.no_grad():
-        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader)):
+        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader), total=len(test_loader)):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
@@ -207,7 +207,7 @@ def diploid_modernBERT_only(device, model, test_loader):
 def haploid_modernBERT_only(device, model, test_loader):
     final_predictions = []
     with torch.no_grad():
-        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader)):
+        for batch_idx, (batch_data, decode_dict) in tqdm(enumerate(test_loader), total=len(test_loader)):
             batch_data, decode_dict = batch_data.to(device), decode_dict.to(device)  # decode_dict: [B, top_n]
 
             outputs = model(batch_data)
