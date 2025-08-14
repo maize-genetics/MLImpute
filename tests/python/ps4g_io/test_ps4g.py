@@ -26,26 +26,40 @@ def test_extract_metadata(sample_ps4g_file):
 # ────────────────────────────────────────────────
 
 def test_convert_unweighted(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=False)
+    result, weights = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=False)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 4  # 4 rows
     assert result.shape[1] > 0   # should have columns
+    assert isinstance(weights, np.ndarray)
+    assert weights.shape[0] == 3  # should match number of rows in result
+    assert weights[0] == 1.0  # unweighted should have all weights as 1.0
+    assert weights[1] == 1.0
+    assert weights[2] == 1.0  # no weights for unweighted
 
 def test_convert_global_weight(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight_strat="global", collapse=False)
+    result, weights = convert_ps4g(sample_ps4g_file, weight_strat="global", collapse=False)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 4
     assert result.shape[1] > 0
+    assert isinstance(weights, np.ndarray)
+    assert weights.shape[0] == 3  # should match number of rows in result
+    assert weights[0] == 1.0  # unweighted should have all weights as 1.0
+    assert weights[1] == 0.5
+    assert weights[2] == 0.25  # no weights for unweighted
 
 # ────────────────────────────────────────────────
 #                   Collapse Mode
 # ────────────────────────────────────────────────
 
 def test_convert_collapsed(sample_ps4g_file):
-    result = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=True)
+    result, weights = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=True)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 2  # collapsed by position (2 unique pos values)
     assert result.shape[1] > 0
-
+    assert isinstance(weights, np.ndarray)
+    assert weights.shape[0] == 3  # should match number of rows in result
+    assert weights[0] == 1.0  # unweighted should have all weights as 1.0
+    assert weights[1] == 1.0
+    assert weights[2] == 1.0  # no weights for unweighted
 
 
