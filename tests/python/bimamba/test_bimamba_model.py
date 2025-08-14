@@ -138,6 +138,7 @@ class TestSNPLossSmoothAll(unittest.TestCase):
         loss = self.loss_fn(logits, targets, mask)
         self.assertGreater(loss.item(), 1e-6)
 
+
 class TestModelForward(unittest.TestCase):
     def setUp(self):
         self.batch_size = 10
@@ -171,6 +172,7 @@ class TestModelForward(unittest.TestCase):
         # verify something actually changed
         changed = any(not torch.allclose(before[k], after[k]) for k in before.keys() if k in after)
         self.assertTrue(changed, "Weights did not change after loading checkpoint")
+
 
 if __name__ == "__main__":
     unittest.main()
