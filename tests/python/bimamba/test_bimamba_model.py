@@ -1,7 +1,7 @@
 import unittest
 import torch
 import torch.nn.functional as F
-from src.python.bimamba.bimamba_model import SNPLoss, SNPLossSmooth, SNPLossSmoothAll, BiMambaSmooth
+from python.bimamba.bimamba_model import SNPLoss, SNPLossSmooth, SNPLossSmoothAll, BiMambaSmooth
 
 
 class TestSNPLoss(unittest.TestCase):

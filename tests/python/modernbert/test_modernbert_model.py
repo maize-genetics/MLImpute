@@ -1,7 +1,7 @@
 import unittest
 import torch
 import torch.nn.functional as F
-from src.python.modernBERT.modernBERT_model import SNPLoss, SNPLossSmoothAll, BERTImpute, BERTImputeConfig
+from python.modernBERT.modernBERT_model import SNPLoss, SNPLossSmoothAll, BERTImpute, BERTImputeConfig
 
 
 class TestSNPLoss(unittest.TestCase):
