@@ -34,31 +34,30 @@ def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygot
 
     # Predict each site in the full matrix window
     for center in tqdm(range(half_window, num_positions - half_window)):
-        start = max(center - half_window,0)
+        start = max(center - half_window, 0)
         end = min(center + half_window + 1, num_positions)
 
         window = matrix[start:end, :]
-        sample_sums = window.sum(axis=0)
+        sample_sums = window.sum(axis=0)  # shape: (num_samples,)
 
-        top_parents = np.argsort(sample_sums)[-2:][::-1]  # sorted descending
-        top_scores = sample_sums[top_parents]
-        s1, s2 = sample_sums[top_scores[0]], sample_sums[top_scores[1]]
+        # Find indices of top two parents (highest counts)
+        top_parents = np.argsort(sample_sums)[-2:][::-1]
+        p1, p2 = top_parents
+        s1, s2 = sample_sums[p1], sample_sums[p2]
 
-        # tie-break: optionally bias toward previous call for smoother paths
+        # Tie-breaking: bias toward previous choice if requested
         if prefer_previous_on_tie and s1 == s2 and prev_p1 is not None:
-            # if previous p1 is among tied max, keep it as p1
             tied = np.flatnonzero(sample_sums == s1)
             if prev_p1 in tied:
-                # put prev_p1 first, then highest other
-                others = [t for t in tied if t != prev_p1]
                 p1 = prev_p1
-                p2 = others[0] if others else prev_p1
-            else:
-                p1, p2 = top_scores[0], top_scores[1]
-        else:
-            p1, p2 = top_scores[0], top_scores[1]
+                # pick second-best among tied (excluding p1)
+                tied_others = [t for t in tied if t != p1]
+                p2 = tied_others[0] if tied_others else p1
 
-        # Decide homozygote vs heterozygote
+                # Update scores so homozygote check works correctly
+                s1, s2 = sample_sums[p1], sample_sums[p2]
+
+        # Homozygote vs heterozygote call
         denom = (s1 + s2) if (s1 + s2) > 0 else 1.0
         top1_share = s1 / denom
         if not diploid or top1_share >= homozygote_threshold:
@@ -67,6 +66,43 @@ def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygot
         else:
             path1.append(p1)
             path2.append(p2)
+
+        prev_p1, prev_p2 = p1, p2
+    # for center in tqdm(range(half_window, num_positions - half_window)):
+    #     start = max(center - half_window,0)
+    #     end = min(center + half_window + 1, num_positions)
+    #
+    #     window = matrix[start:end, :]
+    #     sample_sums = window.sum(axis=0)
+    #
+    #     top_parents = np.argsort(sample_sums)[-2:][::-1]  # sorted descending
+    #     top_scores = sample_sums[top_parents]
+    #     p1, p2 = top_parents
+    #     s1, s2 = top_scores
+    #
+    #     # tie-break: optionally bias toward previous call for smoother paths
+    #     if prefer_previous_on_tie and s1 == s2 and prev_p1 is not None:
+    #         # if previous p1 is among tied max, keep it as p1
+    #         tied = np.flatnonzero(sample_sums == s1)
+    #         if prev_p1 in tied:
+    #             # put prev_p1 first, then highest other
+    #             others = [t for t in tied if t != prev_p1]
+    #             p1 = prev_p1
+    #             p2 = others[0] if others else prev_p1
+    #         else:
+    #             p1, p2 = top_scores[0], top_scores[1]
+    #     else:
+    #         p1, p2 = top_scores[0], top_scores[1]
+    #
+    #     # Decide homozygote vs heterozygote
+    #     denom = (s1 + s2) if (s1 + s2) > 0 else 1.0
+    #     top1_share = s1 / denom
+    #     if not diploid or top1_share >= homozygote_threshold:
+    #         path1.append(p1)
+    #         path2.append(p1)
+    #     else:
+    #         path1.append(p1)
+    #         path2.append(p2)
 
         # # Take local window proportions and average across window
         # window_props = props[start:end, :]
