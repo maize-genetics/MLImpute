@@ -2,7 +2,7 @@ import numpy as np
 import logging
 from tqdm import tqdm
 
-def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygote_threshold=0.9):
+def run_knn(matrix, window_size, diploid, homozygote_threshold=0.9):
     """
     Uses a sliding window to predict the most likely sample for each center position,
     then checks if that sample shares the allele at the center position.
@@ -16,7 +16,6 @@ def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygot
     Returns:
         path (np.ndarray): Path of predicted samples for each center position.
     """
-    window_size = window_size #window size is k
     assert window_size % 2 == 1, "Window size must be odd to have a center position."
     num_positions, num_samples = matrix.shape
     half_window = window_size // 2
@@ -24,16 +23,8 @@ def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygot
     path1 = []
     path2 = []
 
-    #
-    #
-    # # Normalize counts to proportions per site
-    # counts = matrix + pseudocount
-    # props = counts / counts.sum(axis=1, keepdims=True)  # shape: (positions, parents)
-
-    prev_p1, prev_p2 = None, None
-
     # Predict each site in the full matrix window
-    for center in tqdm(range(half_window, num_positions - half_window)):
+    for center in tqdm(range(num_positions)):
         start = max(center - half_window, 0)
         end = min(center + half_window + 1, num_positions)
 
@@ -45,22 +36,17 @@ def run_knn(matrix, window_size, diploid, prefer_previous_on_tie=True, homozygot
         p1, p2 = top_parents
         s1, s2 = sample_sums[p1], sample_sums[p2]
 
-        # Tie-breaking: bias toward previous choice if requested
-        if prefer_previous_on_tie and s1 == s2 and prev_p1 is not None:
-            tied = np.flatnonzero(sample_sums == s1)
-            if prev_p1 in tied:
-                p1 = prev_p1
-                # pick second-best among tied (excluding p1)
-                tied_others = [t for t in tied if t != p1]
-                p2 = tied_others[0] if tied_others else p1
-
-                # Update scores so homozygote check works correctly
-                s1, s2 = sample_sums[p1], sample_sums[p2]
 
         # Homozygote vs heterozygote call
         denom = (s1 + s2) if (s1 + s2) > 0 else 1.0
         top1_share = s1 / denom
-        if not diploid or top1_share >= homozygote_threshold:
+        top2_share = s2 / denom
+        diff = top1_share - top2_share
+        if not diploid:
+            # If not diploid, always return the top parent
+            path1.append(p1)
+            path2.append(p1)
+        elif diff >= homozygote_threshold:
             path1.append(p1)
             path2.append(p1)
         else:
