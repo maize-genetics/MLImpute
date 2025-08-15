@@ -52,6 +52,12 @@ pixi run -- python impute.py --input <input_file> --output <output_file> --model
 npm run tauri dev
 ```
 
+## Run the unit tests with HTML output
+
+```bash
+pytest --cov=src --cov-report=term-missing --cov-report=html
+```
+
 
 
 
