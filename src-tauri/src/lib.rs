@@ -15,7 +15,7 @@ pub fn run() {
       commands::greet_python::greet_py,
       commands::visualization_data::get_sample_visualization_data,
       commands::visualization_data::run_imputation_visualization,
-      commands::hmm_impute::run_hmm_imputation,
+      commands::python_impute::run_python_imputation,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
