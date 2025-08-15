@@ -76,9 +76,7 @@ const D3Matrix: React.FC<D3MatrixProps> = ({
       margin,
       innerWidth,
       innerHeight,
-      contextSize,
-      maxVisibleRows,
-      maxVisibleCols
+      contextSize
     );
   }, [rowLabels, colLabels, innerWidth, innerHeight, contextSize, margin, maxVisibleRows, maxVisibleCols]);
 

@@ -12,9 +12,7 @@ export const renderContextCharts = (
   margin: { top: number; right: number; bottom: number; left: number },
   innerWidth: number,
   innerHeight: number,
-  contextSize: number,
-  maxVisibleRows: number,
-  maxVisibleCols: number
+  contextSize: number
 ) => {
   const rows = rowLabels.length;
   const cols = colLabels.length;
