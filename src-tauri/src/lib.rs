@@ -10,9 +10,7 @@ pub fn run() {
 
     // Commands
     .invoke_handler(tauri::generate_handler![
-      commands::greet::greet,
       commands::gpu::gpu_adapters,
-      commands::greet_python::greet_py,
       commands::visualization_data::get_sample_visualization_data,
       commands::visualization_data::run_imputation_visualization,
       commands::python_impute::run_python_imputation,

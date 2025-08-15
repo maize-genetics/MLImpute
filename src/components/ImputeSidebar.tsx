@@ -63,7 +63,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
   const [isDemoRunning, setIsDemoRunning] = useState<boolean>(false);
   const [result, setResult] = useState<ImputeResult | null>(null);
   const [demoSamples, setDemoSamples] = useState<number>(50);
-  const [demoPositions, setDemoPositions] = useState<number>(25000);
+  const [demoPositions, setDemoPositions] = useState<number>(5000);
 
   const selectFile = async (
     setter: (path: string) => void, 
