@@ -23,6 +23,7 @@ transformers = "*"
 pytest       = "*"
 pytest-cov   = "*"
 lightning    = "*"
+tqdm         = "*"
 
 
 # "GPU only" dependencies (only for Linux)
