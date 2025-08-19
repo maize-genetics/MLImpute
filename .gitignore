@@ -169,6 +169,7 @@ lerna-debug.log*
 # LLM metadata
 # =========================================
 CLAUDE.md
+.claude/
 
 
 

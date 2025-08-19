@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { generateRandomMatrix, generateRandomHighlights } from './utils';
+import SystemSettings from './SystemSettings';
 import './ImputeSidebar.css';
 
 interface ImputeArgs {
@@ -178,6 +179,8 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
       <div className="sidebar-header">
         <h2>ML Imputation Tool</h2>
       </div>
+
+      <SystemSettings />
 
       <div className="form-section">
         <h3>Input</h3>
