@@ -7,7 +7,7 @@
 
 .system-settings-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   padding: 0.75rem 1rem;
   cursor: pointer;
@@ -40,37 +40,6 @@
   transform: rotate(180deg);
 }
 
-.refresh-button {
-  background: none;
-  border: none;
-  font-size: 1rem;
-  cursor: pointer;
-  padding: 0.25rem;
-  border-radius: 3px;
-  color: #666;
-  transition: all 0.2s ease;
-}
-
-.refresh-button:hover {
-  background: #fff;
-  color: #333;
-  transform: rotate(45deg);
-}
-
-.refresh-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 .system-settings-content {
   padding: 1rem;
@@ -96,20 +65,6 @@
   margin: 0 0 0.5rem 0;
 }
 
-.retry-button {
-  background: #e53e3e;
-  color: white;
-  border: none;
-  padding: 0.25rem 0.75rem;
-  border-radius: 3px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.retry-button:hover {
-  background: #c53030;
-}
 
 /* System info key-value pairs */
 .system-info {

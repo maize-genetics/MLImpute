@@ -18,9 +18,10 @@ export type AdapterInfo = {
 
 interface SystemSettingsProps {
   className?: string;
+  onGpuInfoChange?: (gpuAdapters: AdapterInfo[] | null) => void;
 }
 
-const SystemSettings: React.FC<SystemSettingsProps> = ({ className }) => {
+const SystemSettings: React.FC<SystemSettingsProps> = ({ className, onGpuInfoChange }) => {
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({});
   const [gpuAdapters, setGpuAdapters] = useState<AdapterInfo[] | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -45,9 +46,19 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ className }) => {
       });
 
       setGpuAdapters(adapters);
+      
+      // Notify parent component of GPU information changes
+      if (onGpuInfoChange) {
+        onGpuInfoChange(adapters);
+      }
     } catch (err) {
       console.error('Error loading system info:', err);
       setError(`Failed to load system information: ${err}`);
+      
+      // Notify parent component of error (no GPU info available)
+      if (onGpuInfoChange) {
+        onGpuInfoChange(null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -56,10 +67,6 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ className }) => {
   useEffect(() => {
     loadSystemInfo();
   }, []);
-
-  const handleRefresh = () => {
-    loadSystemInfo();
-  };
 
   const toggleExpanded = () => {
     setIsExpanded(!isExpanded);
@@ -72,17 +79,6 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ className }) => {
           System Settings
           <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`}>▼</span>
         </h4>
-        <button 
-          className="refresh-button"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleRefresh();
-          }}
-          disabled={isLoading}
-          title="Refresh system information"
-        >
-          {isLoading ? '⟳' : '↻'}
-        </button>
       </div>
 
       {isExpanded && (
@@ -90,9 +86,6 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ className }) => {
           {error ? (
             <div className="error-message">
               <p>{error}</p>
-              <button onClick={handleRefresh} className="retry-button">
-                Retry
-              </button>
             </div>
           ) : isLoading ? (
             <div className="loading-message">

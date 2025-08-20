@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { generateRandomMatrix, generateRandomHighlights } from './utils';
-import SystemSettings from './SystemSettings';
+import SystemSettings, { type AdapterInfo } from './SystemSettings';
 import './ImputeSidebar.css';
 
 interface ImputeArgs {
@@ -65,6 +65,39 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
   const [result, setResult] = useState<ImputeResult | null>(null);
   const [demoSamples, setDemoSamples] = useState<number>(50);
   const [demoPositions, setDemoPositions] = useState<number>(5000);
+  const [gpuAdapters, setGpuAdapters] = useState<AdapterInfo[] | null>(null);
+
+  // Check if Nvidia GPU is present
+  const hasNvidiaGpu = () => {
+    if (!gpuAdapters || gpuAdapters.length === 0) return false;
+    
+    return gpuAdapters.some(adapter => 
+      adapter.name.toLowerCase().includes('nvidia') || 
+      adapter.backend.toLowerCase().includes('cuda') ||
+      adapter.vendor === 0x10de  // Nvidia's vendor ID
+    );
+  };
+
+  // Handle GPU info changes from SystemSettings
+  const handleGpuInfoChange = (adapters: AdapterInfo[] | null) => {
+    setGpuAdapters(adapters);
+    
+    // Reset model to KNN if no Nvidia GPU is detected and current model is not KNN
+    if (!adapters || !hasNvidiaGpuInList(adapters)) {
+      if (model !== 'knn') {
+        setModel('knn');
+      }
+    }
+  };
+
+  // Helper function to check Nvidia GPU in a given list
+  const hasNvidiaGpuInList = (adapters: AdapterInfo[]) => {
+    return adapters.some(adapter => 
+      adapter.name.toLowerCase().includes('nvidia') || 
+      adapter.backend.toLowerCase().includes('cuda') ||
+      adapter.vendor === 0x10de  // Nvidia's vendor ID
+    );
+  };
 
   const selectFile = async (
     setter: (path: string) => void, 
@@ -180,7 +213,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
         <h2>ML Imputation Tool</h2>
       </div>
 
-      <SystemSettings />
+      <SystemSettings onGpuInfoChange={handleGpuInfoChange} />
 
       <div className="form-section">
         <h3>Input</h3>
@@ -237,8 +270,12 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
           <label>Model:</label>
           <select value={model} onChange={(e) => setModel(e.target.value)} disabled={isRunning}>
             <option value="knn">KNN</option>
-            <option value="mamba">BiMamba</option>
-            <option value="modernbert">ModernBERT</option>
+            {hasNvidiaGpu() && (
+              <>
+                <option value="mamba">BiMamba</option>
+                <option value="modernbert">ModernBERT</option>
+              </>
+            )}
           </select>
         </div>
 
