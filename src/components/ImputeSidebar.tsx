@@ -275,8 +275,6 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
                 <option value="modernbert">ModernBERT</option>
               </>
             )}
-            <option value="mamba">BiMamba</option>
-            <option value="modernbert">ModernBERT</option>
           </select>
         </div>
 
