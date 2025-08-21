@@ -166,10 +166,11 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # =========================================
-# LLM metadata
+# ML/LLM metadata
 # =========================================
 CLAUDE.md
 .claude/
+modernbert.pth
 
 
 
