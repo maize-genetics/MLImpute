@@ -22,6 +22,7 @@ pub struct ImputeResult {
     pub message: String,
     pub output_file: Option<String>,
     pub execution_time: Option<f64>,
+    pub visualization_data: Option<String>,
 }
 
 #[tauri::command]
@@ -41,8 +42,8 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
         ("python", vec![])
     };
 
-    // Build the command
-    let script_path = project_root.join("src/python/impute.py");
+    // Build the command - use the visualization version
+    let script_path = project_root.join("src/python/impute_with_viz.py");
     
     if !script_path.exists() {
         return Ok(ImputeResult {
@@ -50,6 +51,7 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
             message: format!("Python script not found at: {}", script_path.display()),
             output_file: None,
             execution_time: None,
+            visualization_data: None,
         });
     }
 
@@ -109,11 +111,37 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
             
             if output.status.success() {
                 let output_path_exists = Path::new(&args.output_path).exists();
+                
+                // Parse the JSON output to extract visualization data
+                let visualization_data = if !stdout.trim().is_empty() {
+                    // Try to parse the stdout as JSON to extract visualization data
+                    match serde_json::from_str::<serde_json::Value>(&stdout) {
+                        Ok(json) => {
+                            if let Some(viz_data) = json.get("visualization_data") {
+                                // The visualization_data is a string containing JSON, so we extract it as a string
+                                if let Some(viz_str) = viz_data.as_str() {
+                                    Some(viz_str.to_string())
+                                } else {
+                                    // If it's already a JSON object, convert it back to string
+                                    Some(viz_data.to_string())
+                                }
+                            } else {
+                                // If no visualization_data field, return the whole stdout
+                                Some(stdout.to_string())
+                            }
+                        }
+                        Err(_) => Some(stdout.to_string())
+                    }
+                } else {
+                    None
+                };
+                
                 Ok(ImputeResult {
                     success: true,
                     message: format!("Imputation completed successfully.\n\nSTDOUT:\n{}\n\nSTDERR:\n{}", stdout, stderr),
                     output_file: if output_path_exists { Some(args.output_path) } else { None },
                     execution_time: Some(execution_time),
+                    visualization_data,
                 })
             } else {
                 Ok(ImputeResult {
@@ -122,6 +150,7 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
                                    output.status.code().unwrap_or(-1), stdout, stderr),
                     output_file: None,
                     execution_time: Some(execution_time),
+                    visualization_data: None,
                 })
             }
         }
@@ -131,6 +160,7 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
                 message: format!("Failed to execute Python script: {}", e),
                 output_file: None,
                 execution_time: None,
+                visualization_data: None,
             })
         }
     }

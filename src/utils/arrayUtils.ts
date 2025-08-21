@@ -195,3 +195,50 @@ export function validateVisualizationData(data: VisualizationData): {
     errors,
   };
 }
+
+/**
+ * Convert imputation visualization data to D3Matrix format
+ */
+export function convertVisualizationToMatrix(data: VisualizationData): {
+  matrix: number[][];
+  rowLabels: string[];
+  colLabels: string[];
+  highlights: Array<{col: string; row: string}>;
+} | null {
+  if (!data || data.status !== 'success' || !data.matrix) {
+    return null;
+  }
+
+  try {
+    const matrix = decodeNumpyArray(data.matrix);
+    const rowLabels = data.row_labels || matrix.map((_, i) => `Row_${i}`);
+    const colLabels = data.col_labels || (matrix[0] || []).map((_, j) => `Col_${j}`);
+    
+    // Create highlights for non-zero values (typical for imputation results)
+    const highlights: Array<{col: string; row: string}> = [];
+    const maxHighlights = 50; // Limit highlights to avoid performance issues
+    let highlightCount = 0;
+    
+    for (let i = 0; i < matrix.length && highlightCount < maxHighlights; i++) {
+      for (let j = 0; j < matrix[i].length && highlightCount < maxHighlights; j++) {
+        if (matrix[i][j] !== 0) {
+          highlights.push({
+            row: rowLabels[i],
+            col: colLabels[j]
+          });
+          highlightCount++;
+        }
+      }
+    }
+
+    return {
+      matrix,
+      rowLabels,
+      colLabels,
+      highlights
+    };
+  } catch (error) {
+    console.error('Failed to convert visualization data:', error);
+    return null;
+  }
+}
