@@ -214,7 +214,6 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
       </div>
 
       <SystemSettings onGpuInfoChange={handleGpuInfoChange} />
-
       <div className="form-section">
         <h3>Input</h3>
         
@@ -276,6 +275,8 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
                 <option value="modernbert">ModernBERT</option>
               </>
             )}
+            <option value="mamba">BiMamba</option>
+            <option value="modernbert">ModernBERT</option>
           </select>
         </div>
 
