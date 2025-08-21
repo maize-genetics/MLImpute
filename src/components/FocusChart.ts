@@ -71,7 +71,7 @@ export const renderFocusChart = (
 
   const cells = focusG
     .append("g")
-    .selectAll("rect")
+    .selectAll<SVGRectElement, DataPoint>("rect")
     .data(flat)
     .join("rect")
     .attr("x", (d: DataPoint) => xScale(d.col)!)
