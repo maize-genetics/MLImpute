@@ -164,11 +164,25 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
     }
   };
 
-  const runDemo = () => {
+  const runDemo = async () => {
     setIsDemoRunning(true);
 
     try {
-      // Generate demo matrix data using local utilities
+      // Use Tauri backend to generate parent path visualization data
+      const response = await invoke<VisualizationData>('get_sample_visualization_data', {
+        rows: Math.min(demoSamples, 12), // Keep reasonable for visualization
+        cols: Math.min(demoPositions, 25), // Keep reasonable for visualization
+        seed: Math.floor(Math.random() * 1000)
+      });
+
+      if (onVisualizationData) {
+        onVisualizationData(response);
+      }
+    } catch (error) {
+      console.error('Demo error:', error);
+      alert(`Demo error: ${error}`);
+      
+      // Fallback to local demo generation if Tauri call fails
       const { matrix, rowLabels, colLabels } = generateRandomMatrix(demoSamples, demoPositions);
       const highlights = generateRandomHighlights(rowLabels, colLabels);
 
@@ -185,9 +199,6 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
       if (onVisualizationData) {
         onVisualizationData(demoData);
       }
-    } catch (error) {
-      console.error('Demo error:', error);
-      alert(`Demo error: ${error}`);
     } finally {
       setIsDemoRunning(false);
     }

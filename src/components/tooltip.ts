@@ -21,7 +21,7 @@ export const createTooltip = () => {
 
 export const showTooltip = (tooltip: d3.Selection<d3.BaseType, unknown, HTMLElement, any>, dataPoint: DataPoint) => {
   tooltip
-    .html(`Sample: ${dataPoint.row}<br/>Position: ${dataPoint.col}<br/>Value: ${dataPoint.value}`)
+    .html(`<strong>Sample:</strong> ${dataPoint.row}<br/><strong>Position:</strong> ${dataPoint.col}`)
     .style("visibility", "visible")
     .transition()
     .duration(200)

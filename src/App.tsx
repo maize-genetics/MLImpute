@@ -153,7 +153,7 @@ function App() {
                     margin={{ top: 80, right: 100, bottom: 80, left: 120 }}
                     maxVisibleRows={15}
                     maxVisibleCols={30}
-                    cellSize={60}
+                    cellSize={20}
                   />
                 </div>
               )}

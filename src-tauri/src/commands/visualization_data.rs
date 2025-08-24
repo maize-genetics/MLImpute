@@ -57,6 +57,9 @@ pub async fn get_sample_visualization_data(
     if let Some(s) = seed {
         args.extend(vec!["--seed".to_string(), s.to_string()]);
     }
+    
+    // Add parent path mode for visualization
+    args.extend(vec!["--mode".to_string(), "parents".to_string()]);
 
     // Try to use pixi python if available, otherwise fall back to system python
     let has_pixi = std::process::Command::new("pixi").arg("--version").output().is_ok();
@@ -121,7 +124,7 @@ pub async fn run_imputation_visualization(
         current_dir
     };
     
-    let script_path = project_root.join("src/impute.py");
+    let script_path = project_root.join("src/python/impute.py");
     
     if !script_path.exists() {
         return Err(format!("Python script not found at: {}", script_path.display()));
