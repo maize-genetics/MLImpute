@@ -4,15 +4,10 @@ import time
 import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
-from bimamba.bimamba_impute import run_bimamba_imputation
+#from bimamba.bimamba_impute import run_bimamba_imputation
 from modernBERT.modernBERT_impute import run_modernBERT_imputation
 from bed_io.bed import output_predictions
-
-
-# Example model imports (these would be your implementations)
-# from models.knn import run_knn
-# from models.mamba import run_mamba
-# from models.bert import run_modernbert
+from knn.knn import run_knn
 
 
 def load_input(ps4g_file, weight="global", collapse=False):
@@ -40,9 +35,9 @@ def run_model(args, data, weights):
     logging.info(f"Running model: {model_name}")
 
     if model_name == "knn":
-        return {"rows": [["chr1", 100, 200, "A", "B"]]}  # replace with run_knn(data)
+        return run_knn(data, args.window_size, args.diploid)
     elif model_name == "mamba":
-        return run_bimamba_imputation(args,data, weights) # replace with run_mamba(data)
+        return run_bimamba_imputation(args, data, weights)
     elif model_name == "modernbert":
         return run_modernBERT_imputation(args, data, weights)
     else:
@@ -61,6 +56,7 @@ def main():
     parser.add_argument("--global-weights", type=str, default=None)
     parser.add_argument("--HMM", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
+    parser.add_argument("--window-size", type=int, default=21, help="Size of the sliding window for KNN model (must be odd)")
 
     parser.add_argument("--collapse-bed", action="store_true", help="Collapse contiguous BED regions in output")
     args = parser.parse_args()
