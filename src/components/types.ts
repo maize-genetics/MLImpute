@@ -13,6 +13,7 @@ export interface D3MatrixProps {
 export interface HighlightData {
   col: string;
   row: string;
+  parent?: 'parent1' | 'parent2';
 }
 
 export interface DataPoint {
