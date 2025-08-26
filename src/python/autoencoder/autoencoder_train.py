@@ -6,7 +6,7 @@ import os
 import wandb
 from autoencoder_model import AutoEncoder
 
-from src.python.ps4g_io.torch_loaders import WindowIndexDataset, longest_consec
+from src.python.ps4g_io.torch_loaders import longest_consec
 
 with open("wandb_key.txt", 'r') as f:
     key = f.read().strip()
@@ -243,6 +243,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--bottleneck_dim", type=int, default=10)
+    parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--save_path", type=str, default="saved_models/autoencoder")
     parser.add_argument("--step_size", type=int, default=512)
