@@ -1,0 +1,141 @@
+.range-sliders {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.25rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  max-width: 100%;
+}
+
+.range-section {
+  margin-bottom: 1.5rem;
+}
+
+.range-section:last-child {
+  margin-bottom: 0;
+}
+
+.range-section h4 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.range-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+.range-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.range-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 200px;
+}
+
+.range-input-group label {
+  font-size: 0.75rem;
+  color: #495057;
+  font-weight: 500;
+  min-width: 35px;
+}
+
+.range-slider {
+  flex: 1;
+  height: 6px;
+  background: #dee2e6;
+  border-radius: 3px;
+  outline: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #007bff;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  background: #0056b3;
+  transform: scale(1.1);
+}
+
+.range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #007bff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.range-slider::-moz-range-thumb:hover {
+  background: #0056b3;
+  transform: scale(1.1);
+}
+
+.range-value {
+  font-size: 0.75rem;
+  color: #495057;
+  font-weight: 600;
+  min-width: 30px;
+  text-align: center;
+  background: #e9ecef;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.reset-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.reset-button:hover {
+  background: #5a6268;
+}
+
+.reset-button:active {
+  background: #545b62;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .range-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  
+  .range-input-group {
+    min-width: unset;
+  }
+}

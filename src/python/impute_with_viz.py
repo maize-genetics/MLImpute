@@ -16,7 +16,7 @@ from pathlib import Path
 
 # Import the main imputation functionality
 from impute import main as run_imputation, load_input
-from array_utils import create_visualization_response, create_error_response, generate_parent_path_data
+from array_utils import create_visualization_response, create_error_response
 
 def parse_bed_file(bed_file_path):
     """
@@ -184,31 +184,14 @@ def run_imputation_with_visualization(args):
         
         # Check if output file exists (either newly created or pre-existing)
         if not args.output.exists():
-            # If no BED file was created, generate demo data instead
-            logging.warning("No BED output file found, generating demo parent path data")
-            data = generate_parent_path_data(num_positions=15, num_samples=8, seed=42)
-            
-            highlights = []
-            for path_point in data['parent1_path']:
-                highlights.append({
-                    'row': path_point['sample'],
-                    'col': path_point['position'],
-                    'parent': 'parent1'
-                })
-            for path_point in data['parent2_path']:
-                highlights.append({
-                    'row': path_point['sample'], 
-                    'col': path_point['position'],
-                    'parent': 'parent2'
-                })
-            
-            data['metadata']['highlights'] = highlights
-            visualization_data = create_visualization_response(
-                data['matrix'], 
-                data['row_labels'], 
-                data['col_labels'], 
-                data['metadata']
-            )
+            # If no BED file was created, return an error
+            logging.error("No BED output file found - imputation may have failed")
+            return json.dumps({
+                'success': False,
+                'message': 'Imputation failed - no output file was created',
+                'output_file': None,
+                'visualization_data': create_error_response('No BED output file was created')
+            })
         else:
             # Parse the BED file to extract parent path information
             logging.info(f"Parsing BED output file: {args.output}")
@@ -222,31 +205,14 @@ def run_imputation_with_visualization(args):
                     bed_data['metadata']
                 )
             else:
-                # Fallback to demo data if BED parsing fails
-                logging.warning("Failed to parse BED file, generating demo data")
-                data = generate_parent_path_data(num_positions=15, num_samples=8, seed=42)
-                
-                highlights = []
-                for path_point in data['parent1_path']:
-                    highlights.append({
-                        'row': path_point['sample'],
-                        'col': path_point['position'],
-                        'parent': 'parent1'
-                    })
-                for path_point in data['parent2_path']:
-                    highlights.append({
-                        'row': path_point['sample'], 
-                        'col': path_point['position'],
-                        'parent': 'parent2'
-                    })
-                
-                data['metadata']['highlights'] = highlights
-                visualization_data = create_visualization_response(
-                    data['matrix'], 
-                    data['row_labels'], 
-                    data['col_labels'], 
-                    data['metadata']
-                )
+                # Return an error if BED parsing fails
+                logging.error("Failed to parse BED file")
+                return json.dumps({
+                    'success': False,
+                    'message': 'Imputation completed but failed to parse output BED file',
+                    'output_file': str(args.output) if args.output.exists() else None,
+                    'visualization_data': create_error_response('Failed to parse BED file for visualization')
+                })
         
         # Return the results in the expected format
         result = {

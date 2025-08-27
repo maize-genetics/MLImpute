@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import "./App.css";
 import ImputeSidebar from "./components/ImputeSidebar";
-import D3Matrix from "./components/D3Matrix";
+import InteractiveMatrix from "./components/InteractiveMatrix";
 import { convertVisualizationToMatrix, validateVisualizationData } from "./utils/arrayUtils";
 
 interface ImputeResult {
@@ -23,12 +23,6 @@ interface VisualizationData {
   col_labels?: string[];
   metadata?: any;
   error?: string;
-  demoMatrix?: {
-    matrix: number[][];
-    rowLabels: string[];
-    colLabels: string[];
-    highlights: Array<{col: string; row: string}>;
-  };
 }
 
 function App() {
@@ -76,13 +70,9 @@ function App() {
   // Prepare matrix data for D3Matrix component
   const matrixData = useMemo(() => {
     if (visualizationData && visualizationData.status === 'success') {
-      // Try to use imputation results first
+      // Use imputation results
       if (visualizationData.matrix) {
         return convertVisualizationToMatrix(visualizationData);
-      }
-      // Fall back to demo matrix data if available
-      else if (visualizationData.demoMatrix) {
-        return visualizationData.demoMatrix;
       }
     }
     
@@ -115,7 +105,7 @@ function App() {
             <div style={{ padding: '1rem' }}>
               <div style={{ marginBottom: '2rem', background: '#d4edda', padding: '1rem', borderRadius: '0.25rem', border: '1px solid #c3e6cb' }}>
                 <h3 style={{ margin: '0 0 0.5rem 0', color: '#155724' }}>
-                  {visualizationData.matrix ? '✓ Imputation Results Loaded!' : '✓ Demo Data Generated Successfully!'}
+                  ✓ Imputation Results Loaded!
                 </h3>
                 <div style={{ fontSize: '0.875rem', color: '#155724' }}>
                   {visualizationData.matrix && (
@@ -136,24 +126,24 @@ function App() {
                   )}
                   {matrixData && (
                     <p style={{ margin: '0.5rem 0 0 0' }}>
-                      <strong>Displayed:</strong> {matrixData.matrix.length} × {matrixData.matrix[0]?.length || 0} 
-                      {visualizationData.matrix ? ' (full data)' : ' (subsampled for performance)'}
+                      <strong>Displayed:</strong> {matrixData.matrix.length} × {matrixData.matrix[0]?.length || 0} (full data)
                     </p>
                   )}
                 </div>
               </div>
               
               {matrixData && (
-                <div style={{ background: '#fff', borderRadius: '0.25rem', border: '1px solid #dee2e6', overflow: 'auto', padding: '2rem' }}>
-                  <D3Matrix
+                <div style={{ background: '#fff', borderRadius: '0.25rem', border: '1px solid #dee2e6', overflow: 'auto', padding: '1rem' }}>
+                  <InteractiveMatrix
                     data={matrixData.matrix}
                     rowLabels={matrixData.rowLabels}
                     colLabels={matrixData.colLabels}
                     highlightData={matrixData.highlights}
-                    margin={{ top: 80, right: 100, bottom: 80, left: 120 }}
+                    margin={{ top: 80, right: 20, bottom: 80, left: 120 }}
                     maxVisibleRows={15}
                     maxVisibleCols={30}
                     cellSize={20}
+                    showBrushes={true}
                   />
                 </div>
               )}
@@ -161,14 +151,14 @@ function App() {
           ) : visualizationData && visualizationData.error ? (
             <div style={{ padding: '2rem' }}>
               <div style={{ background: '#f8d7da', padding: '1rem', borderRadius: '0.25rem', border: '1px solid #f5c6cb' }}>
-                <h4 style={{ color: '#721c24', margin: '0 0 0.5rem 0' }}>✗ Demo Generation Failed</h4>
+                <h4 style={{ color: '#721c24', margin: '0 0 0.5rem 0' }}>✗ Visualization Error</h4>
                 <p style={{ color: '#721c24', margin: '0', fontSize: '0.875rem' }}>{visualizationData.error}</p>
               </div>
             </div>
           ) : (
             <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#6c757d' }}>
               <h3>Visualization Area</h3>
-              <p>Click "Run Demo" to generate a sample visualization matrix, or select input files and run imputation to see the results visualized here.</p>
+              <p>Select input files and run imputation to see the results visualized here.</p>
               
               {imputeResults && imputeResults.success && (
                 <div style={{ marginTop: '2rem', padding: '1rem', background: '#f8f9fa', borderRadius: '0.25rem' }}>

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { generateRandomMatrix, generateRandomHighlights } from './utils';
 import SystemSettings, { type AdapterInfo } from './SystemSettings';
 import './ImputeSidebar.css';
 
@@ -36,12 +35,6 @@ interface VisualizationData {
   col_labels?: string[];
   metadata?: any;
   error?: string;
-  demoMatrix?: {
-    matrix: number[][];
-    rowLabels: string[];
-    colLabels: string[];
-    highlights: Array<{col: string; row: string}>;
-  };
 }
 
 interface ImputeSidebarProps {
@@ -49,7 +42,7 @@ interface ImputeSidebarProps {
   onVisualizationData?: (data: VisualizationData) => void;
 }
 
-const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizationData }) => {
+const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
   const [inputPath, setInputPath] = useState<string>('');
   const [outputPath, setOutputPath] = useState<string>('output_imputed.bed');
   const [model, setModel] = useState<string>('knn');
@@ -61,10 +54,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
   const [diploid, setDiploid] = useState<boolean>(false);
   const [collapseBed, setCollapseBed] = useState<boolean>(false);
   const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [isDemoRunning, setIsDemoRunning] = useState<boolean>(false);
   const [result, setResult] = useState<ImputeResult | null>(null);
-  const [demoSamples, setDemoSamples] = useState<number>(50);
-  const [demoPositions, setDemoPositions] = useState<number>(5000);
   const [gpuAdapters, setGpuAdapters] = useState<AdapterInfo[] | null>(null);
 
   // Check if Nvidia GPU is present
@@ -164,45 +154,6 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
     }
   };
 
-  const runDemo = async () => {
-    setIsDemoRunning(true);
-
-    try {
-      // Use Tauri backend to generate parent path visualization data
-      const response = await invoke<VisualizationData>('get_sample_visualization_data', {
-        rows: Math.min(demoSamples, 12), // Keep reasonable for visualization
-        cols: Math.min(demoPositions, 25), // Keep reasonable for visualization
-        seed: Math.floor(Math.random() * 1000)
-      });
-
-      if (onVisualizationData) {
-        onVisualizationData(response);
-      }
-    } catch (error) {
-      console.error('Demo error:', error);
-      alert(`Demo error: ${error}`);
-      
-      // Fallback to local demo generation if Tauri call fails
-      const { matrix, rowLabels, colLabels } = generateRandomMatrix(demoSamples, demoPositions);
-      const highlights = generateRandomHighlights(rowLabels, colLabels);
-
-      const demoData: VisualizationData = {
-        status: 'success',
-        demoMatrix: {
-          matrix,
-          rowLabels,
-          colLabels,
-          highlights
-        }
-      };
-
-      if (onVisualizationData) {
-        onVisualizationData(demoData);
-      }
-    } finally {
-      setIsDemoRunning(false);
-    }
-  };
 
   const resetForm = () => {
     setInputPath('');
@@ -380,60 +331,20 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults, onVisualizatio
       <div className="button-group">
         <button
           onClick={runImputation}
-          disabled={isRunning || !inputPath || isDemoRunning}
+          disabled={isRunning || !inputPath}
           className="run-button"
         >
           {isRunning ? 'Running...' : 'Run Imputation'}
         </button>
         <button
           onClick={resetForm}
-          disabled={isRunning || isDemoRunning}
+          disabled={isRunning}
           className="reset-button"
         >
           Reset
         </button>
       </div>
 
-      <div className="demo-section">
-        <div className="demo-info">
-          <h4>Quick Demo</h4>
-          <p>Generate a demo visualization matrix with configurable dimensions.</p>
-        </div>
-        
-        <div className="demo-config">
-          <div className="input-group">
-            <label>Samples:</label>
-            <input
-              type="number"
-              value={demoSamples}
-              onChange={(e) => setDemoSamples(Math.max(1, parseInt(e.target.value) || 1))}
-              min="1"
-              max="1000"
-              disabled={isRunning || isDemoRunning}
-            />
-          </div>
-          
-          <div className="input-group">
-            <label>Positions:</label>
-            <input
-              type="number"
-              value={demoPositions}
-              onChange={(e) => setDemoPositions(Math.max(1, parseInt(e.target.value) || 1))}
-              min="1"
-              max="50000"
-              disabled={isRunning || isDemoRunning}
-            />
-          </div>
-        </div>
-        
-        <button
-          onClick={runDemo}
-          disabled={isRunning || isDemoRunning}
-          className="demo-button"
-        >
-          {isDemoRunning ? 'Generating Demo...' : `Run Demo (${demoSamples} × ${demoPositions})`}
-        </button>
-      </div>
 
       {result && (
         <div className={`result-section ${result.success ? 'success' : 'error'}`}>

@@ -43,10 +43,7 @@ export const renderFocusChart = (
     .domain(focusRows)
     .range([0, innerHeight])
     .padding(0);
-  const colorScale = d3
-    .scaleOrdinal<string>()
-    .domain(["0", "1"])
-    .range(["#d3d3d3", "#4a4a4a"]);
+  // Color scale removed - using highlight-based coloring instead
 
   const nCols = focusCols.length;
   const nRows = focusRows.length;
@@ -106,10 +103,10 @@ export const renderFocusChart = (
   }
 
   // Axes
-  renderAxes(focusG, xScale, yScale, nCols, nRows);
+  renderAxes(focusG, xScale, yScale);
 
   // Hover interactions
-  addHoverInteractions(focusG, cells, xScale, yScale, innerWidth, innerHeight, nCols, nRows, neon);
+  addHoverInteractions(focusG, cells, xScale, yScale, neon);
 };
 
 const renderGridLines = (
@@ -153,11 +150,9 @@ const renderGridLines = (
 const renderAxes = (
   focusG: d3.Selection<SVGGElement, unknown, null, undefined>,
   xScale: d3.ScaleBand<string>,
-  yScale: d3.ScaleBand<string>,
-  nCols: number,
-  nRows: number
+  yScale: d3.ScaleBand<string>
 ) => {
-  // X axis
+  // X axis - show all labels
   focusG
     .append("g")
     .attr("class", "axis x-axis")
@@ -165,18 +160,13 @@ const renderAxes = (
       d3
         .axisTop(xScale)
         .tickSize(0)
-        .tickValues(
-          xScale
-            .domain()
-            .filter((_, i) => i % Math.max(1, Math.ceil(nCols / 8)) === 0)
-        )
     )
     .selectAll("text")
     .attr("transform", "translate(5,-5) rotate(-90)")
     .style("text-anchor", "start")
     .style("font-size", "10px");
 
-  // Y axis
+  // Y axis - show all labels
   focusG
     .append("g")
     .attr("class", "axis y-axis")
@@ -184,11 +174,6 @@ const renderAxes = (
       d3
         .axisLeft(yScale)
         .tickSize(0)
-        .tickValues(
-          yScale
-            .domain()
-            .filter((_, i) => i % Math.max(1, Math.ceil(nRows / 3)) === 0)
-        )
     )
     .selectAll("text")
     .style("font-size", "10px");
@@ -199,10 +184,6 @@ const addHoverInteractions = (
   cells: d3.Selection<SVGRectElement, DataPoint, SVGGElement, unknown>,
   xScale: d3.ScaleBand<string>,
   yScale: d3.ScaleBand<string>,
-  innerWidth: number,
-  innerHeight: number,
-  nCols: number,
-  nRows: number,
   neon: string
 ) => {
   const tooltip = d3.select("body").select(".matrix-tooltip");
@@ -232,11 +213,11 @@ const addHoverInteractions = (
       const yAxis = focusG.select(".y-axis");
       
       // Find or create the specific row and column labels if they don't exist
-      let colLabel = xAxis.selectAll("text").filter(function() {
+      let colLabel = xAxis.selectAll<SVGTextElement, unknown>("text").filter(function() {
         return d3.select(this).text() === dataPoint.col;
       });
       
-      let rowLabel = yAxis.selectAll("text").filter(function() {
+      let rowLabel = yAxis.selectAll<SVGTextElement, unknown>("text").filter(function() {
         return d3.select(this).text() === dataPoint.row;
       });
       

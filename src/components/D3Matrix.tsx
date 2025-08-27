@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import { D3MatrixProps, Interval } from "./types";
+import { D3MatrixProps } from "./types";
 import { createTooltip } from "./tooltip";
 import { renderFocusChart } from "./FocusChart";
-import { renderContextCharts } from "./ContextCharts";
 import { calculateDimensions } from "./utils";
 
 const D3Matrix: React.FC<D3MatrixProps> = ({
@@ -15,7 +14,6 @@ const D3Matrix: React.FC<D3MatrixProps> = ({
   margin = { top: 20, right: 5, bottom: 5, left: 80 },
   maxVisibleRows = 20,
   maxVisibleCols = 40,
-  contextSize = 50,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -24,61 +22,37 @@ const D3Matrix: React.FC<D3MatrixProps> = ({
     createTooltip();
   }, []);
 
-  // Focus intervals
-  const [xInterval, setXInterval] = useState<Interval>({
-    start: 0,
-    end: Math.min(colLabels.length, maxVisibleCols),
-  });
-  const [yInterval, setYInterval] = useState<Interval>({
-    start: 0,
-    end: Math.min(rowLabels.length, maxVisibleRows),
-  });
-
-  const { innerWidth, innerHeight, totalWidth, totalHeight } = calculateDimensions(
-    maxVisibleRows,
-    maxVisibleCols,
+  const { totalWidth, totalHeight } = calculateDimensions(
+    rowLabels.length,
+    colLabels.length,
     cellSize,
-    margin,
-    contextSize
+    margin
   );
 
-  // Draw main (focus) chart when intervals change
+  // Draw main (focus) chart when data changes
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
+    
+    // Since we're now getting pre-filtered data, use full intervals
+    const fullXInterval = { start: 0, end: colLabels.length };
+    const fullYInterval = { start: 0, end: rowLabels.length };
+    
     renderFocusChart(
       svg,
       data,
       rowLabels,
       colLabels,
-      xInterval,
-      yInterval,
+      fullXInterval,
+      fullYInterval,
       cellSize,
       margin,
-      maxVisibleRows,
-      maxVisibleCols,
+      rowLabels.length,
+      colLabels.length,
       highlightData
     );
-  }, [data, xInterval, yInterval, rowLabels, colLabels, cellSize, margin, maxVisibleRows, maxVisibleCols, highlightData]);
+  }, [data, rowLabels, colLabels, cellSize, margin, maxVisibleRows, maxVisibleCols, highlightData]);
 
-  // Draw contexts & brushes once
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    renderContextCharts(
-      svg,
-      rowLabels,
-      colLabels,
-      xInterval,
-      yInterval,
-      setXInterval,
-      setYInterval,
-      margin,
-      innerWidth,
-      innerHeight,
-      contextSize
-    );
-  }, [rowLabels, colLabels, innerWidth, innerHeight, contextSize, margin, maxVisibleRows, maxVisibleCols]);
 
   return <svg ref={svgRef} width={totalWidth} height={totalHeight} />;
 };
