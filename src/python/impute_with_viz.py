@@ -52,7 +52,7 @@ def parse_bed_file(bed_file_path):
                 # Create position identifier from chrom_idx and pos
                 chrom_idx = parts[0]
                 pos = parts[1]
-                pos_name = f"Chr{chrom_idx}_{pos}"
+                pos_name = f"ChrIdx{chrom_idx}_{pos}"
                 positions.append(pos_name)
                 
                 # Extract parent information (columns 2 and 3 are parent1 and parent2)
@@ -216,8 +216,8 @@ def run_imputation_with_visualization(args):
         
         # Return the results in the expected format
         result = {
-            'success': True,
-            'message': 'Imputation and visualization completed successfully',
+            'success': imputation_success,
+            'message': 'Imputation and visualization completed successfully' if imputation_success else 'Imputation had issues but output file was processed for visualization',
             'output_file': str(args.output) if args.output.exists() else None,
             'visualization_data': visualization_data
         }

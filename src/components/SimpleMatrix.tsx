@@ -20,7 +20,7 @@ const SimpleMatrix: React.FC<SimpleMatrixProps> = ({
   colLabels,
   highlightData,
   cellSize = 15,
-  margin = { top: 20, right: 5, bottom: 5, left: 80 },
+  margin = { top: 100, right: 5, bottom: 5, left: 80 },
   maxVisibleRows = 20,
   maxVisibleCols = 40,
 }) => {

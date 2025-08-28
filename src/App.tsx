@@ -102,47 +102,47 @@ function App() {
         </div>
         <div className="visualization-container">
           {visualizationData && visualizationData.status === 'success' ? (
-            <div style={{ padding: '1rem' }}>
-              <div style={{ marginBottom: '2rem', background: '#d4edda', padding: '1rem', borderRadius: '0.25rem', border: '1px solid #c3e6cb' }}>
-                <h3 style={{ margin: '0 0 0.5rem 0', color: '#155724' }}>
+            <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <div style={{ marginBottom: '1rem', background: '#d4edda', padding: '0.75rem', borderRadius: '0.25rem', border: '1px solid #c3e6cb', flexShrink: 0 }}>
+                <h3 style={{ margin: '0 0 0.25rem 0', color: '#155724', fontSize: '1rem' }}>
                   ✓ Imputation Results Loaded!
                 </h3>
-                <div style={{ fontSize: '0.875rem', color: '#155724' }}>
+                <div style={{ fontSize: '0.75rem', color: '#155724' }}>
                   {visualizationData.matrix && (
                     <>
-                      <p style={{ margin: '0' }}>
-                        <strong>Matrix Shape:</strong> {visualizationData.matrix.shape.join(' × ')} 
-                        <span style={{ marginLeft: '1rem' }}><strong>Data Type:</strong> {visualizationData.matrix.dtype}</span>
-                      </p>
-                      {visualizationData.metadata && (
-                        <p style={{ margin: '0.5rem 0 0 0' }}>
-                          <strong>Type:</strong> {visualizationData.metadata.type || 'Imputation results'}
-                          {visualizationData.metadata.description && (
-                            <span style={{ marginLeft: '1rem' }}>{visualizationData.metadata.description}</span>
-                          )}
-                        </p>
+                      <span>
+                        <strong>Matrix:</strong> {visualizationData.matrix.shape.join(' × ')} 
+                        <span style={{ marginLeft: '0.75rem' }}><strong>Type:</strong> {visualizationData.matrix.dtype}</span>
+                      </span>
+                      {matrixData && (
+                        <span style={{ marginLeft: '0.75rem' }}>
+                          <strong>Displayed:</strong> {matrixData.matrix.length} × {matrixData.matrix[0]?.length || 0}
+                        </span>
                       )}
                     </>
-                  )}
-                  {matrixData && (
-                    <p style={{ margin: '0.5rem 0 0 0' }}>
-                      <strong>Displayed:</strong> {matrixData.matrix.length} × {matrixData.matrix[0]?.length || 0} (full data)
-                    </p>
                   )}
                 </div>
               </div>
               
               {matrixData && (
-                <div style={{ background: '#fff', borderRadius: '0.25rem', border: '1px solid #dee2e6', overflow: 'auto', padding: '1rem' }}>
+                <div style={{ 
+                  background: '#fff', 
+                  borderRadius: '0.25rem', 
+                  border: '1px solid #dee2e6', 
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: 0,
+                  overflow: 'hidden'
+                }}>
                   <InteractiveMatrix
                     data={matrixData.matrix}
                     rowLabels={matrixData.rowLabels}
                     colLabels={matrixData.colLabels}
                     highlightData={matrixData.highlights}
-                    margin={{ top: 80, right: 20, bottom: 80, left: 120 }}
+                    margin={{ top: 120, right: 20, bottom: 80, left: 120 }}
                     maxVisibleRows={15}
                     maxVisibleCols={30}
-                    cellSize={20}
                   />
                 </div>
               )}

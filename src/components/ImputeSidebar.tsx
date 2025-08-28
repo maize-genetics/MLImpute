@@ -22,6 +22,14 @@ interface ImputeResult {
   message: string;
   output_file?: string;
   execution_time?: number;
+  visualization_data?: string;
+}
+
+interface BedProcessResult {
+  success: boolean;
+  message: string;
+  visualization_data?: string;
+  error?: string;
 }
 
 interface VisualizationData {
@@ -48,6 +56,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
   const [model, setModel] = useState<string>('knn');
   const [weight, setWeight] = useState<string>('global');
   const [globalWeights, setGlobalWeights] = useState<string>('');
+  const [bedFilePath, setBedFilePath] = useState<string>('');
   const [collapse, setCollapse] = useState<boolean>(false);
   const [verbose, setVerbose] = useState<boolean>(false);
   const [hmm, setHmm] = useState<boolean>(false);
@@ -154,6 +163,59 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
     }
   };
 
+  const processBedFile = async () => {
+    if (!bedFilePath) {
+      alert('Please select a BED file');
+      return;
+    }
+
+    setIsRunning(true);
+    setResult(null);
+
+    try {
+      const response = await invoke<BedProcessResult>('process_bed_file', { filePath: bedFilePath });
+      
+      if (response.success && response.visualization_data) {
+        // Parse the nested JSON structure
+        const vizResult = JSON.parse(response.visualization_data);
+        
+        // Convert back to string for the same flow as regular imputation
+        const bedResult: ImputeResult = {
+          success: true,
+          message: response.message,
+          visualization_data: JSON.stringify(vizResult.visualization_data),
+        };
+        setResult(bedResult);
+        
+        // Use the same flow as regular imputation - this will handle validation
+        if (onResults) {
+          onResults(bedResult);
+        }
+      } else {
+        const errorResult: ImputeResult = {
+          success: false,
+          message: response.message || 'Failed to process BED file',
+        };
+        setResult(errorResult);
+        
+        if (onResults) {
+          onResults(errorResult);
+        }
+      }
+    } catch (error) {
+      const errorResult: ImputeResult = {
+        success: false,
+        message: `Error processing BED file: ${error}`,
+      };
+      setResult(errorResult);
+      
+      if (onResults) {
+        onResults(errorResult);
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
   const resetForm = () => {
     setInputPath('');
@@ -161,6 +223,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
     setModel('knn');
     setWeight('global');
     setGlobalWeights('');
+    setBedFilePath('');
     setCollapse(false);
     setVerbose(false);
     setHmm(false);
@@ -222,6 +285,47 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="form-section">
+        <h3>BED File Visualization</h3>
+        <p className="section-description">Upload an existing BED file to visualize directly</p>
+        
+        <div className="input-group">
+          <label>BED File:</label>
+          <div className="file-input">
+            <input
+              type="text"
+              value={bedFilePath}
+              onChange={(e) => setBedFilePath(e.target.value)}
+              placeholder="Select BED file..."
+              readOnly
+            />
+            <button
+              onClick={() => selectFile(setBedFilePath, 'Select BED File', [
+                { name: 'BED Files', extensions: ['bed'] },
+                { name: 'All Files', extensions: ['*'] }
+              ])}
+              disabled={isRunning}
+            >
+              Browse
+            </button>
+          </div>
+        </div>
+
+        <div className="button-group">
+          <button
+            onClick={processBedFile}
+            disabled={isRunning || !bedFilePath}
+            className="run-button bed-button"
+          >
+            {isRunning ? 'Processing...' : 'Load BED Visualization'}
+          </button>
+        </div>
+      </div>
+
+      <div className="divider">
+        <span>OR</span>
       </div>
 
       <div className="form-section">

@@ -37,6 +37,39 @@
   color: #495057;
 }
 
+.section-description {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: #e9ecef;
+  margin: 0;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.divider span {
+  background: #e9ecef;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6c757d;
+}
+
+.bed-button {
+  background: #17a2b8 !important;
+}
+
+.bed-button:hover:not(:disabled) {
+  background: #138496 !important;
+}
+
 .input-group {
   margin-bottom: 1rem;
 }

@@ -152,7 +152,7 @@ const renderAxes = (
   xScale: d3.ScaleBand<string>,
   yScale: d3.ScaleBand<string>
 ) => {
-  // X axis - show all labels
+  // X axis - show all labels with monospaced font
   focusG
     .append("g")
     .attr("class", "axis x-axis")
