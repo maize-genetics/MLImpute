@@ -143,7 +143,6 @@ function App() {
                     maxVisibleRows={15}
                     maxVisibleCols={30}
                     cellSize={20}
-                    showBrushes={true}
                   />
                 </div>
               )}

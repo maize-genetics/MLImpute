@@ -36,7 +36,7 @@ const AdvancedControls: React.FC<AdvancedControlsProps> = ({
           onClick={() => setIsOpen(!isOpen)}
         >
           <span className="dropdown-icon">▶</span>
-          Advanced Controls
+          Navigation Controls
         </button>
         
         <div className="controls-info">

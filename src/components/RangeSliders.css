@@ -22,11 +22,17 @@
   font-weight: 600;
 }
 
+.range-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
 .range-info {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  gap: 1rem;
   font-size: 0.75rem;
   color: #6c757d;
 }
@@ -127,6 +133,53 @@
   background: #545b62;
 }
 
+/* D3 Range Slider specific styles */
+.d3-range-slider {
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
+.d3-range-slider .brush .selection {
+  stroke: #2563eb;
+  stroke-width: 2px;
+  fill: #3b82f6;
+  fill-opacity: 0.2;
+}
+
+.d3-range-slider .brush .handle {
+  fill: #1f2937;
+  stroke: #ffffff;
+  stroke-width: 2px;
+  cursor: ew-resize;
+}
+
+.d3-range-slider .brush .handle:hover {
+  fill: #374151;
+}
+
+.d3-range-slider .axis {
+  font-size: 11px;
+  color: #374151;
+}
+
+.d3-range-slider .axis .domain {
+  stroke: #d1d5db;
+}
+
+.d3-range-slider .axis .tick line {
+  stroke: #d1d5db;
+}
+
+.d3-range-slider .track-background {
+  fill: #e1e5e9;
+}
+
+.d3-range-slider .range-label {
+  font-size: 12px;
+  font-weight: 600;
+  fill: #374151;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .range-controls {
@@ -137,5 +190,21 @@
   
   .range-input-group {
     min-width: unset;
+  }
+
+  .d3-range-slider {
+    width: 100%;
+  }
+  
+  .range-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .range-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 }
