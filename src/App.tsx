@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import "./App.css";
 import ImputeSidebar from "./components/ImputeSidebar";
 import InteractiveMatrix from "./components/InteractiveMatrix";
@@ -28,6 +28,9 @@ interface VisualizationData {
 function App() {
   const [imputeResults, setImputeResults] = useState<ImputeResult | null>(null);
   const [visualizationData, setVisualizationData] = useState<VisualizationData | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(320);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+  const resizeRef = useRef<HTMLDivElement>(null);
 
   const handleImputeResults = (results: ImputeResult) => {
     setImputeResults(results);
@@ -67,6 +70,45 @@ function App() {
     setVisualizationData(data);
   };
 
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    
+    const newWidth = Math.max(200, Math.min(600, e.clientX));
+    setSidebarWidth(newWidth);
+  }, [isResizing]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+
+  // Add event listeners for mouse events
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+
   // Prepare matrix data for D3Matrix component
   const matrixData = useMemo(() => {
     if (visualizationData && visualizationData.status === 'success') {
@@ -82,10 +124,23 @@ function App() {
 
   return (
     <div className="app">
-      <ImputeSidebar 
-        onResults={handleImputeResults} 
-        onVisualizationData={handleVisualizationData}
-      />
+      <div 
+        className="sidebar-container"
+        style={{ 
+          width: `${sidebarWidth}px`,
+          transition: isResizing ? 'none' : 'width 0.3s ease'
+        }}
+      >
+        <ImputeSidebar 
+          onResults={handleImputeResults} 
+          onVisualizationData={handleVisualizationData}
+        />
+        <div 
+          className={`resize-handle ${isResizing ? 'resizing' : ''}`}
+          onMouseDown={handleMouseDown}
+          ref={resizeRef}
+        />
+      </div>
       <main className="main-content">
         <div className="main-header">
           <h1>ML Imputation Visualization</h1>

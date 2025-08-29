@@ -1,8 +1,7 @@
 .impute-sidebar {
-  width: 320px;
+  width: 100%;
   height: 100vh;
   background: #f8f9fa;
-  border-right: 1px solid #dee2e6;
   overflow-y: auto;
   padding: 0;
   box-sizing: border-box;
