@@ -137,6 +137,7 @@
 .d3-range-slider {
   width: 100%;
   margin: 0.5rem 0;
+  overflow: visible; /* Ensure slider content isn't clipped */
 }
 
 .d3-range-slider .brush .selection {

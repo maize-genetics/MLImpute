@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Interval } from './types';
 import D3RangeSlider from './D3RangeSlider';
 import './RangeSliders.css';
@@ -24,6 +24,30 @@ const RangeSliders: React.FC<RangeSlidersProps> = ({
   colLabels,
   rowLabels,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(500);
+
+  // Monitor container size to make sliders responsive
+  useEffect(() => {
+    const updateContainerWidth = () => {
+      if (containerRef.current) {
+        const width = containerRef.current.offsetWidth;
+        // Reserve space for padding and margins
+        const availableWidth = Math.max(300, width - 40); // minimum 300px, subtract 40px for padding
+        setContainerWidth(availableWidth);
+      }
+    };
+
+    updateContainerWidth();
+    
+    const resizeObserver = new ResizeObserver(updateContainerWidth);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
   const resetXRange = () => {
     onXIntervalChange({ start: 0, end: Math.min(maxCols, colLabels.length) });
   };
@@ -33,7 +57,7 @@ const RangeSliders: React.FC<RangeSlidersProps> = ({
   };
 
   return (
-    <div className="range-sliders">
+    <div ref={containerRef} className="range-sliders">
       <div className="range-section">
         <div className="range-header">
           <h4>Position Range</h4>
@@ -49,7 +73,7 @@ const RangeSliders: React.FC<RangeSlidersProps> = ({
           max={colLabels.length}
           range={xInterval}
           onChange={onXIntervalChange}
-          width={500}
+          width={containerWidth}
           height={80}
           className="x-range-slider"
         />
@@ -70,7 +94,7 @@ const RangeSliders: React.FC<RangeSlidersProps> = ({
           max={rowLabels.length}
           range={yInterval}
           onChange={onYIntervalChange}
-          width={500}
+          width={containerWidth}
           height={80}
           className="y-range-slider"
         />

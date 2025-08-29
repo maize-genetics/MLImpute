@@ -6,6 +6,8 @@
   height: 100%;
   align-items: center;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .matrix-container {
@@ -15,6 +17,7 @@
   gap: 10px;
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 
 .matrix-wrapper {
@@ -24,13 +27,14 @@
   background: white;
   border: 1px solid #e1e5e9;
   border-radius: 4px;
-  padding: 10px;
+  padding: 0;
+  margin: 0;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   flex: 1;
   min-height: 400px;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .matrix-info {

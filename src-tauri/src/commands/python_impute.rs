@@ -109,6 +109,15 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             
+            // Filter stderr to only include log messages with [INFO], [WARNING], or [ERROR] prefixes
+            let filtered_stderr = stderr
+                .lines()
+                .filter(|line| {
+                    line.contains("[INFO]") || line.contains("[WARNING]") || line.contains("[ERROR]")
+                })
+                .collect::<Vec<&str>>()
+                .join("\n");
+            
             // First, try to parse the JSON response from Python to get the actual success status
             let parsed_result = if !stdout.trim().is_empty() {
                 match serde_json::from_str::<serde_json::Value>(&stdout) {
@@ -149,7 +158,11 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
                 
                 Ok(ImputeResult {
                     success: true,
-                    message: format!("{}.\n\nSTDOUT:\n{}\n\nSTDERR:\n{}", message, stdout, stderr),
+                    message: if filtered_stderr.trim().is_empty() {
+                        message.to_string()
+                    } else {
+                        format!("{}\n\nPYTHON_LOGS:\n{}", message, filtered_stderr)
+                    },
                     output_file: if output_path_exists { Some(args.output_path) } else { None },
                     execution_time: Some(execution_time),
                     visualization_data,
@@ -157,15 +170,23 @@ pub async fn run_python_imputation(args: ImputeArgs) -> Result<ImputeResult, Str
             } else {
                 // Get the error message from JSON response if available, otherwise use process error
                 let error_message = if !output.status.success() {
-                    format!("Imputation failed with exit code {}.\n\nSTDOUT:\n{}\n\nSTDERR:\n{}", 
-                           output.status.code().unwrap_or(-1), stdout, stderr)
+                    if filtered_stderr.trim().is_empty() {
+                        format!("Imputation failed with exit code {}", output.status.code().unwrap_or(-1))
+                    } else {
+                        format!("Imputation failed with exit code {}.\n\nPYTHON_LOGS:\n{}", 
+                               output.status.code().unwrap_or(-1), filtered_stderr)
+                    }
                 } else {
                     // Process succeeded but JSON indicates failure
                     let json_message = parsed_result.as_ref()
                         .and_then(|json| json.get("message"))
                         .and_then(|msg| msg.as_str())
                         .unwrap_or("Imputation failed");
-                    format!("{}.\n\nSTDOUT:\n{}\n\nSTDERR:\n{}", json_message, stdout, stderr)
+                    if filtered_stderr.trim().is_empty() {
+                        json_message.to_string()
+                    } else {
+                        format!("{}\n\nPYTHON_LOGS:\n{}", json_message, filtered_stderr)
+                    }
                 };
                 
                 Ok(ImputeResult {

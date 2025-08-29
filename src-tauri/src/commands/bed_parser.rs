@@ -91,43 +91,53 @@ fn parse_bed_file(file_path: &str) -> Result<Vec<BedRow>, String> {
 }
 
 fn bed_to_matrix(bed_data: Vec<BedRow>) -> Result<(VisualizationData, Vec<HighlightData>), String> {
-    // Collect unique positions and parents
-    let mut positions = HashSet::new();
+    // Collect unique positions (chrom_idx, pos pairs) and unique parents from parent1 and parent2 columns
+    let mut position_pairs = HashSet::new();
     let mut parents = HashSet::new();
     
     for row in &bed_data {
-        positions.insert(format!("{}:{}", row.chrom_idx, row.pos));
+        // Store as (chrom_idx, pos) pair for proper numeric sorting
+        position_pairs.insert((row.chrom_idx, row.pos));
+        // Collect all unique entries from parent1 and parent2 columns
         parents.insert(row.parent1.clone());
         parents.insert(row.parent2.clone());
     }
     
-    let mut pos_labels: Vec<String> = positions.into_iter().collect();
-    pos_labels.sort();
+    // Sort positions numerically by chrom_idx first, then by pos
+    let mut sorted_positions: Vec<(i32, i64)> = position_pairs.into_iter().collect();
+    sorted_positions.sort_by(|a, b| {
+        a.0.cmp(&b.0).then(a.1.cmp(&b.1))
+    });
     
-    let mut col_labels: Vec<String> = parents.into_iter().collect();
-    col_labels.sort();
+    // Create column labels with proper ChrIdx format
+    let col_labels: Vec<String> = sorted_positions.iter()
+        .map(|(chrom_idx, pos)| format!("ChrIdx{}_{}", chrom_idx, pos))
+        .collect();
+    
+    let mut row_labels: Vec<String> = parents.into_iter().collect();
+    row_labels.sort();
     
     // Create position and parent lookup maps
-    let pos_to_idx: HashMap<String, usize> = pos_labels.iter()
+    let pos_to_idx: HashMap<String, usize> = col_labels.iter()
         .enumerate()
         .map(|(i, pos)| (pos.clone(), i))
         .collect();
     
-    let parent_to_idx: HashMap<String, usize> = col_labels.iter()
+    let parent_to_idx: HashMap<String, usize> = row_labels.iter()
         .enumerate()
         .map(|(i, parent)| (parent.clone(), i))
         .collect();
     
-    // Create matrix: rows = parents, cols = positions (transposed for correct visualization)
-    let rows = col_labels.len(); // parents
-    let cols = pos_labels.len(); // positions
+    // Create matrix: rows = unique parents, cols = unique position pairs
+    let rows = row_labels.len(); // unique parents from parent1/parent2 columns
+    let cols = col_labels.len(); // unique chrom_idx/pos pairs
     let mut matrix = vec![0i32; rows * cols];
     
     let mut highlights = Vec::new();
     
     // Populate matrix and create highlights
     for row in bed_data {
-        let pos_label = format!("{}:{}", row.chrom_idx, row.pos);
+        let pos_label = format!("ChrIdx{}_{}", row.chrom_idx, row.pos);
         let pos_idx = pos_to_idx[&pos_label];
         
         // Mark presence for parent1
@@ -136,21 +146,19 @@ fn bed_to_matrix(bed_data: Vec<BedRow>) -> Result<(VisualizationData, Vec<Highli
         
         highlights.push(HighlightData {
             row: row.parent1.clone(),     // row = parent
-            col: pos_label.clone(),       // col = position
+            col: pos_label.clone(),       // col = position  
             parent: "parent1".to_string(),
         });
         
-        // Mark presence for parent2 if different
-        if row.parent1 != row.parent2 {
-            let parent2_idx = parent_to_idx[&row.parent2];
-            matrix[parent2_idx * cols + pos_idx] = 1;
-            
-            highlights.push(HighlightData {
-                row: row.parent2,             // row = parent
-                col: pos_label,               // col = position
-                parent: "parent2".to_string(),
-            });
-        }
+        // Mark presence for parent2 (always create highlight, even if same as parent1)
+        let parent2_idx = parent_to_idx[&row.parent2];
+        matrix[parent2_idx * cols + pos_idx] = 1;
+        
+        highlights.push(HighlightData {
+            row: row.parent2,             // row = parent
+            col: pos_label,               // col = position
+            parent: "parent2".to_string(),
+        });
     }
     
     // Convert matrix to base64 encoded binary format (matching Python pipeline)
@@ -171,8 +179,8 @@ fn bed_to_matrix(bed_data: Vec<BedRow>) -> Result<(VisualizationData, Vec<Highli
             shape: vec![rows, cols],
             dtype: "int32".to_string(),
         },
-        row_labels: col_labels,  // parents are now rows
-        col_labels: pos_labels, // positions are now cols
+        row_labels: row_labels,  // unique parents from parent1/parent2 columns are rows
+        col_labels: col_labels, // unique chrom_idx/pos pairs are columns
         metadata,
     };
     

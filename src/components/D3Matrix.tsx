@@ -52,7 +52,7 @@ const D3Matrix: React.FC<D3MatrixProps> = ({
     containerSize.width,
     containerSize.height,
     margin,
-    25, // minCellSize
+    1, // minCellSize - allow very small cells for dense data
     cellSize || 80 // maxCellSize - use provided cellSize as maximum or default to 80
   );
 

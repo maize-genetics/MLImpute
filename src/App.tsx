@@ -140,7 +140,7 @@ function App() {
                     rowLabels={matrixData.rowLabels}
                     colLabels={matrixData.colLabels}
                     highlightData={matrixData.highlights}
-                    margin={{ top: 120, right: 20, bottom: 80, left: 120 }}
+                    margin={{ top: 140, right: 20, bottom: 40, left: 120 }}
                     maxVisibleRows={15}
                     maxVisibleCols={30}
                   />

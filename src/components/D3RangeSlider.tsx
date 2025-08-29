@@ -250,7 +250,7 @@ const D3RangeSlider: React.FC<D3RangeSliderProps> = (props) => {
         sliderRef.current = null;
       }
     };
-  }, [props.min, props.max, props.width, props.height, props.label]);
+  }, [props.min, props.max, props.width, props.height, props.label, props.className]);
 
   // Update range when it changes externally
   useEffect(() => {

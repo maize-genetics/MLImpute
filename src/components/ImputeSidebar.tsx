@@ -66,6 +66,28 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
   const [result, setResult] = useState<ImputeResult | null>(null);
   const [gpuAdapters, setGpuAdapters] = useState<AdapterInfo[] | null>(null);
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      console.log('Copied to clipboard:', text);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        console.log('Copied to clipboard (fallback):', text);
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed:', fallbackErr);
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
   // Check if Nvidia GPU is present
   const hasNvidiaGpu = () => {
     if (!gpuAdapters || gpuAdapters.length === 0) return false;
@@ -179,11 +201,21 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
         // Parse the nested JSON structure
         const vizResult = JSON.parse(response.visualization_data);
         
+        // Merge highlight data into visualization data metadata for frontend access
+        const vizDataWithHighlights = {
+          ...vizResult.visualization_data,
+          metadata: {
+            ...vizResult.visualization_data.metadata,
+            type: 'bed_file_visualization',
+            highlights: vizResult.highlight_data
+          }
+        };
+        
         // Convert back to string for the same flow as regular imputation
         const bedResult: ImputeResult = {
           success: true,
           message: response.message,
-          visualization_data: JSON.stringify(vizResult.visualization_data),
+          visualization_data: JSON.stringify(vizDataWithHighlights),
         };
         setResult(bedResult);
         
@@ -452,7 +484,35 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
 
       {result && (
         <div className={`result-section ${result.success ? 'success' : 'error'}`}>
-          <h4>{result.success ? 'Success' : 'Error'}</h4>
+          <h4 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            {result.success ? 'Success' : 'Error'}
+            <button
+              onClick={() => {
+                const details = [
+                  result.success ? 'Success' : 'Error',
+                  result.execution_time ? `Completed in ${result.execution_time.toFixed(2)}s` : '',
+                  result.message,
+                  result.output_file ? `Output: ${result.output_file}` : ''
+                ].filter(Boolean).join('\n');
+                copyToClipboard(details);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                padding: '0.25rem',
+                fontSize: '0.75rem',
+                opacity: 0.7,
+                borderRadius: '0.25rem'
+              }}
+              title="Copy to clipboard"
+              onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
+              onMouseOut={(e) => e.currentTarget.style.opacity = '0.7'}
+            >
+              📋
+            </button>
+          </h4>
           {result.execution_time && (
             <p className="execution-time">
               Completed in {result.execution_time.toFixed(2)}s
