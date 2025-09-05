@@ -1,16 +1,15 @@
-import { Dimensions, HighlightData } from "./types";
+import { Dimensions } from "./types";
 
 export const calculateDimensions = (
-  maxVisibleRows: number,
-  maxVisibleCols: number,
+  actualRows: number,
+  actualCols: number,
   cellSize: number,
-  margin: { top: number; right: number; bottom: number; left: number },
-  contextSize: number
+  margin: { top: number; right: number; bottom: number; left: number }
 ): Dimensions => {
-  const innerWidth = maxVisibleCols * cellSize;
-  const innerHeight = maxVisibleRows * cellSize;
-  const totalWidth = innerWidth + margin.left + margin.right + contextSize;
-  const totalHeight = innerHeight + margin.top + margin.bottom + contextSize + 20;
+  const innerWidth = actualCols * cellSize;
+  const innerHeight = actualRows * cellSize;
+  const totalWidth = innerWidth + margin.left + margin.right;
+  const totalHeight = innerHeight + margin.top + margin.bottom;
 
   return {
     innerWidth,
@@ -20,30 +19,60 @@ export const calculateDimensions = (
   };
 };
 
-/**
- * Generates a random binary matrix and corresponding labels
- */
-export function generateRandomMatrix(
-  numRows: number,
-  numCols: number
-): { matrix: number[][]; rowLabels: string[]; colLabels: string[] } {
-  const matrix = Array.from({ length: numRows }, () =>
-    Array.from({ length: numCols }, () => (Math.random() < 0.25 ? 1 : 0))
-  );
-  const rowLabels = Array.from({ length: numRows }, (_, i) => `Sample ${i + 1}`);
-  const colLabels = Array.from({ length: numCols }, (_, j) => `Pos${j + 1}`);
-  return { matrix, rowLabels, colLabels };
-}
+export const calculateResponsiveCellSize = (
+  actualRows: number,
+  actualCols: number,
+  containerWidth: number,
+  containerHeight: number,
+  margin: { top: number; right: number; bottom: number; left: number },
+  minCellSize: number = 1,
+  maxCellSize: number = 80
+): number => {
+  // Calculate available space for the matrix
+  const availableWidth = containerWidth - margin.left - margin.right;
+  const availableHeight = containerHeight - margin.top - margin.bottom;
+  
+  // Calculate cell size based on width and height constraints using actual data dimensions
+  const cellSizeFromWidth = Math.floor(availableWidth / actualCols);
+  const cellSizeFromHeight = Math.floor(availableHeight / actualRows);
+  
+  // Use the smaller dimension to ensure matrix fits in container
+  const optimalCellSize = Math.min(cellSizeFromWidth, cellSizeFromHeight);
+  
+  // Clamp cell size within reasonable bounds
+  // Use a smaller minimum (1px) to allow very dense matrices to still be visible
+  return Math.max(minCellSize, Math.min(maxCellSize, optimalCellSize));
+};
 
-/**
- * Generates random highlighted cells - one per column
- */
-export function generateRandomHighlights(
-  rowLabels: string[],
-  colLabels: string[]
-): HighlightData[] {
-  return colLabels.map(col => ({
-    col,
-    row: rowLabels[Math.floor(Math.random() * rowLabels.length)]
-  }));
-}
+export const calculateResponsiveDimensions = (
+  actualRows: number,
+  actualCols: number,
+  containerWidth: number,
+  containerHeight: number,
+  margin: { top: number; right: number; bottom: number; left: number },
+  minCellSize?: number,
+  maxCellSize?: number
+): Dimensions & { cellSize: number } => {
+  const cellSize = calculateResponsiveCellSize(
+    actualRows,
+    actualCols,
+    containerWidth,
+    containerHeight,
+    margin,
+    minCellSize,
+    maxCellSize
+  );
+  
+  const dimensions = calculateDimensions(
+    actualRows,
+    actualCols,
+    cellSize,
+    margin
+  );
+  
+  return {
+    ...dimensions,
+    cellSize,
+  };
+};
+

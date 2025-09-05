@@ -2316,6 +2316,7 @@ dependencies = [
 name = "ml_impute"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "pollster",
  "serde",
  "serde_json",

@@ -11,9 +11,9 @@ pub fn run() {
     // Commands
     .invoke_handler(tauri::generate_handler![
       commands::gpu::gpu_adapters,
-      commands::visualization_data::get_sample_visualization_data,
       commands::visualization_data::run_imputation_visualization,
       commands::python_impute::run_python_imputation,
+      commands::bed_parser::process_bed_file,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

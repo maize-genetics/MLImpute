@@ -1,0 +1,139 @@
+.advanced-controls {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.advanced-controls-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.25rem;
+  padding: 0.75rem 1rem;
+  flex-wrap: wrap;
+}
+
+.dropdown-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s ease;
+  flex: 1;
+  min-width: 200px;
+}
+
+.dropdown-toggle:hover {
+  color: #007bff;
+}
+
+.dropdown-toggle.open {
+  color: #007bff;
+}
+
+.dropdown-icon {
+  font-size: 0.75rem;
+  transition: transform 0.2s ease;
+  width: 12px;
+  display: inline-block;
+}
+
+.dropdown-toggle.open .dropdown-icon {
+  transform: rotate(90deg);
+}
+
+.controls-info {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #6c757d;
+  font-family: monospace;
+  background: #e9ecef;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  margin-left: auto;
+}
+
+.reset-view-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.reset-view-button:hover {
+  background: #5a6268;
+  transform: translateY(-1px);
+}
+
+.reset-view-button:active {
+  background: #545b62;
+  transform: translateY(0);
+}
+
+.reset-icon {
+  font-size: 0.875rem;
+  font-weight: bold;
+}
+
+.dropdown-content {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 0.25rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .advanced-controls-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  
+  .dropdown-toggle {
+    min-width: unset;
+    justify-content: center;
+  }
+  
+  .controls-info {
+    margin-left: 0;
+    text-align: center;
+  }
+  
+  .reset-view-button {
+    align-self: center;
+    width: fit-content;
+  }
+}

@@ -7,7 +7,6 @@ export interface D3MatrixProps {
   margin?: { top: number; right: number; bottom: number; left: number };
   maxVisibleRows?: number;
   maxVisibleCols?: number;
-  contextSize?: number;
 }
 
 export interface HighlightData {
