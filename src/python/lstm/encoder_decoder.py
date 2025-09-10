@@ -13,22 +13,23 @@ import numpy as np
 import time
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, emb_dim, hid_dim, n_layers, dropout, device):
+    def __init__(self, emb_dim, hid_dim, n_layers, dropout, device):
         super().__init__()
         self.hid_dim = hid_dim
         self.n_layers = n_layers
-        self.embedding = nn.Embedding(input_dim, emb_dim)
+        #self.embedding = nn.Embedding(input_dim, emb_dim)
         self.rnn = nn.LSTM(emb_dim, hid_dim, n_layers, dropout=dropout, batch_first=True, bidirectional=True)
         self.dropout = nn.Dropout(dropout)
         self.device = device
 
     def forward(self, src):
         # src dimension (batch size, src len) - this is 2d tensor because it only has token indices.
-        embedded = self.dropout(self.embedding(src))
+        #embedded = self.dropout(self.embedding(src))
+        embedded = self.dropout(src)
         # embedded dimension (batch size, src len, emb dim)
         batch_size = src.shape[0]
-        hidden = torch.zeros(self.n_layers, batch_size, self.hid_dim).to(self.device)
-        cell = torch.zeros(self.n_layers, batch_size, self.hid_dim).to(self.device)
+        hidden = torch.zeros(2 * self.n_layers, batch_size, self.hid_dim).to(self.device)
+        cell = torch.zeros(2 * self.n_layers, batch_size, self.hid_dim).to(self.device)
         outputs, (hidden, cell) = self.rnn(embedded, (hidden, cell))
 
         # outputs dimension (batch size, src len, hid dim * n directions)
@@ -71,8 +72,8 @@ class Seq2Seq(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         self.device = device
-        assert (encoder.hid_dim == 2 * decoder.hid_dim), "Hidden dimensions must match!"
-        assert (encoder.n_layers == decoder.n_layers), "Encoder and decoder must have the same number of layers!"
+        assert (encoder.hid_dim == decoder.hid_dim), "Hidden dimensions must match!"
+        assert (encoder.n_layers * 2 == decoder.n_layers), "Encoder and decoder must have the same number of layers!"
 
     def forward(self, src):
         batch_size = src.shape[0]
@@ -81,8 +82,8 @@ class Seq2Seq(nn.Module):
         outputs = torch.zeros(batch_size, trg_len, trg_vocab_size).to(self.device)
         hidden, cell = self.encoder(src)
         #input = trg[:, 0] # Passing the starting token (SOS)
-        input = torch.LongTensor([0]).to(self.device) # TODO: add SOS/PAD token
-        for t in range(1, trg_len):
+        input = torch.zeros(batch_size, dtype=torch.long).to(self.device) # TODO: add SOS/PAD token
+        for t in range(0, trg_len):
             output, hidden, cell = self.decoder(input, hidden, cell)
             outputs[:, t, :] = output # Predictions upto target length
             top1 = output.argmax(1)

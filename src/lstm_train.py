@@ -79,13 +79,13 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
         model.train()
         epoch_loss = 0
         for batch_idx, batch_data in enumerate(train_loader):
-            batch_data = batch_data.to(model.device)
 
             optimizer.zero_grad()
             with torch.cuda.amp.autocast():
                 B, L, _ = batch_data.shape
                 mask = torch.rand(B, L, device=batch_data.device) < 0.1  # randomly change 10% of input to 0 for training
                 input_masked = batch_data.masked_fill(mask.unsqueeze(-1), 0)
+                input_masked = input_masked.to(model.device)
 
                 output = model(input_masked)
                 loss = criterion(output, batch_data)
@@ -178,8 +178,8 @@ def main():
     # dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, HID_DIM, N_LAYERS, DEC_DROPOUT)
     # model = Seq2Seq(enc, dec, device).to(device)
 
-    encoder = Encoder(input_dim=25, emb_dim=256, hid_dim=512, n_layers=3, dropout=0.5, device=device)
-    decoder = Decoder(output_dim=25, emb_dim=512, hid_dim=1024, n_layers=3, dropout=0.5)
+    encoder = Encoder(emb_dim=25, hid_dim=512, n_layers=3, dropout=0.5, device=device)
+    decoder = Decoder(output_dim=25, emb_dim=512, hid_dim=512, n_layers=6, dropout=0.5)
     model = Seq2Seq(encoder=encoder, decoder=decoder, device=device)
     #model = BiMambaSmooth(input_dim=25, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth, d_conv=4)
     criterion = torch.nn.BCEWithLogitsLoss(reduction="mean")
