@@ -82,13 +82,13 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
 
             optimizer.zero_grad()
             with torch.cuda.amp.autocast():
-                B, L, _ = batch_data.shape
+                B, L, N = batch_data.shape
                 mask = torch.rand(B, L, device=batch_data.device) < 0.1  # randomly change 10% of input to 0 for training
                 input_masked = batch_data.masked_fill(mask.unsqueeze(-1), 0)
                 input_masked = input_masked.to(model.device)
 
                 output = model(input_masked)
-                loss = criterion(output, batch_data, mask)
+                loss = criterion(output, batch_data, mask.unsqueeze(2).repeat(1, 1, N))
                 loss.backward()
 
                 optimizer.step()
