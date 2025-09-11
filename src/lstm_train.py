@@ -88,7 +88,7 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
                 input_masked = input_masked.to(model.device)
 
                 output = model(input_masked)
-                loss = criterion(output, batch_data)
+                loss = criterion(output, batch_data, mask)
                 loss.backward()
 
                 optimizer.step()
@@ -182,7 +182,8 @@ def main():
     decoder = Decoder(output_dim=25, emb_dim=512, hid_dim=512, n_layers=6, dropout=0.5)
     model = Seq2Seq(encoder=encoder, decoder=decoder, device=device)
     #model = BiMambaSmooth(input_dim=25, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth, d_conv=4)
-    criterion = torch.nn.BCEWithLogitsLoss(reduction="mean")
+    #criterion = torch.nn.BCELoss(reduction="mean")
+    criterion = torch.nn.functional.binary_cross_entropy
 
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
