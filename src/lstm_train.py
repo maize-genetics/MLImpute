@@ -83,12 +83,13 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
             optimizer.zero_grad()
             with torch.cuda.amp.autocast():
                 B, L, N = batch_data.shape
-                mask = torch.rand(B, L, device=batch_data.device) < 0.1  # randomly change 10% of input to 0 for training
+                batch_data = batch_data.to(model.device)
+                mask = torch.rand(B, L, device=batch_data.device) < 0.15  # randomly change 15% of input to 0 for training
                 input_masked = batch_data.masked_fill(mask.unsqueeze(-1), 0)
-                input_masked = input_masked.to(model.device)
+                #input_masked = input_masked.to(model.device)
 
                 output = model(input_masked)
-                loss = criterion(output, batch_data, mask.unsqueeze(2).repeat(1, 1, N))
+                loss = criterion(output, batch_data.masked_fill(batch_data > 0, 1), mask.unsqueeze(2).repeat(1, 1, N))
                 loss.backward()
 
                 optimizer.step()
@@ -117,14 +118,14 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
                                    "Step": epoch * len(train_loader) + batch_idx})
                         model.train()
 
-            avg_loss = epoch_loss / len(train_loader)
-            print(f"Epoch {epoch + 1}/{epochs}, Average Training Loss: {avg_loss:.4f}")
-            wandb.log({"Epoch Training Loss": avg_loss, "Epoch": epoch + 1})
+        avg_loss = epoch_loss / len(train_loader)
+        print(f"Epoch {epoch + 1}/{epochs}, Average Training Loss: {avg_loss:.4f}")
+        wandb.log({"Epoch Training Loss": avg_loss, "Epoch": epoch + 1})
 
-            # ✅ Save end-of-epoch Model Checkpoint
-            epoch_save_path = os.path.join(save_path, f"{epoch + 1}.pth")
-            torch.save(model.state_dict(), epoch_save_path)
-            wandb.save(epoch_save_path)
+        # ✅ Save end-of-epoch Model Checkpoint
+        epoch_save_path = os.path.join(save_path, f"{epoch + 1}.pth")
+        torch.save(model.state_dict(), epoch_save_path)
+        wandb.save(epoch_save_path)
 
 
 def evaluate(model, dataloader, criterion):
