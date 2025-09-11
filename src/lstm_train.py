@@ -183,7 +183,7 @@ def main():
     model = Seq2Seq(encoder=encoder, decoder=decoder, device=device)
     #model = BiMambaSmooth(input_dim=25, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth, d_conv=4)
     #criterion = torch.nn.BCELoss(reduction="mean")
-    criterion = torch.nn.functional.binary_cross_entropy
+    criterion = torch.nn.functional.binary_cross_entropy_with_logits
 
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
