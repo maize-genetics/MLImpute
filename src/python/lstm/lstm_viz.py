@@ -4,6 +4,8 @@ import os
 import argparse
 from encoder_decoder import Encoder, Decoder, Seq2Seq, WindowIndexDataset
 from pathlib import Path
+from torch.nn.functional import sigmoid
+
 
 def gather_npy_paths(root_dir):
     return [
@@ -13,7 +15,7 @@ def gather_npy_paths(root_dir):
     ]
 
 
-def visualize_denoising(model, matrix, save_path, window_start=0, window_size=512, device="cuda"):
+def visualize_denoising(model, matrix, save_path):
     """
     matrix: torch.Tensor of shape [num_parents, total_window_size]
     model: trained autoencoder (expects [B, C, L])
@@ -21,31 +23,15 @@ def visualize_denoising(model, matrix, save_path, window_start=0, window_size=51
     window_size: number of positions in the window
     """
 
-    if matrix.dim() == 2:  # [num_parents, total_window_size]
-        matrix = matrix.unsqueeze(0)  # [1, num_parents, total_window_size]
-    elif matrix.dim() == 3:
-        pass  # already [B, num_parents, total_window_size]
-    else:
-        raise ValueError(f"Expected 2D or 3D tensor, got {matrix.shape}")
-
-    print(matrix.shape)
-    # Slice the desired window: [B, num_parents, window_size]
-    window = matrix[:, :, window_start:window_start + window_size]
-
-    print(window.shape)
-    # Permute to [B, window_size, num_parents] for the model forward
-    inp = window.permute(0, 2, 1).to(device)  # [B, 512, 25]
-
-    print(inp.shape)
-
     # Run through model
     with torch.no_grad():
-        out = model(inp).cpu().squeeze(0)  # [num_parents, window_size]
+        out = model(matrix.to(model.device)).cpu().squeeze(0)  # [num_parents, window_size]
 
-    out = (out >= 1.0).float()
+    out = sigmoid(out)
+    #out = (out >= 1.0).float()
 
     # Convert to numpy for plotting
-    inp_np = inp.squeeze(0).cpu().numpy().T
+    inp_np = matrix.masked_fill(matrix > 0, 1).squeeze(0).cpu().numpy().T
     out_np = out.numpy().T
 
     # Plot input vs output stacked vertically
@@ -119,6 +105,7 @@ def main():
     parser.add_argument("--output", "-o", type=Path, required=True, help="Path to output plots.")
     parser.add_argument("--window-size", type=int, default=512, help="Window size for the autoencoder")
     parser.add_argument("--num-classes", type=int, default=25, help="Number of parental haplotypes (classes)")
+    parser.add_argument("--window", type=int, default=1000, help="window to visualize")
 
     args = parser.parse_args()
 
@@ -126,13 +113,13 @@ def main():
     save_path2 = str(args.output) + "_distributions.png"
     # Example usage
 
-    test_paths = gather_npy_paths("training_data/justCML69")
+    test_paths = gather_npy_paths("training_data/test")
 
     test_dataset = WindowIndexDataset(test_paths, window_size=args.window_size, top_n=args.num_classes,
-                                      step_size=args.window_size, return_decode=True)
-    matrix, decode = test_dataset[1000]
+                                      step_size=args.window_size)
+    matrix = test_dataset[args.window]
 
-    matrix = matrix.unsqueeze(0).permute(0, 2, 1)
+    matrix = matrix.unsqueeze(0)
     print(matrix.shape)
 
     # Step 1: Recreate model
@@ -141,8 +128,6 @@ def main():
     encoder = Encoder(emb_dim=25, hid_dim=512, n_layers=3, dropout=0.5, device=device)
     decoder = Decoder(output_dim=25, emb_dim=512, hid_dim=512, n_layers=6, dropout=0.5)
     model = Seq2Seq(encoder=encoder, decoder=decoder, device=device)
-
-    # model = UNet1D(num_parents=25, hidden_dim=128, bottleneck_dim=50, dropout=0.1)
 
     # Step 2: Load weights
 
@@ -155,9 +140,9 @@ def main():
 
     model.to(device)
 
-    visualize_denoising(model, matrix, save_path, window_start=0, window_size=512)
+    visualize_denoising(model, matrix, save_path)
 
-    plot_output_distributions(model, matrix, window_start=0, window_size=512, save_path=save_path2)
+    #plot_output_distributions(model, matrix, window_start=0, window_size=512, save_path=save_path2)
 
 if __name__ == "__main__":
     main()
