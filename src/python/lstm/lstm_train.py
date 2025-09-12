@@ -1,12 +1,11 @@
 import argparse
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 import os
 import wandb
 
-from python.ps4g_io.torch_loaders import WindowIndexDataset, longest_consec
-from python.lstm.encoder_decoder import Encoder, Decoder, Seq2Seq
+from encoder_decoder import Encoder, Decoder, Seq2Seq, WindowIndexDataset
 
 
 def gather_npy_paths(root_dir):
@@ -15,53 +14,6 @@ def gather_npy_paths(root_dir):
         for root, _, files in os.walk(root_dir)
         for f in files if f.endswith(".npy")
     ]
-
-
-class WindowIndexDataset(Dataset):
-    def __init__(self, file_list, window_size=512, top_n=25, step_size=128, return_decode=False):
-        self.entries = []
-        self.window_size = window_size
-        self.top_n = top_n
-        self.step_size = step_size
-        self.return_decode = return_decode
-        for path in file_list:
-            matrix = np.load(path, allow_pickle=True, mmap_mode='r')
-            n_windows = (matrix.shape[0] - window_size) // step_size + 1
-            self.entries.extend([(path, i) for i in range(n_windows)])
-
-    def __len__(self):
-        return len(self.entries)
-
-    def __getitem__(self, idx):
-        path, window_idx = self.entries[idx]
-        matrix = np.load(path, allow_pickle=True, mmap_mode='r')
-        key = path.split("/")[2].split("_")[0]
-
-        weights = np.load(f"training_data/weights/{key}_weights.npy", allow_pickle=True)
-
-        start = window_idx * self.step_size
-        end = start + self.window_size
-        window_matrix_unmasked = matrix[start:end]
-
-        consecutive_hit = longest_consec(window_matrix_unmasked)
-        parent_support = window_matrix_unmasked.sum(axis=0)
-        combined = consecutive_hit + parent_support
-        top_parents = np.argpartition(combined, -self.top_n)[-self.top_n:]
-        top_parents = top_parents[np.argsort(combined[top_parents])[::-1]]
-
-        weights = np.array(weights, dtype=np.float16)
-        weight_vector = weights[top_parents]
-        weighted_window = window_matrix_unmasked[:, top_parents] * weight_vector
-        #unweighted_window = window_matrix_unmasked[:, top_parents]
-
-        if self.return_decode:
-            decode_info = top_parents.tolist()
-            return (
-                torch.tensor(weighted_window, dtype=torch.float32),
-                torch.tensor(decode_info, dtype=torch.int64)
-            )
-        else:
-            return torch.tensor(weighted_window, dtype=torch.float32)
 
 
 def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_path):
@@ -112,9 +64,8 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
                     if (batch_idx + 1) % eval_interval == 0:
                         print(f"Evaluating model at Epoch {epoch + 1}, Batch {batch_idx + 1}")
                         model.eval()
-                        avg_val_loss, snp_accuracy, _ = evaluate(model, test_loader, criterion)
+                        avg_val_loss = evaluate(model, test_loader, criterion)
                         wandb.log({"Mid-Epoch Evaluation Loss": avg_val_loss,
-                                   "Accuracy": snp_accuracy,
                                    "Step": epoch * len(train_loader) + batch_idx})
                         model.train()
 
