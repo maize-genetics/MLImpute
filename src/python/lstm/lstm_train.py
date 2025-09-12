@@ -99,6 +99,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--window_size", type=int, default=512)
     parser.add_argument("--num_classes", type=int, default=25)
+    parser.add_argument("--train-path", type=str, default="training_data/train")
+    parser.add_argument("--test-path", type=str, default="training_data/test")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--d_model", type=int, default=128)
@@ -145,8 +147,8 @@ def main():
     save_path = args.save_path
     os.makedirs(save_path, exist_ok=True)
 
-    train_paths = gather_npy_paths("training_data/train")
-    test_paths = gather_npy_paths("training_data/test")
+    train_paths = gather_npy_paths(args.train_path)
+    test_paths = gather_npy_paths(args.test_path)
 
     train_dataset = WindowIndexDataset(train_paths, window_size=window_size, top_n=num_classes,
                                    step_size=step_size, return_decode=False)
