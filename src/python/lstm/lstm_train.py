@@ -33,41 +33,48 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
         for batch_idx, batch_data in enumerate(train_loader):
 
             optimizer.zero_grad()
-            with torch.cuda.amp.autocast():
-                B, L, N = batch_data.shape
-                batch_data = batch_data.to(model.device)
-                mask = torch.rand(B, L, device=batch_data.device) < 0.15  # randomly change 15% of input to 0 for training
-                input_masked = batch_data.masked_fill(mask.unsqueeze(-1), 0)
-                #input_masked = input_masked.to(model.device)
+            B, L, N = batch_data.shape
+            batch_data = batch_data.to(model.device)
+            mask = torch.rand(B, L, device=batch_data.device) < 0.15  # randomly change 15% of input to 0 for training
+            input_masked = batch_data.masked_fill(mask.unsqueeze(-1), 0)
+            #input_masked = input_masked.to(model.device)
 
-                output = model(input_masked)
-                loss = criterion(output, batch_data.masked_fill(batch_data > 0, 1), mask.unsqueeze(2).repeat(1, 1, N))
-                loss.backward()
+            output = model(input_masked)
+            loss = criterion(output, batch_data.masked_fill(batch_data > 0, 1), mask.unsqueeze(2).repeat(1, 1, N))
+            loss.backward()
 
-                optimizer.step()
+            optimizer.step()
 
-                epoch_loss += loss.item()
+            x = (batch_data[mask.unsqueeze(2).repeat(1, 1, N)] > 0).cpu()
+            y = (output[mask.unsqueeze(2).repeat(1, 1, N)] > 0).cpu()
 
-                wandb.log({"Training Loss": loss.item(), "Step": epoch * len(train_loader) + batch_idx})
+            z = torch.sum(torch.logical_xor(x, y))
 
-                if batch_idx % 1000 == 0:
-                    print(f"Epoch {epoch + 1}/{epochs}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
+            acc = (len(x) - z) / len(x)
 
-                # Save a mid-epoch checkpoint every checkpoint_interval batches
-                if (batch_idx + 1) % checkpoint_interval == 0:
-                    mid_epoch_save_path = os.path.join(save_path, f"epoch_{epoch + 1}_batch_{batch_idx + 1}.pth")
-                    torch.save(model.state_dict(), mid_epoch_save_path)
-                    wandb.save(mid_epoch_save_path)
-                    print(f"Saved mid-epoch checkpoint at Epoch {epoch + 1}, Batch {batch_idx + 1}")
+            epoch_loss += loss.item()
 
-                    # Evaluate the model every eval_interval batches
-                    if (batch_idx + 1) % eval_interval == 0:
-                        print(f"Evaluating model at Epoch {epoch + 1}, Batch {batch_idx + 1}")
-                        model.eval()
-                        avg_val_loss = evaluate(model, test_loader, criterion)
-                        wandb.log({"Mid-Epoch Evaluation Loss": avg_val_loss,
-                                   "Step": epoch * len(train_loader) + batch_idx})
-                        model.train()
+            wandb.log({"Training Loss": loss.item(), "Training Accuracy": acc, "Step": epoch * len(train_loader) + batch_idx})
+
+            if batch_idx % 1000 == 0:
+                print(f"Epoch {epoch + 1}/{epochs}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
+
+            # Save a mid-epoch checkpoint every checkpoint_interval batches
+            if (batch_idx + 1) % checkpoint_interval == 0:
+                mid_epoch_save_path = os.path.join(save_path, f"epoch_{epoch + 1}_batch_{batch_idx + 1}.pth")
+                torch.save(model.state_dict(), mid_epoch_save_path)
+                wandb.save(mid_epoch_save_path)
+                print(f"Saved mid-epoch checkpoint at Epoch {epoch + 1}, Batch {batch_idx + 1}")
+
+                # Evaluate the model every eval_interval batches
+                if (batch_idx + 1) % eval_interval == 0:
+                    print(f"Evaluating model at Epoch {epoch + 1}, Batch {batch_idx + 1}")
+                    model.eval()
+                    avg_val_loss, avg_val_acc = evaluate(model, test_loader, criterion)
+                    wandb.log({"Mid-Epoch Evaluation Loss": avg_val_loss,
+                               "Mid-Epoch Evaluation Accuracy": avg_val_acc,
+                               "Step": epoch * len(train_loader) + batch_idx})
+                    model.train()
 
         avg_loss = epoch_loss / len(train_loader)
         print(f"Epoch {epoch + 1}/{epochs}, Average Training Loss: {avg_loss:.4f}")
@@ -82,6 +89,7 @@ def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_p
 def evaluate(model, dataloader, criterion):
     model.eval()
     epoch_loss = 0
+    epoch_acc = 0
     with torch.no_grad():
         for batch_data in dataloader:
             batch_data = batch_data.to(model.device)
@@ -89,10 +97,14 @@ def evaluate(model, dataloader, criterion):
             loss = criterion(output, batch_data)
             epoch_loss += loss.item()
 
+            z = torch.sum(torch.logical_xor(batch_data > 0, output > 0))
+
+            acc = (batch_data.shape.numel() - z) / batch_data.shape.numel()
+
     avg_loss = epoch_loss / len(dataloader)
-    wandb.log({"Loss": avg_loss})
+    avg_acc = epoch_acc / len(dataloader)
     model.train()
-    return avg_loss
+    return avg_loss, avg_acc
 
 
 def main():
@@ -172,7 +184,7 @@ def main():
 
     # Pass the evaluation arguments to train_model
     train(model, train_loader, test_loader, optimizer, criterion, epochs, save_path)
-    evaluate(model, test_loader, test_matrix, criterion)
+    #evaluate(model, test_loader, test_matrix, criterion)
 
     wandb.finish()
 

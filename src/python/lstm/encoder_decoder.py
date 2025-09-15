@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 import numpy as np
 import numba
+from typing import Optional, Tuple, Union
+from mamba_ssm.modules.mamba_simple import Mamba2
 
 class Encoder(nn.Module):
     def __init__(self, emb_dim, hid_dim, n_layers, dropout, device):
@@ -30,6 +32,64 @@ class Encoder(nn.Module):
         # hidden dimension (n layers * n directions, batch size, hid dim)
         # cell dimension (n layers * n directions, batch size, hid dim)
         return hidden, cell
+
+
+# Adapted from https://github.com/kuleshov-group/caduceus/blob/main/caduceus/modeling_caduceus.py
+class BiMambaWrapper(nn.Module):
+    """Thin wrapper around Mamba to support bi-directionality."""
+
+    def __init__(
+            self,
+            d_model: int,
+            bidirectional: bool = True,
+            bidirectional_strategy: Optional[str] = "add",
+            bidirectional_weight_tie: bool = True,
+            **mamba_kwargs,
+    ):
+        super().__init__()
+        if bidirectional and bidirectional_strategy is None:
+            bidirectional_strategy = "add"  # Default strategy: `add`
+        if bidirectional and bidirectional_strategy not in ["add", "ew_multiply"]:
+            raise NotImplementedError(f"`{bidirectional_strategy}` strategy for bi-directionality is not implemented!")
+        self.bidirectional = bidirectional
+        self.bidirectional_strategy = bidirectional_strategy
+        self.mamba_fwd = Mamba2(
+            d_model=d_model,
+            **mamba_kwargs
+        )
+        if bidirectional:
+            self.mamba_rev = Mamba2(
+                d_model=d_model,
+                **mamba_kwargs
+            )
+            if bidirectional_weight_tie:  # Tie in and out projections (where most of param count lies)
+                self.mamba_rev.in_proj.weight = self.mamba_fwd.in_proj.weight
+                self.mamba_rev.in_proj.bias = self.mamba_fwd.in_proj.bias
+                self.mamba_rev.out_proj.weight = self.mamba_fwd.out_proj.weight
+                self.mamba_rev.out_proj.bias = self.mamba_fwd.out_proj.bias
+        else:
+            self.mamba_rev = None
+
+    def forward(self, hidden_states, inference_params=None):
+        """Bidirectional-enabled forward pass
+
+        hidden_states: (B, L, D)
+        Returns: same shape as hidden_states
+        """
+        out = self.mamba_fwd(hidden_states, inference_params=inference_params)
+        if self.bidirectional:
+            out_rev = self.mamba_rev(
+                hidden_states.flip(dims=(1,)),  # Flip along the sequence length dimension
+                inference_params=inference_params
+            ).flip(dims=(1,))  # Flip back for combining with forward hidden states
+            if self.bidirectional_strategy == "add":
+                out = out + out_rev
+            elif self.bidirectional_strategy == "ew_multiply":
+                out = out * out_rev
+            else:
+                raise NotImplementedError(f"`{self.bidirectional_strategy}` for bi-directionality not implemented!")
+        return out
+
 
 # Note that n directions in our model is 1.
 # Here outputs is the hidden states for all the time steps in top layer of LSTM
@@ -66,8 +126,11 @@ class Seq2Seq(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         self.device = device
-        assert (encoder.hid_dim == decoder.hid_dim), "Hidden dimensions must match!"
-        assert (encoder.n_layers * 2 == decoder.n_layers), "Encoder and decoder must have the same number of layers!"
+
+        # self.fc = nn.Linear(encoder.)
+
+        # assert (encoder.hid_dim == decoder.hid_dim), "Hidden dimensions must match!"
+        # assert (encoder.n_layers * 2 == decoder.n_layers), "Encoder and decoder must have the same number of layers!"
 
     def forward(self, src):
         batch_size = src.shape[0]
