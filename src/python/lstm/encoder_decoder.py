@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import numba
 from typing import Optional, Tuple, Union
-from mamba_ssm.modules.mamba_simple import Mamba2
+from transformers import ModernBertConfig, ModernBertModel
 
 class Encoder(nn.Module):
     def __init__(self, emb_dim, hid_dim, n_layers, dropout, device):
@@ -34,61 +34,46 @@ class Encoder(nn.Module):
         return hidden, cell
 
 
-# Adapted from https://github.com/kuleshov-group/caduceus/blob/main/caduceus/modeling_caduceus.py
-class BiMambaWrapper(nn.Module):
-    """Thin wrapper around Mamba to support bi-directionality."""
-
-    def __init__(
-            self,
-            d_model: int,
-            bidirectional: bool = True,
-            bidirectional_strategy: Optional[str] = "add",
-            bidirectional_weight_tie: bool = True,
-            **mamba_kwargs,
-    ):
+class ModernBERTEncoder(nn.Module):
+    def __init__(self, vocab_size, seq_len, h_out, h_cell, n_layers):
         super().__init__()
-        if bidirectional and bidirectional_strategy is None:
-            bidirectional_strategy = "add"  # Default strategy: `add`
-        if bidirectional and bidirectional_strategy not in ["add", "ew_multiply"]:
-            raise NotImplementedError(f"`{bidirectional_strategy}` strategy for bi-directionality is not implemented!")
-        self.bidirectional = bidirectional
-        self.bidirectional_strategy = bidirectional_strategy
-        self.mamba_fwd = Mamba2(
-            d_model=d_model,
-            **mamba_kwargs
+
+        config = ModernBertConfig(max_position_embeddings=seq_len, hidden_size=vocab_size, num_attention_heads=vocab_size)
+
+        self.vocab_size = vocab_size
+        self.n_layers = n_layers
+
+        self.bert = ModernBertModel(config)
+        self.h_out = h_out
+        self.h_cell = h_cell
+
+        self.bottleneck_hidden = nn.Sequential(
+            nn.Linear(seq_len*vocab_size, seq_len * vocab_size // 2),
+            nn.ReLU(),
+            nn.Linear(seq_len * vocab_size // 2, h_out * n_layers)
         )
-        if bidirectional:
-            self.mamba_rev = Mamba2(
-                d_model=d_model,
-                **mamba_kwargs
-            )
-            if bidirectional_weight_tie:  # Tie in and out projections (where most of param count lies)
-                self.mamba_rev.in_proj.weight = self.mamba_fwd.in_proj.weight
-                self.mamba_rev.in_proj.bias = self.mamba_fwd.in_proj.bias
-                self.mamba_rev.out_proj.weight = self.mamba_fwd.out_proj.weight
-                self.mamba_rev.out_proj.bias = self.mamba_fwd.out_proj.bias
-        else:
-            self.mamba_rev = None
 
-    def forward(self, hidden_states, inference_params=None):
-        """Bidirectional-enabled forward pass
+        self.bottleneck_cell = nn.Sequential(
+            nn.Linear(seq_len * vocab_size, seq_len * vocab_size // 2),
+            nn.ReLU(),
+            nn.Linear(seq_len * vocab_size // 2, h_cell * n_layers)
+        )
 
-        hidden_states: (B, L, D)
-        Returns: same shape as hidden_states
-        """
-        out = self.mamba_fwd(hidden_states, inference_params=inference_params)
-        if self.bidirectional:
-            out_rev = self.mamba_rev(
-                hidden_states.flip(dims=(1,)),  # Flip along the sequence length dimension
-                inference_params=inference_params
-            ).flip(dims=(1,))  # Flip back for combining with forward hidden states
-            if self.bidirectional_strategy == "add":
-                out = out + out_rev
-            elif self.bidirectional_strategy == "ew_multiply":
-                out = out * out_rev
-            else:
-                raise NotImplementedError(f"`{self.bidirectional_strategy}` for bi-directionality not implemented!")
-        return out
+    def forward(self, src):
+        # src dimension (batch size, src len) - this is 2d tensor because it only has token indices.
+        # embedded dimension (batch size, src len, emb dim)
+        batch_size = src.shape[0]
+        bert_out = self.bert(inputs_embeds=src)["last_hidden_state"]
+        cell = self.bottleneck_cell(torch.flatten(bert_out, 1))
+        hidden = self.bottleneck_hidden(torch.flatten(bert_out, 1))
+
+        cell = cell.reshape(batch_size, self.n_layers, self.h_cell).permute(1, 0, 2)
+        hidden = hidden.reshape(batch_size, self.n_layers, self.h_out).permute(1, 0, 2)
+
+        # outputs dimension (batch size, src len, hid dim * n directions)
+        # hidden dimension (n layers * n directions, batch size, hid dim)
+        # cell dimension (n layers * n directions, batch size, hid dim)
+        return hidden, cell
 
 
 # Note that n directions in our model is 1.

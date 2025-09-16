@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 import os
 import wandb
 
-from encoder_decoder import Encoder, Decoder, Seq2Seq, WindowIndexDataset
+from encoder_decoder import Decoder, ModernBERTEncoder, Seq2Seq, WindowIndexDataset
 
 
 def gather_npy_paths(root_dir):
@@ -144,7 +144,10 @@ def main():
     # dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, HID_DIM, N_LAYERS, DEC_DROPOUT)
     # model = Seq2Seq(enc, dec, device).to(device)
 
-    encoder = Encoder(emb_dim=25, hid_dim=512, n_layers=3, dropout=0.5, device=device)
+    h_out = 512
+
+    #encoder = Encoder(emb_dim=25, hid_dim=512, n_layers=3, dropout=0.5, device=device)
+    encoder = ModernBERTEncoder(25, 512, h_out, h_out, 6)
     decoder = Decoder(output_dim=25, emb_dim=512, hid_dim=512, n_layers=6, dropout=0.5)
     model = Seq2Seq(encoder=encoder, decoder=decoder, device=device)
     #model = BiMambaSmooth(input_dim=25, d_model=d_model, num_classes=num_classes, n_layer=num_layers, lambda_smooth=lambda_smooth, d_conv=4)
