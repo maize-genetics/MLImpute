@@ -67,8 +67,8 @@ class ModernBERTEncoder(nn.Module):
         cell = self.bottleneck_cell(torch.flatten(bert_out, 1))
         hidden = self.bottleneck_hidden(torch.flatten(bert_out, 1))
 
-        cell = cell.reshape(batch_size, self.n_layers, self.h_cell).permute(1, 0, 2)
-        hidden = hidden.reshape(batch_size, self.n_layers, self.h_out).permute(1, 0, 2)
+        cell = cell.reshape(batch_size, self.n_layers, self.h_cell).permute(1, 0, 2).contiguous()
+        hidden = hidden.reshape(batch_size, self.n_layers, self.h_out).permute(1, 0, 2).contiguous()
 
         # outputs dimension (batch size, src len, hid dim * n directions)
         # hidden dimension (n layers * n directions, batch size, hid dim)
