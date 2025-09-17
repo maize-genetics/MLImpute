@@ -54,6 +54,10 @@ jobs:
             args: ''
             python_arch: 'x86_64'
             package_suffix: 'cpu'
+          - platform: 'windows-latest'
+            args: ''
+            python_arch: 'x86_64'
+            package_suffix: 'gpu'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -123,9 +127,9 @@ jobs:
             - Self-contained Python runtime
             
             ## Platform Notes
-            - **macOS**: Universal binary (Apple Silicon + Intel)
+            - **macOS**: Universal binary (Apple Silicon + Intel) - CPU only
             - **Linux**: Supports both CPU and GPU variants
-            - **Windows**: CPU-only variant
+            - **Windows**: Supports both CPU and GPU variants
             
             Choose the appropriate variant for your system and GPU requirements.
           releaseDraft: false

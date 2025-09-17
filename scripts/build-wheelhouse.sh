@@ -28,7 +28,7 @@ if command -v pixi &> /dev/null && [[ -z "$PIXI_IN_SHELL" ]]; then
     pixi run python -m pip wheel --wheel-dir "$WHEELHOUSE_DIR" -r requirements.txt
     
     # Optionally build GPU wheels if requested
-    if [[ "$1" == "--gpu" ]] && [[ "$(uname -s)" == "Linux" ]]; then
+    if [[ "$1" == "--gpu" ]] && ([[ "$(uname -s)" == "Linux" ]] || [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == CYGWIN* ]] || [[ "$(uname -s)" == MSYS* ]]); then
         echo "Building GPU-specific wheels..."
         pixi run --environment gpu python -m pip wheel --wheel-dir "$WHEELHOUSE_DIR" -r requirements-gpu.txt
     fi

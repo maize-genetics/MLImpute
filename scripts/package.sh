@@ -44,7 +44,7 @@ usage() {
     echo "Options:"
     echo "  --mode MODE           Build mode: 'debug' or 'release' (default: release)"
     echo "  --platform PLATFORM   Target platform: 'current', 'macos-arm64', 'macos-x64', 'linux-x64' (default: current)"
-    echo "  --gpu                 Include GPU support (Linux only)"
+    echo "  --gpu                 Include GPU support (Linux and Windows)"
     echo "  --skip-python         Skip Python runtime download"
     echo "  --skip-wheelhouse     Skip wheelhouse build"
     echo "  --help                Show this help message"
@@ -53,7 +53,7 @@ usage() {
     echo "  $0                                    # Package for current platform, release mode"
     echo "  $0 --mode debug                       # Package in debug mode"
     echo "  $0 --platform macos-arm64             # Package for macOS ARM64"
-    echo "  $0 --gpu                              # Package with GPU support (Linux)"
+    echo "  $0 --gpu                              # Package with GPU support (Linux/Windows)"
     echo "  $0 --skip-python --skip-wheelhouse    # Skip Python setup, use existing"
 }
 

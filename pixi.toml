@@ -1,7 +1,7 @@
 [project]
 name      = "ml-impute-env-pixi"
 channels  = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
 
 [activation.env]
 PYTHONPATH = "${PIXI_PROJECT_ROOT}/src"
@@ -26,9 +26,9 @@ lightning    = "*"
 tqdm         = "*"
 
 
-# "GPU only" dependencies (only for Linux)
+# "GPU only" dependencies (Linux and Windows)
 [feature.gpu]
-platforms = ["linux-64"]
+platforms = ["linux-64", "win-64"]
 
 [feature.gpu.system-requirements]
 cuda = "12"
