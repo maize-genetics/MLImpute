@@ -98,7 +98,10 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.6.0
         with:
           pixi-version: latest
-          locked: false
+          run-install: false
+
+      - name: Install pixi environment
+        run: pixi install
 
       - name: Build Python wheelhouse (CPU)
         if: matrix.package_suffix == 'cpu'
