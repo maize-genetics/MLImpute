@@ -150,21 +150,18 @@ fi
 
 # Step 5: Build Tauri application
 print_status "Building Tauri application..."
-cd src-tauri
 
 if [[ "$BUILD_MODE" == "debug" ]]; then
-    if ! cargo tauri build --debug; then
+    if ! npm run tauri build -- --debug; then
         print_error "Failed to build Tauri application in debug mode"
         exit 1
     fi
 else
-    if ! cargo tauri build; then
+    if ! npm run tauri build; then
         print_error "Failed to build Tauri application in release mode"
         exit 1
     fi
 fi
-
-cd "$PROJECT_ROOT"
 
 # Step 6: Show build results
 print_status "Build completed successfully!"
@@ -172,9 +169,9 @@ print_status "Artifacts can be found in: src-tauri/target/$BUILD_MODE/"
 
 # List the generated files
 if [[ "$BUILD_MODE" == "release" ]]; then
-    BUNDLE_DIR="src-tauri/target/release/bundle"
+    BUNDLE_DIR="$PROJECT_ROOT/src-tauri/target/release/bundle"
 else
-    BUNDLE_DIR="src-tauri/target/debug/bundle"
+    BUNDLE_DIR="$PROJECT_ROOT/src-tauri/target/debug/bundle"
 fi
 
 if [[ -d "$BUNDLE_DIR" ]]; then
