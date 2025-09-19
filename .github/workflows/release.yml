@@ -34,6 +34,7 @@ jobs:
     needs: create-release
     permissions:
       contents: write
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +70,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Free up disk space (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          # Remove unnecessary packages to free up space
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          # Remove large directories that aren't needed
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          # Show available disk space
+          df -h
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -116,6 +131,18 @@ jobs:
         shell: bash
         env:
           CONDA_OVERRIDE_CUDA: "12.0"
+
+      - name: Clean up temporary files (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          # Clean pixi cache to free up space
+          pixi clean cache
+          # Remove pip cache
+          rm -rf ~/.cache/pip
+          # Clean npm cache
+          npm cache clean --force
+          # Show remaining space
+          df -h
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
