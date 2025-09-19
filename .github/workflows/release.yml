@@ -148,7 +148,7 @@ jobs:
         run: |
           # Find all build artifacts
           echo "Looking for build artifacts..."
-          find src-tauri/target -name "*.deb" -o -name "*.msi" -o -name "*.dmg" -o -name "*.app" | while read -r artifact; do
+          find src-tauri/target -name "*.deb" -o -name "*.msi" -o -name "*.dmg" -o -path "*/bundle/macos/*.app" | while read -r artifact; do
             echo "Found artifact: $artifact"
             original_size=$(du -h "$artifact" | cut -f1)
             echo "Original size: $original_size"
