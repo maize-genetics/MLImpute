@@ -144,61 +144,37 @@ jobs:
           # Show remaining space
           df -h
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          args: ${{ matrix.args }}
-          releaseName: 'MLImpute ${{ github.ref_name }}'
-          releaseBody: |
-            Cross-platform release for MLImpute application
-
-            ## Features
-            - Machine learning-based haplotype imputation
-            - BiMamba state space models
-            - ModernBERT transformer models
-            - HMM-based methods
-            - Interactive matrix visualization
-            - Self-contained Python runtime
-
-            ## Platform Notes
-            - **macOS**: Universal binary (Apple Silicon + Intel) - CPU only
-            - **Linux**: Supports both CPU and GPU variants (compressed .deb.gz files)
-            - **Windows**: Supports both CPU and GPU variants
-
-            ## Installation Notes for Linux
-            For .deb.gz files, decompress first: `gunzip filename.deb.gz` then install: `sudo dpkg -i filename.deb`
-
-            Choose the appropriate variant for your system and GPU requirements.
-          releaseDraft: false
-          prerelease: false
-
-      - name: Compress and re-upload large files (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Compress and upload build artifacts
         run: |
-          # Find large .deb files that were uploaded and compress them
-          find src-tauri/target -name "*.deb" -size +1500M -exec sh -c '
-            for deb; do
-              echo "Found large .deb file: $deb"
-              original_size=$(du -h "$deb" | cut -f1)
-              echo "Original size: $original_size"
+          # Find all build artifacts
+          echo "Looking for build artifacts..."
+          find src-tauri/target -name "*.deb" -o -name "*.msi" -o -name "*.dmg" -o -name "*.app" | while read -r artifact; do
+            echo "Found artifact: $artifact"
+            original_size=$(du -h "$artifact" | cut -f1)
+            echo "Original size: $original_size"
 
-              # Create compressed version
-              gzip -9 "$deb"
-              compressed_file="${deb}.gz"
+            # Check if file is larger than 1.5GB
+            size_bytes=$(du -b "$artifact" | cut -f1)
+            if [ "$size_bytes" -gt 1610612736 ]; then  # 1.5GB in bytes
+              echo "File is large, compressing..."
+              gzip -9 -k "$artifact"  # Keep original and create .gz
+              compressed_file="${artifact}.gz"
               compressed_size=$(du -h "$compressed_file" | cut -f1)
               echo "Compressed size: $compressed_size"
 
-              # Upload compressed version using GitHub CLI
+              # Upload compressed version
               asset_name=$(basename "$compressed_file")
               echo "Uploading compressed asset: $asset_name"
-              gh release upload ${{ github.ref_name }} "$compressed_file" --clobber
+              gh release upload ${{ github.ref_name }} "$compressed_file"
+            else
+              echo "File is small enough, uploading directly..."
+              asset_name=$(basename "$artifact")
+              echo "Uploading asset: $asset_name"
+              gh release upload ${{ github.ref_name }} "$artifact"
+            fi
 
-              echo "Successfully uploaded compressed version: $asset_name"
-            done
-          ' sh {} +
+            echo "Successfully processed: $asset_name"
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
