@@ -8,9 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "package": "./scripts/package.sh",
-    "package:debug": "./scripts/package.sh --mode debug",
-    "package:gpu": "./scripts/package.sh --gpu",
+    "package": "bash ./scripts/package.sh",
+    "package:debug": "bash ./scripts/package.sh --mode debug",
+    "package:gpu": "bash ./scripts/package.sh --gpu",
     "build-wheelhouse": "./scripts/build-wheelhouse.sh",
     "build-wheelhouse:gpu": "./scripts/build-wheelhouse.sh --gpu",
     "download-python": "./scripts/download-python-runtime.sh"

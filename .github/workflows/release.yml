@@ -135,8 +135,8 @@ jobs:
       - name: Clean up temporary files (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
-          # Clean pixi cache to free up space
-          pixi clean cache
+          # Clean pixi cache to free up space (skip if it fails)
+          pixi clean cache || echo "Pixi cache clean failed, continuing..."
           # Remove pip cache
           rm -rf ~/.cache/pip
           # Clean npm cache
