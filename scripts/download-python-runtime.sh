@@ -31,14 +31,14 @@ case "$(uname -s)" in
     MINGW64_NT-*)
         # Windows with Git Bash/MINGW64
         case "$(uname -m)" in
-            x86_64) PLATFORM="x86_64-pc-windows-msvc-shared" ;;
+            x86_64) PLATFORM="x86_64-pc-windows-msvc" ;;
             *) echo "Unsupported Windows architecture: $(uname -m)"; exit 1 ;;
         esac
         ;;
     CYGWIN_NT-*)
         # Windows with Cygwin
         case "$(uname -m)" in
-            x86_64) PLATFORM="x86_64-pc-windows-msvc-shared" ;;
+            x86_64) PLATFORM="x86_64-pc-windows-msvc" ;;
             *) echo "Unsupported Windows architecture: $(uname -m)"; exit 1 ;;
         esac
         ;;
