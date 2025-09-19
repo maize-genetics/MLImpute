@@ -108,12 +108,12 @@ jobs:
       - name: Build Python wheelhouse (CPU)
         if: matrix.package_suffix == 'cpu'
         run: npm run package
-        shell: ${{ matrix.platform == 'windows-latest' && 'bash' || 'default' }}
+        shell: bash
 
       - name: Build Python wheelhouse (GPU)
         if: matrix.package_suffix == 'gpu'
         run: npm run package:gpu
-        shell: ${{ matrix.platform == 'windows-latest' && 'bash' || 'default' }}
+        shell: bash
         env:
           CONDA_OVERRIDE_CUDA: "12.0"
 
