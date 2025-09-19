@@ -22,13 +22,7 @@
       "../src/python",
       "../requirements.txt"
     ],
-    "externalBin": [],
-    "deb": {
-      "depends": [],
-      "files": {
-        "/usr/lib/ml-impute/": "resources/"
-      }
-    }
+    "externalBin": []
   },
   "productName": "ml-impute",
   "mainBinaryName": "ml-impute",
