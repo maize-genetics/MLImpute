@@ -21,7 +21,14 @@
       "resources/wheelhouse",
       "../src/python",
       "../requirements.txt"
-    ]
+    ],
+    "externalBin": [],
+    "deb": {
+      "depends": [],
+      "files": {
+        "/usr/lib/ml-impute/": "resources/"
+      }
+    }
   },
   "productName": "ml-impute",
   "mainBinaryName": "ml-impute",

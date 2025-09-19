@@ -71,6 +71,25 @@ fi
 echo "Python runtime downloaded and extracted to: $RUNTIME_DIR"
 echo "Python executable: $RUNTIME_DIR/bin/python3"
 
+# Clean up runtime to reduce size
+echo "Cleaning up Python runtime to reduce size..."
+# Remove unnecessary files
+find "$RUNTIME_DIR" -name "*.pyc" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "*.pyo" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$RUNTIME_DIR" -name "test" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$RUNTIME_DIR" -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true
+# Remove documentation and examples
+find "$RUNTIME_DIR" -name "*.md" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "*.txt" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "*.rst" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "README*" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "LICENSE*" -delete 2>/dev/null || true
+find "$RUNTIME_DIR" -name "CHANGELOG*" -delete 2>/dev/null || true
+
+# Show size after cleanup
+echo "Runtime size after cleanup: $(du -sh "$RUNTIME_DIR" | cut -f1)"
+
 # Verify the runtime works
 if [[ -x "$RUNTIME_DIR/bin/python3" ]]; then
     echo "Python version:"

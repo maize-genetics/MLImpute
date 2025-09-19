@@ -38,5 +38,14 @@ else
 fi
 
 echo "Wheelhouse built successfully at: $WHEELHOUSE_DIR"
+
+# Remove unnecessary files to reduce size
+echo "Cleaning up wheelhouse to reduce size..."
+find "$WHEELHOUSE_DIR" -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$WHEELHOUSE_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$WHEELHOUSE_DIR" -name "*.pyc" -delete 2>/dev/null || true
+find "$WHEELHOUSE_DIR" -name "*.pyo" -delete 2>/dev/null || true
+
 echo "Wheels created:"
 ls -la "$WHEELHOUSE_DIR"
+echo "Total wheelhouse size: $(du -sh "$WHEELHOUSE_DIR" | cut -f1)"
