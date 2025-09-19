@@ -28,6 +28,20 @@ case "$(uname -s)" in
             *) echo "Unsupported Linux architecture: $(uname -m)"; exit 1 ;;
         esac
         ;;
+    MINGW64_NT-*)
+        # Windows with Git Bash/MINGW64
+        case "$(uname -m)" in
+            x86_64) PLATFORM="x86_64-pc-windows-msvc-shared" ;;
+            *) echo "Unsupported Windows architecture: $(uname -m)"; exit 1 ;;
+        esac
+        ;;
+    CYGWIN_NT-*)
+        # Windows with Cygwin
+        case "$(uname -m)" in
+            x86_64) PLATFORM="x86_64-pc-windows-msvc-shared" ;;
+            *) echo "Unsupported Windows architecture: $(uname -m)"; exit 1 ;;
+        esac
+        ;;
     *)
         echo "Unsupported OS: $(uname -s)"
         exit 1
@@ -69,7 +83,18 @@ if [[ -d "python" ]]; then
 fi
 
 echo "Python runtime downloaded and extracted to: $RUNTIME_DIR"
-echo "Python executable: $RUNTIME_DIR/bin/python3"
+
+# Set Python executable path based on platform
+case "$PLATFORM" in
+    *windows*)
+        PYTHON_EXE="$RUNTIME_DIR/python.exe"
+        echo "Python executable: $PYTHON_EXE"
+        ;;
+    *)
+        PYTHON_EXE="$RUNTIME_DIR/bin/python3"
+        echo "Python executable: $PYTHON_EXE"
+        ;;
+esac
 
 # Clean up runtime to reduce size
 echo "Cleaning up Python runtime to reduce size..."
@@ -91,11 +116,11 @@ find "$RUNTIME_DIR" -name "CHANGELOG*" -delete 2>/dev/null || true
 echo "Runtime size after cleanup: $(du -sh "$RUNTIME_DIR" | cut -f1)"
 
 # Verify the runtime works
-if [[ -x "$RUNTIME_DIR/bin/python3" ]]; then
+if [[ -x "$PYTHON_EXE" ]]; then
     echo "Python version:"
-    "$RUNTIME_DIR/bin/python3" --version
+    "$PYTHON_EXE" --version
     echo "Python runtime is ready!"
 else
-    echo "ERROR: Python executable not found or not executable"
+    echo "ERROR: Python executable not found or not executable at: $PYTHON_EXE"
     exit 1
 fi
