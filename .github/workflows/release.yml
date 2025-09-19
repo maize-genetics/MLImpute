@@ -155,7 +155,12 @@ jobs:
             echo "Original size: $original_size"
 
             # Check if file is larger than 1.5GB
-            size_bytes=$(du -b "$artifact" | cut -f1)
+            # Use different commands for getting file size in bytes depending on OS
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              size_bytes=$(stat -f%z "$artifact")
+            else
+              size_bytes=$(du -b "$artifact" | cut -f1)
+            fi
             if [ "$size_bytes" -gt 1610612736 ]; then  # 1.5GB in bytes
               echo "File is large, compressing..."
               gzip -9 -k "$artifact"  # Keep original and create .gz
