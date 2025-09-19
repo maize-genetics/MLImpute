@@ -154,23 +154,53 @@ jobs:
           releaseName: 'MLImpute ${{ github.ref_name }}'
           releaseBody: |
             Cross-platform release for MLImpute application
-            
+
             ## Features
             - Machine learning-based haplotype imputation
             - BiMamba state space models
-            - ModernBERT transformer models  
+            - ModernBERT transformer models
             - HMM-based methods
             - Interactive matrix visualization
             - Self-contained Python runtime
-            
+
             ## Platform Notes
             - **macOS**: Universal binary (Apple Silicon + Intel) - CPU only
-            - **Linux**: Supports both CPU and GPU variants
+            - **Linux**: Supports both CPU and GPU variants (compressed .deb.gz files)
             - **Windows**: Supports both CPU and GPU variants
-            
+
+            ## Installation Notes for Linux
+            For .deb.gz files, decompress first: `gunzip filename.deb.gz` then install: `sudo dpkg -i filename.deb`
+
             Choose the appropriate variant for your system and GPU requirements.
           releaseDraft: false
           prerelease: false
+
+      - name: Compress and re-upload large files (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          # Find large .deb files that were uploaded and compress them
+          find src-tauri/target -name "*.deb" -size +1500M -exec sh -c '
+            for deb; do
+              echo "Found large .deb file: $deb"
+              original_size=$(du -h "$deb" | cut -f1)
+              echo "Original size: $original_size"
+
+              # Create compressed version
+              gzip -9 "$deb"
+              compressed_file="${deb}.gz"
+              compressed_size=$(du -h "$compressed_file" | cut -f1)
+              echo "Compressed size: $compressed_size"
+
+              # Upload compressed version using GitHub CLI
+              asset_name=$(basename "$compressed_file")
+              echo "Uploading compressed asset: $asset_name"
+              gh release upload ${{ github.ref_name }} "$compressed_file" --clobber
+
+              echo "Successfully uploaded compressed version: $asset_name"
+            done
+          ' sh {} +
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   cleanup-release:
     needs: [create-release, build-tauri]
