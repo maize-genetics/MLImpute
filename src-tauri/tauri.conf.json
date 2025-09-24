@@ -22,7 +22,14 @@
       "../src/python",
       "../requirements.txt"
     ],
-    "externalBin": []
+    "externalBin": [],
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": "-"
+    }
   },
   "productName": "ml-impute",
   "mainBinaryName": "ml-impute",

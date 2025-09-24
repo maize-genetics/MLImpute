@@ -144,45 +144,18 @@ jobs:
           # Show remaining space
           df -h
 
-      - name: Compress and upload build artifacts
-        shell: bash
-        run: |
-          # Find all build artifacts
-          echo "Looking for build artifacts..."
-          find src-tauri/target -name "*.deb" -o -name "*.msi" -o -name "*.dmg" -o -path "*/bundle/macos/*.app" | while read -r artifact; do
-            echo "Found artifact: $artifact"
-            original_size=$(du -h "$artifact" | cut -f1)
-            echo "Original size: $original_size"
-
-            # Check if file is larger than 1.5GB
-            # Use different commands for getting file size in bytes depending on OS
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-              size_bytes=$(stat -f%z "$artifact")
-            else
-              size_bytes=$(du -b "$artifact" | cut -f1)
-            fi
-            if [ "$size_bytes" -gt 1610612736 ]; then  # 1.5GB in bytes
-              echo "File is large, compressing..."
-              gzip -9 -k "$artifact"  # Keep original and create .gz
-              compressed_file="${artifact}.gz"
-              compressed_size=$(du -h "$compressed_file" | cut -f1)
-              echo "Compressed size: $compressed_size"
-
-              # Upload compressed version
-              asset_name=$(basename "$compressed_file")
-              echo "Uploading compressed asset: $asset_name"
-              gh release upload ${{ github.ref_name }} "$compressed_file"
-            else
-              echo "File is small enough, uploading directly..."
-              asset_name=$(basename "$artifact")
-              echo "Uploading asset: $asset_name"
-              gh release upload ${{ github.ref_name }} "$artifact"
-            fi
-
-            echo "Successfully processed: $asset_name"
-          done
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Release ${{ github.ref_name }}'
+          releaseBody: 'Cross-platform release for MLImpute application'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
 
   cleanup-release:
     needs: [create-release, build-tauri]
