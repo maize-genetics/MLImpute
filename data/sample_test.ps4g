@@ -3,8 +3,8 @@
 #B73:0	0	4
 #CML247:0	1	2
 #W22:0	2	1
-gameteSet	pos	count
-0	1	1
-0,1	1	1
-0	2	1
-0,1,2	2	1
+gameteSet	refContig	refPosBinned	count
+0	chr1	1000	1
+0,1	chr1	1000	1
+0	chr1	2000	1
+0,1,2	chr1	2000	1
