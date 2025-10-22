@@ -7,7 +7,7 @@ use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BedRow {
-    pub chrom_idx: i32,
+    pub chrom: String,
     pub pos: i64,
     pub parent1: String,
     pub parent2: String,
@@ -68,15 +68,14 @@ fn parse_bed_file(file_path: &str) -> Result<Vec<BedRow>, String> {
         if parts.len() < 4 {
             return Err(format!("Invalid BED format at line {}: expected 4 columns, found {}", line_num + 1, parts.len()));
         }
-        
-        let chrom_idx = parts[0].parse::<i32>()
-            .map_err(|_| format!("Invalid chrom_idx at line {}: '{}'", line_num + 1, parts[0]))?;
-        
+
+        let chrom = parts[0].to_string();
+
         let pos = parts[1].parse::<i64>()
             .map_err(|_| format!("Invalid pos at line {}: '{}'", line_num + 1, parts[1]))?;
-        
+
         rows.push(BedRow {
-            chrom_idx,
+            chrom,
             pos,
             parent1: parts[2].to_string(),
             parent2: parts[3].to_string(),
@@ -91,27 +90,27 @@ fn parse_bed_file(file_path: &str) -> Result<Vec<BedRow>, String> {
 }
 
 fn bed_to_matrix(bed_data: Vec<BedRow>) -> Result<(VisualizationData, Vec<HighlightData>), String> {
-    // Collect unique positions (chrom_idx, pos pairs) and unique parents from parent1 and parent2 columns
+    // Collect unique positions (chrom, pos pairs) and unique parents from parent1 and parent2 columns
     let mut position_pairs = HashSet::new();
     let mut parents = HashSet::new();
-    
+
     for row in &bed_data {
-        // Store as (chrom_idx, pos) pair for proper numeric sorting
-        position_pairs.insert((row.chrom_idx, row.pos));
+        // Store as (chrom, pos) pair
+        position_pairs.insert((row.chrom.clone(), row.pos));
         // Collect all unique entries from parent1 and parent2 columns
         parents.insert(row.parent1.clone());
         parents.insert(row.parent2.clone());
     }
-    
-    // Sort positions numerically by chrom_idx first, then by pos
-    let mut sorted_positions: Vec<(i32, i64)> = position_pairs.into_iter().collect();
+
+    // Sort positions by chrom (lexicographically) first, then by pos (numerically)
+    let mut sorted_positions: Vec<(String, i64)> = position_pairs.into_iter().collect();
     sorted_positions.sort_by(|a, b| {
         a.0.cmp(&b.0).then(a.1.cmp(&b.1))
     });
-    
-    // Create column labels with proper ChrIdx format
+
+    // Create column labels
     let col_labels: Vec<String> = sorted_positions.iter()
-        .map(|(chrom_idx, pos)| format!("ChrIdx{}_{}", chrom_idx, pos))
+        .map(|(chrom, pos)| format!("{}_{}", chrom, pos))
         .collect();
     
     let mut row_labels: Vec<String> = parents.into_iter().collect();
@@ -137,23 +136,23 @@ fn bed_to_matrix(bed_data: Vec<BedRow>) -> Result<(VisualizationData, Vec<Highli
     
     // Populate matrix and create highlights
     for row in bed_data {
-        let pos_label = format!("ChrIdx{}_{}", row.chrom_idx, row.pos);
+        let pos_label = format!("{}_{}", row.chrom, row.pos);
         let pos_idx = pos_to_idx[&pos_label];
-        
+
         // Mark presence for parent1
         let parent1_idx = parent_to_idx[&row.parent1];
         matrix[parent1_idx * cols + pos_idx] = 1;
-        
+
         highlights.push(HighlightData {
             row: row.parent1.clone(),     // row = parent
-            col: pos_label.clone(),       // col = position  
+            col: pos_label.clone(),       // col = position
             parent: "parent1".to_string(),
         });
-        
+
         // Mark presence for parent2 (always create highlight, even if same as parent1)
         let parent2_idx = parent_to_idx[&row.parent2];
         matrix[parent2_idx * cols + pos_idx] = 1;
-        
+
         highlights.push(HighlightData {
             row: row.parent2,             // row = parent
             col: pos_label,               // col = position
