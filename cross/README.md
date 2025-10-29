@@ -1,3 +1,6 @@
+# TODO: replace hardcoded paths and data with user defined input
+
+
 **Step 1: Align assemblies using PHG commands**
 
 Necessary files:
