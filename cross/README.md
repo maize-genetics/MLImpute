@@ -15,7 +15,7 @@ User must define assembly names and chromosomes
 
 **Step 3: Create chain files (create {assembly}.chain) from maf files**
 
-`./create_chains.sh`
+`bash create_chains.sh -i maf_file_directory -o chain_file_directory -j 12`
 
 **Step 4: Convert ref coordinates to assembly coordinates (create {assembly}_key.bed files)**
 
