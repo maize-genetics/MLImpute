@@ -20,15 +20,15 @@ Line   = Genome                         # alias: a "line" is a genome of mosaics
 # ----------------------------
 # Crossover generation (fast, bounded, tail-safe)
 # ----------------------------
-def pick_crossovers(length: int,
+def pick_crossovers(A: str, B: str, length: int,
                     min_spacing: int = 1_000_000,
                     max_spacing: int = 9_000_000,
-                    rng: np.random.Generator | None = None) -> np.ndarray:
+                    rng: np.random.Generator | None = None) -> List:
     """Vectorized: draw inter-event distances ~ Uniform[min,max], cumsum, trim.
        Guarantees last tail <= max by inserting extra points if needed."""
     rng = np.random.default_rng() if rng is None else rng
     if not (0 < min_spacing < max_spacing <= length):
-        return np.array([], dtype=np.int64)
+        return []
 
     mean_step = 0.5 * (min_spacing + max_spacing)
     est = int(length / mean_step) + 4
@@ -48,92 +48,7 @@ def pick_crossovers(length: int,
         last = last + step
         pos = np.append(pos, last)
         tail = length - last
-    return pos
-
-# ----------------------------
-# Mosaic utilities
-# ----------------------------
-def make_founder_genome(chrom_lengths: Dict[Union[int, str], int], founder_id: str) -> Line:
-    """Each chromosome starts as a single interval from this founder."""
-    return {c: [Interval(0, L, founder_id)] for c, L in chrom_lengths.items()}
-
-def _intervals_covering(mosaic: Mosaic, s: int, e: int) -> List[Interval]:
-    """Return the intervals that overlap with [s,e). Mosaics are continuous; s,e within bounds."""
-    # Binary search could be added; linear is fine if K is modest.
-    intervals = []
-    for iv in mosaic:
-        if iv.end > s and iv.start < e:
-            intervals.append(iv)
-
-    if len(intervals) > 0: return intervals
-    else:
-        print("s: ", s)
-        print("e: ", e)
-        print("mosaic: ", mosaic)
-        print("intervals: ", intervals)
-        raise RuntimeError("Requested child interval not covered by parent mosaic.")
-
-def recombine_two_mosaics(mA: Mosaic, mB: Mosaic,
-                          length: int,
-                          cross_idx: np.ndarray,
-                          start_with_A: bool = None,
-                          rng: np.random.Generator | None = None) -> (Mosaic, Mosaic):
-    """Build child mosaics from parents A and B, alternating at edges."""
-    rng = np.random.default_rng() if rng is None else rng
-    if start_with_A is None:
-        start_with_A = bool(rng.integers(0, 2))
-    edges = np.concatenate(([0], cross_idx, [length]))
-    starts, ends = edges[:-1], edges[1:]
-
-    child1: Mosaic = []
-    child2: Mosaic = []
-    use_A = start_with_A
-
-    for s, e in zip(starts, ends):
-        if not s < e: raise RuntimeError("end idx before start idx")
-
-        donor1 = mA if use_A else mB
-        donor2 = mB if use_A else mA
-
-        ivs1= _intervals_covering(donor1, int(s), int(e))
-        ivs2= _intervals_covering(donor2, int(s), int(e))
-
-        # Keep ancestry label from donor interval (founder id)
-        for iv1 in ivs1:
-            if iv1.start <= s < e <= iv1.end:
-                child1.append(Interval(int(s), int(e), iv1.founder))
-            elif s <= iv1.start < e <= iv1.end:
-                child1.append(Interval(int(iv1.start), int(e), iv1.founder))
-            elif s <= iv1.start < iv1.end <= e:
-                child1.append(Interval(int(iv1.start), int(iv1.end), iv1.founder))
-            else:
-                child1.append(Interval(int(s), int(iv1.end), iv1.founder))
-
-        for iv2 in ivs2:
-            if iv2.start <= s < e <= iv2.end:
-                child2.append(Interval(int(s), int(e), iv2.founder))
-            elif s <= iv2.start < e <= iv2.end:
-                child2.append(Interval(int(iv2.start), int(e), iv2.founder))
-            elif s <= iv2.start < iv2.end <= e:
-                child2.append(Interval(int(iv2.start), int(iv2.end), iv2.founder))
-            else:
-                child2.append(Interval(int(s), int(iv2.end), iv2.founder))
-
-        use_A = not use_A
-
-    return child1, child2
-
-def cross_lines(lineA: Line, lineB: Line,
-                chrom_lengths: Dict[Union[int, str], int],
-                rng: np.random.Generator | None = None) -> (Line, Line):
-    """One haploid child genome from two haploid parental lines."""
-    rng = np.random.default_rng() if rng is None else rng
-    child1: Line = {}
-    child2: Line = {}
-    for c, L in chrom_lengths.items():
-        cross_idx = pick_crossovers(L, 1_000_000, 9_000_000, rng=rng)  # 5Mb-ish spacing
-        child1[c], child2[c] = recombine_two_mosaics(lineA[c], lineB[c], L, cross_idx, start_with_A=None, rng=rng)
-    return child1, child2
+    return [(idx, A, B) for idx in pos]
 
 # ----------------------------
 # Simulation loop
@@ -141,7 +56,7 @@ def cross_lines(lineA: Line, lineB: Line,
 def simulate_rounds(chrom_lengths: Dict[Union[int, str], int],
                     founders: List[str],
                     rounds: int,
-                    rng_seed: int | None = None) -> List[Line]:
+                    rng_seed: int | None = None) -> Dict:
     """
     Start with 2N founders (one line per founder), then:
       - group into N pairs and cross -> 2N crossed lines
@@ -153,18 +68,44 @@ def simulate_rounds(chrom_lengths: Dict[Union[int, str], int],
     rng = np.random.default_rng(rng_seed)
 
     # Initialize 2N lines (one per founder id), each with single-interval mosaics
-    pop: List[Line] = [make_founder_genome(chrom_lengths, f) for f in founders]
 
-    for r in range(rounds):
-        random.shuffle(pop)  # in-place pairing
-        next_pop: List[Line] = []
-        # Pair adjacent lines and produce two children to keep size constant
-        for i in range(0, len(pop), 2):
-            A, B = pop[i], pop[i+1]
-            child1, child2 = cross_lines(A, B, chrom_lengths, rng=rng)
-            next_pop.extend([child1, child2])
-        pop = next_pop
-    return pop
+    pop = dict([(f, {}) for f in founders])
+
+    for c, L in chrom_lengths.items():
+        all_crosses = []
+        for r in range(rounds):
+            random.shuffle(founders)
+            for i in range(0, len(founders), 2):
+                A, B = founders[i], founders[i+1]
+                all_crosses.extend(pick_crossovers(A, B, L, rng=rng))
+        # crossovers must be sorted in ascending order
+        all_crosses.sort(key=lambda pos: pos[0])
+
+        lines = dict([(f, [Interval(0, L, f)]) for f in founders])
+
+        # we build the lines
+        for crossover in all_crosses:
+            pos = crossover[0]
+            lineA = lines[crossover[1]]
+            lineB = lines[crossover[2]]
+
+            if lineA[-1].start >= pos or lineB[-1].start >= pos:
+                # in order to prevent zero-length intervals, skip crossover where the start lines up exactly with the crossover
+                continue
+
+            newA = Interval(pos, L, lineA[-1].founder)
+            newB = Interval(pos, L, lineB[-1].founder)
+
+            lineA[-1].end = pos
+            lineB[-1].end = pos
+
+            lineB.append(newA)
+            lineA.append(newB)
+
+        for f in founders:
+            pop[f][c] = lines[f]
+
+    return pop.values()
 
 # ----------------------------
 # Diagnostics / summaries
