@@ -222,13 +222,17 @@ def merge_pop(pop1, pop2):
 
 
 if __name__ == "__main__":
-    B73_chrom_lengths = {"chr1" : 308_452_471, "chr2" : 243_675_191, "chr3" : 238_017_767, "chr4" : 250_330_460, "chr5" : 226_353_449,
+
+    # replace with your own reference and chromosomes
+    # change these to be loaded in by user defined files
+    ref_chrom_lengths = {"chr1" : 308_452_471, "chr2" : 243_675_191, "chr3" : 238_017_767, "chr4" : 250_330_460, "chr5" : 226_353_449,
                          "chr6" : 181_357_234, "chr7" : 185_808_916, "chr8" : 182_411_202, "chr9" : 163_004_744, "chr10" : 152_435_371}
 
-    # 1/2 chromosome lengths (bp)
-    B73_arm_lengths = {"chr1" : 308_452_471//2, "chr2" : 243_675_191//2, "chr3" : 238_017_767//2, "chr4" : 250_330_460//2, "chr5" : 226_353_449//2,
+    # 1/2 chromosome lengths (bp) as "arm" lengths
+    ref_arm_lengths = {"chr1" : 308_452_471//2, "chr2" : 243_675_191//2, "chr3" : 238_017_767//2, "chr4" : 250_330_460//2, "chr5" : 226_353_449//2,
                        "chr6" : 181_357_234//2, "chr7" : 185_808_916//2, "chr8" : 182_411_202//2, "chr9" : 163_004_744//2, "chr10" : 152_435_371//2}
 
+    # replace with your own assemblies and chromosomes
     founder_chroms = {"CML228" : {"chr1" : 311_577_201, "chr2" : 244_763_794, "chr3" : 239_761_349, "chr4" : 254_676_231, "chr5" : 228_823_570,
                                   "chr6" : 175_338_271, "chr7" : 181_540_992, "chr8" : 186_718_620, "chr9" : 167_687_098, "chr10" : 149_925_833},
                       "CML322" : {"chr1" : 304_784_548, "chr2" : 243_324_309, "chr3" : 239_728_129, "chr4" : 257_539_888, "chr5" : 221_631_323,
@@ -278,21 +282,21 @@ if __name__ == "__main__":
                       "P39" : {"chr1" : 302_421_781, "chr2" : 244_619_812, "chr3" : 242_478_718, "chr4" : 275_636_967, "chr5" : 222_867_812,
                                "chr6" : 177_971_375, "chr7" : 206_991_990, "chr8" : 176_984_287, "chr9" : 164_153_970, "chr10" : 148_196_188}}
 
-    NAM_founders = ["CML228", "CML322", "CML69", "Ki11", "M162W", "Ms71", "Oh43", "B97", "CML247", "CML333", "HP301", "Ki3",
+    assembly_founders = ["CML228", "CML322", "CML69", "Ki11", "M162W", "Ms71", "Oh43", "B97", "CML247", "CML333", "HP301", "Ki3",
                     "M37W", "NC350", "Oh7B", "Tzi8", "CML103", "CML277", "CML52", "Il14H", "Ky21", "Mo18W", "NC358", "P39"]
 
     # Run ~1250 rounds to simulate land race (cross ~4000 bp)
-    landrace_pop = simulate_rounds(B73_arm_lengths, NAM_founders, rounds=1250)
+    landrace_pop = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=1250)
 
     # Run once to get two parent cross (cross ~ 5 Mbp)
-    two_parent_pop = simulate_rounds(B73_arm_lengths, NAM_founders, rounds=1)
+    two_parent_pop = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=1)
 
     # For each chromosome, shift either landrace or two_parent by chrom_length
-    for chrom, length in B73_arm_lengths.items():
+    for chrom, length in ref_arm_lengths.items():
         shift = random.choice([0, 1]) # randomly choose 0 or 1
         if shift: shift_chrom_arm(landrace_pop, chrom, length)
         else: shift_chrom_arm(two_parent_pop, chrom, length)
 
     pop = merge_pop(landrace_pop, two_parent_pop)
 
-    convert_pop_to_key(pop, NAM_founders)
+    convert_pop_to_key(pop, assembly_founders)
