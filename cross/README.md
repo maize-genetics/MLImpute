@@ -1,7 +1,9 @@
-Step 1: Pick crossover points in ref coordinates (create assembly_refkey.bed)
+**Step 1: Pick crossover points in ref coordinates (create assembly_refkey.bed)**
 
-Step 2: Convert ref coordinates to assembly coordinates (create assembly_key.bed)
+`python pick_crossovers.py`
 
-Step 3: Assign unmapped assembly sequence (modify assembly_key.bed)
+**Step 2: Convert ref coordinates to assembly coordinates (create assembly_key.bed)**
 
-Step 4: Generate recombined sequences (create founder_key.bed and founder.fa)
+**Step 3: Assign unmapped assembly sequence (modify assembly_key.bed)**
+
+**Step 4: Generate recombined sequences (create founder_key.bed and founder.fa)**
