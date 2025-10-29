@@ -25,7 +25,7 @@ User must define assembly names and chromosomes
 
 **Step 5: Generate recombined sequences (create {founder}_key.bed and {founder}.fa files)**
 
-`python write_fasta.py`
+`python write_fastas.py`
 
 
 **Step 6: Align recombined assemblies using PHG commands**
