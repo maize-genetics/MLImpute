@@ -1,4 +1,4 @@
-**Step 1: Align assemblies using PHG commands**
+**Step 1: Align assemblies using phg align-assemblies**
 
 Necessary files:
 - reference fasta
@@ -35,7 +35,7 @@ for f in *.fa; do
     seqkit seq -w 60 -j 8 "$f" > "../pretty_fastas/$f"
 done`
 
-**Step 7: Align recombined assemblies using PHG commands**
+**Step 7: Align recombinate assemblies using phg align-assemblies**
 
 Necessary files:
 - reference fasta
