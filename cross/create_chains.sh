@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # script adapted from mcstitzer
+# using script from mcfrith
 set -euo pipefail
 
 usage() {
