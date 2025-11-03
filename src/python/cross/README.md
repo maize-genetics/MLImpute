@@ -29,9 +29,11 @@ User must define assembly names and chromosomes
 
 **Step 6: Reformat fasta files into lines with equal length**
 
-`mkdir -p pretty_fastas
-cd recombinate_fastas/
-for f in *.fa; do
+`mkdir -p pretty_fastas`
+
+`cd recombinate_fastas/`
+
+`for f in *.fa; do
     seqkit seq -w 60 -j 8 "$f" > "../pretty_fastas/$f"
 done`
 
