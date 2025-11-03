@@ -39,20 +39,20 @@ def parse_bed_file(bed_file_path):
             return None
         
         # Check if first line is a header by looking for expected column names
-        if data_lines[0].startswith('chrom_idx') or 'parent1' in data_lines[0]:
+        if data_lines[0].startswith('chrom') or 'parent1' in data_lines[0]:
             data_lines = data_lines[1:]  # Skip header
-            
+
         positions = []
         parent1_samples = []
         parent2_samples = []
-        
+
         for line in data_lines:
             parts = line.split('\t')
-            if len(parts) >= 4:  # chrom_idx, pos, parent1, parent2
-                # Create position identifier from chrom_idx and pos
-                chrom_idx = parts[0]
+            if len(parts) >= 4:  # chrom, pos, parent1, parent2
+                # Create position identifier from chrom and pos
+                chrom = parts[0]
                 pos = parts[1]
-                pos_name = f"ChrIdx{chrom_idx}_{pos}"
+                pos_name = f"{chrom}_{pos}"
                 positions.append(pos_name)
                 
                 # Extract parent information (columns 2 and 3 are parent1 and parent2)

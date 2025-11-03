@@ -173,7 +173,15 @@ CLAUDE.md
 modernbert.pth
 
 # =========================================
+# Tauri Packaging Resources
+# =========================================
+# Bundled Python runtime and wheels - generated at build time
+src-tauri/resources/python-runtime/
+src-tauri/resources/wheelhouse/
+
+# =========================================
 # Misc
 # =========================================
 *.bed
+
 

@@ -21,7 +21,9 @@ def compute_accuracy(bed_df, ps4g_file, collapsed=True):
     name_to_idx = {name: i for i, name in enumerate(index_array)}
     if collapsed:
         num_classes = len(index_array)
-        unique_positions = ps4g['pos'].unique()
+        # Create unique position identifiers using refContig and refPosBinned
+        ps4g['position_id'] = ps4g['refContig'].astype(str) + '_' + ps4g['refPosBinned'].astype(str)
+        unique_positions = ps4g['position_id'].unique()
         _, ps4g = collapse_ps4g(num_classes, ps4g, unique_positions)
     parents = bed_df['parent1'].map(name_to_idx)
     gametes = ps4g['gameteSet'].reindex(parents.index)
@@ -37,11 +39,11 @@ def collapse_and_aggregate(bed_df):
 
     out = (
         bed_df
-        .groupby(["chrom_idx", "pos"], as_index=False, sort=True)
+        .groupby(["chrom", "pos"], as_index=False, sort=True)
         .agg(parent1=("parent1", _mode),
              parent2=("parent2", _mode),
              n=("parent1", "size"))
-        .sort_values(["chrom_idx", "pos"], kind="mergesort")
+        .sort_values(["chrom", "pos"], kind="mergesort")
         .reset_index(drop=True)
     )
     return out
@@ -49,7 +51,7 @@ def collapse_and_aggregate(bed_df):
 
 def parent_contribution(bed_df):
     # next boundary within each chromosome
-    bed_df["next_pos"] = bed_df.groupby('chrom_idx', sort=False)['pos'].shift(-1)
+    bed_df["next_pos"] = bed_df.groupby('chrom', sort=False)['pos'].shift(-1)
 
     # segment length
     bed_df["length"] = bed_df["next_pos"] - bed_df['pos']
