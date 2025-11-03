@@ -1,6 +1,11 @@
 from time import perf_counter
 import argparse
 import polars as pl
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import os
+from tqdm import tqdm
+import math
+from multiprocessing import get_context
 
 def count_gaps(seq, bases):
     gaps = 0
@@ -219,12 +224,8 @@ def convert_ref_coords_map(parent, parent_chroms):
 
     # map: per row -> list of (parent_chr, start, end)
     mapped = parent_df.clone()
-    # mapped = mapped.with_columns(
-    #     pl.struct(["chr", "start", "end"]).map_elements(
-    #         lambda s: parse_maf_table(maf, s["chr"], s["start"], s["end"])
-    #     ).alias("parent_coords"))
 
-    mapped = mapped.with_columns(
+    mapped = mapped.with_columns( # TODO: need these to run concurrently (right now they are still row by row)
         pl.struct(["chr", "start", "end"]).map_elements(
             # Convert the list of tuples into a list of dicts
             lambda s: [
@@ -288,6 +289,153 @@ def convert_ref_coords_map(parent, parent_chroms):
     t1 = perf_counter()
     print(f"[convert_ref_coords_map] wrote {len(out_df):,} rows for {parent} in {t1 - t0:.2f}s")
 
+# --- keep your count_gaps, convert_coord, adjust_coords, maf_table, parse_maf_table as defined ---
+
+def _process_chr_chunk(shard_path: str, chr_name: str,
+                       starts: list[int], ends: list[int], founders: list[str]) -> list[dict]:
+    chr_name = str(chr_name).strip()
+    maf_chr = pl.read_parquet(shard_path)
+
+    out_rows: list[dict] = []
+    for ref_start, ref_end, founder in zip(starts, ends, founders):
+        coords = parse_maf_table(maf_chr, chr_name, int(ref_start), int(ref_end))
+        if not coords:
+            continue
+        for parent_chr, ps, pe in coords:
+            if ps is None or pe is None or pe <= ps:
+                continue
+            out_rows.append({
+                "ref_chr": chr_name,
+                "ref_start": int(ref_start),
+                "ref_end": int(ref_end),
+                "parent_chr": parent_chr,
+                "parent_start": int(ps),
+                "parent_end": int(pe),
+                "founder": founder,
+            })
+    return out_rows
+
+
+
+
+
+def convert_ref_coords_map_chunks(parent: str, parent_chroms: dict[str, int]):
+    maf_file = f"/workdir/smm477/uncrossed_phg/alignment_files/{parent}.maf"
+    parent_df = pl.read_csv(
+        f"{parent}_refkey.bed",
+        separator="\t",
+        has_header=False,
+        new_columns=["chr", "start", "end", "founder"]
+    ).with_columns(pl.col("chr").cast(pl.Utf8).str.strip_chars())
+
+    # shard once (your existing function)
+    shard_dir = f".maf_shards_{parent}"
+    shards = shard_maf_by_chr(maf_file, shard_dir)
+
+    # groups only for chroms that have a shard
+    chroms = parent_df.get_column("chr").unique(maintain_order=True).to_list()
+    groups = {c: parent_df.filter(pl.col("chr") == pl.lit(c))
+              for c in chroms if c in shards}
+
+    total_rows = sum(g.height for g in groups.values())
+    if total_rows == 0:
+        open(f"{parent}_key.bed", "w").close()
+        print(f"[convert_ref_coords_map] wrote 0 rows for {parent}")
+        return
+
+    # modest parallelism; avoid oversubscription
+    os.environ.setdefault("POLARS_MAX_THREADS", "2")
+    os.environ.setdefault("RAYON_NUM_THREADS", "2")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+    t0 = perf_counter()
+    max_workers = min(max(2, (os.cpu_count() or 1) // 2), 8)
+    ctx = get_context("spawn")
+
+    all_rows: list[dict] = []
+    with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as ex:
+        fut2size: dict = {}
+        for chr_name, g in groups.items():
+            for fut, sz in _submit_chr_batches(ex, shards[chr_name], chr_name, g):
+                fut2size[fut] = sz
+
+        with tqdm(total=total_rows, unit="rows", desc="Mapping (batches)") as pbar:
+            for fut in as_completed(fut2size):
+                rows = fut.result()
+                if rows:
+                    all_rows.extend(rows)
+                pbar.update(fut2size[fut])
+
+    if not all_rows:
+        open(f"{parent}_key.bed", "w").close()
+        print(f"[convert_ref_coords_map] wrote 0 rows for {parent} in {perf_counter()-t0:.2f}s")
+        return
+
+    # Build DF, sort, per-chrom adjust, write (same as you have)
+    key_df = pl.DataFrame(all_rows).sort(["parent_chr", "parent_start", "parent_end"])
+
+    adjusted_parts: list[pl.DataFrame] = []
+    for c, length in parent_chroms.items():
+        chunk = key_df.filter(pl.col("parent_chr") == pl.lit(c))
+        if chunk.height == 0:
+            continue
+        adj = adjust_coords(chunk, int(length))
+        adj = adj.filter(pl.col("parent_start") != pl.col("parent_end"))
+        adjusted_parts.append(adj)
+
+    out_df = pl.concat(adjusted_parts) if adjusted_parts else key_df
+    out_df.write_csv(f"{parent}_key.bed", separator="\t", include_header=False)
+    print(f"[convert_ref_coords_map] wrote {out_df.height:,} rows for {parent} in {perf_counter()-t0:.2f}s")
+
+
+def shard_maf_by_chr(maf_file: str, out_dir: str) -> dict[str, str]:
+    os.makedirs(out_dir, exist_ok=True)
+
+    maf = maf_table(maf_file).with_columns(
+        pl.col("ref_chr").cast(pl.Utf8).str.strip_chars()
+    )
+
+    parts = maf.partition_by("ref_chr", as_dict=True)
+    shards: dict[str, str] = {}
+
+    for key, g in parts.items():
+        # Polars gives tuple keys: ('chr1',)
+        chr_name = key[0] if isinstance(key, (tuple, list)) else key
+        chr_name = str(chr_name).strip()
+        if not chr_name:
+            continue
+
+        path = os.path.join(out_dir, f"{chr_name}.parquet")
+        if not os.path.exists(path):
+            g.write_parquet(path)
+        shards[chr_name] = path
+    return shards
+
+
+
+BATCH_SIZE = 20_000  # tune: aim for ~0.5–2s per batch
+
+def _submit_chr_batches(ex, shard_path: str, chr_name: str, g: pl.DataFrame):
+    """Yield (future, batch_size) for each batch of rows in chromosome group g."""
+    n = g.height
+    if n == 0:
+        return
+    nbatches = math.ceil(n / BATCH_SIZE)
+    for i in range(nbatches):
+        lo = i * BATCH_SIZE
+        hi = min((i + 1) * BATCH_SIZE, n)
+        sub = g.slice(lo, hi - lo)
+        fut = ex.submit(
+            _process_chr_chunk,
+            shard_path,
+            chr_name,
+            sub["start"].to_list(),
+            sub["end"].to_list(),
+            sub["founder"].to_list(),
+        )
+        yield fut, (hi - lo)
 
 
 if __name__ == "__main__":
@@ -344,4 +492,4 @@ if __name__ == "__main__":
                       "P39" : {"chr1" : 302_421_781, "chr2" : 244_619_812, "chr3" : 242_478_718, "chr4" : 275_636_967, "chr5" : 222_867_812,
                                "chr6" : 177_971_375, "chr7" : 206_991_990, "chr8" : 176_984_287, "chr9" : 164_153_970, "chr10" : 148_196_188}}
 
-    convert_ref_coords_map(args.parent, founder_chroms[args.parent])
+    convert_ref_coords_map_chunks(args.parent, founder_chroms[args.parent])

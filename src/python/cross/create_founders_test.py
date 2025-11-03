@@ -1,10 +1,8 @@
 import unittest
-from typing import List, Dict, Tuple, Union
-from create_founders import Interval, Mosaic, Genome, Line
-from create_founders import pick_crossovers, make_founder_genome, _intervals_covering, recombine_two_mosaics, cross_lines
-from create_founders import simulate_rounds, mean_segment_size, founder_contributions
-from create_founders import create_df, convert_pop_to_key, shift_chrom_arm, merge_pop
-from create_founders import convert_coord
+from typing import List
+from pick_crossovers import Line
+from pick_crossovers import make_founder_genome
+from pick_crossovers import convert_coord
 
 class TestPopSetUp(unittest.TestCase):
     def setUp(self):
