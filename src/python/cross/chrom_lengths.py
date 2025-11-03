@@ -29,5 +29,6 @@ def chrom_lengths_dicts(assembly_list, exclude_scaffolds=True, max_workers=8):
         }
         for fut in as_completed(futs):
             asm = futs[fut]
-            chrom_dicts[asm] = fut.result()
+            key = asm.split("/")[-1].split(".")[0]
+            chrom_dicts[key] = fut.result()
     return chrom_dicts
