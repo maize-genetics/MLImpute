@@ -2,7 +2,7 @@ import pandas as pd
 import subprocess
 import os
 import argparse
-from chrom_lengths import chrom_lengths_dicts
+from python.cross.chrom_lengths import chrom_lengths_dicts
 
 def build_fasta_keys(parents, founder):
     fasta_df = pd.DataFrame(
