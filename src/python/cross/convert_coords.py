@@ -4,6 +4,10 @@ import os
 import argparse
 from python.cross.chrom_lengths import chrom_lengths_dicts
 
+"""
+create a bed file to track fasta sequence to assembly
+columns = fa_chr, fa_start, fa_end, parent_chr, parent_start, parent_end, parent
+"""
 def build_fasta_keys(parents, founder):
     fasta_df = pd.DataFrame(
 columns=["fa_chr", "fa_start", "fa_end", "parent_chr", "parent_start", "parent_end", "parent", "seg_len"])
@@ -33,6 +37,9 @@ columns=["fa_chr", "fa_start", "fa_end", "parent_chr", "parent_start", "parent_e
 
     fasta_df.to_csv(f"{founder}_key.bed", sep="\t", index=False, header=False)
 
+"""
+edit assembly coordinates to ensure intervals cover all assembly sequence
+"""
 def adjust_coords(df, length):
     df.loc[df.index[0], "parent_start"] = 0
     end = df.loc[df.index[0], "parent_end"]

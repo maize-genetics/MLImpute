@@ -133,6 +133,10 @@ def founder_contributions(line: Line) -> Dict[str, int]:
 # ----------------------------
 # File creation
 # ----------------------------
+
+"""
+convert the population from intervals to keyfiles with ref coordinates
+"""
 def convert_pop_to_key(pop, parents):
     # create bed keyfiles for each parent
     for i, m in enumerate(pop):
@@ -148,12 +152,19 @@ def convert_pop_to_key(pop, parents):
         unsorted_df = pd.read_csv(f"{parent}_refkey.bed", sep="\t", header=None, names=["chr", "start", "end", "founder"])
         (unsorted_df.sort_values(by=["chr", "start"], ascending=[True, True]).to_csv(f"{parent}_refkey.bed", sep="\t", index=False, header=False))
 
+"""
+shift the coordinates by length (move these chromosome coordinates to the lower chromsome arm)
+"""
 def shift_chrom_arm(pop, c, length):
     for i, m in enumerate(pop):
         for interval in m[c]:
             interval.start += length
             interval.end += length
 
+"""
+merge the two populations into one population
+for each chromosome, either pop1 or pop2 has been shifted
+"""
 def merge_pop(pop1, pop2):
     pop = []
     for i, m in enumerate(pop1):

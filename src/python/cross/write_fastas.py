@@ -4,7 +4,9 @@ from multiprocessing import Pool, cpu_count
 import argparse
 import os
 
-
+"""
+concatenate assembly sequence to create new recombined fasta files
+"""
 def write_fasta(founder, chromosomes, fa_dir):
     fasta_file = f"recombinate_fastas/{founder}.fa"  # create a new fasta file made up of parent fasta sequence
     with open(fasta_file, "w") as f:

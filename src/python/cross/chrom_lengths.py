@@ -2,6 +2,9 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+"""
+returns a dictionary mapping chromosomes to chromosome length for a fasta file
+"""
 def chrom_lengths(fasta_file, exclude_scaffolds=True):
     fai = fasta_file + ".fai"
     if not os.path.exists(fai):
@@ -20,6 +23,9 @@ def chrom_lengths(fasta_file, exclude_scaffolds=True):
                 chrom_dict[name] = int(length)
     return chrom_dict
 
+"""
+returns a dictionary mapping assemblies to a dictionary mapping chromosome to chromosome length
+"""
 def chrom_lengths_dicts(assembly_list, exclude_scaffolds=True, max_workers=8):
     chrom_dicts = {}
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
