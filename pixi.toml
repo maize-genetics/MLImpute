@@ -24,6 +24,7 @@ pytest       = "*"
 pytest-cov   = "*"
 lightning    = "*"
 tqdm         = "*"
+pysam        = "*"
 
 
 # "GPU only" dependencies (only for Linux)
