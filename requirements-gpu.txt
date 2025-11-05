@@ -1,0 +1,3 @@
+# GPU-specific requirements (extends requirements.txt)
+-r requirements.txt
+mamba-ssm

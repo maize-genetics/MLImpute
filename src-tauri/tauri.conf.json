@@ -8,14 +8,28 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": [
+      "resources/python-runtime",
+      "resources/wheelhouse",
+      "../src/python",
+      "../requirements.txt"
+    ],
+    "externalBin": [],
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": "-"
+    }
   },
   "productName": "ml-impute",
   "mainBinaryName": "ml-impute",

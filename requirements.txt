@@ -1,0 +1,18 @@
+# Core dependencies from pixi.toml
+numpy
+pandas
+scikit-learn
+numba>=0.61.2,<0.62
+wandb>=0.21.0,<0.22
+torch
+torchvision
+
+# PyPI dependencies
+transformers
+pytest
+pytest-cov
+lightning
+tqdm
+
+# Optional GPU dependencies (will be handled separately)
+# mamba-ssm (GPU only)
