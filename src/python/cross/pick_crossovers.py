@@ -193,7 +193,7 @@ if __name__ == "__main__":
                 assembly_founder_paths.append(parts[0])
                 assembly_founders.append(parts[1])
 
-    ref_chrom_lengths = chrom_lengths(args.ref, exclude_scaffolds=True)
+    ref_chrom_lengths = chrom_lengths(args.ref_fasta, exclude_scaffolds=True)
 
     # 1/2 chromosome lengths (bp) as "arm" lengths
     ref_arm_lengths = {chrom: length // 2 for chrom, length in ref_chrom_lengths.items()}

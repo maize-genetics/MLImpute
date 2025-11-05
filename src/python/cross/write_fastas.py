@@ -38,7 +38,7 @@ if __name__ == "__main__":
             if len(parts) >= 2:
                 assembly_founders.append(parts[1])
 
-    with open(args.chromosomes_list) as f:
+    with open(args.chromosome_list) as f:
         chromosomes = [line.strip() for line in f if line.strip()]
 
     for founder in range(len(assembly_founders)):
