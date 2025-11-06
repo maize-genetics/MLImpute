@@ -67,10 +67,9 @@ def build_answer_key(keyfile):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assembly_key_dir", type=str,
-                        description="directory containing parent answer keys")
-    parser.add_argument("--ps4g_dir", type=str, description="directory containing PS4G data")
-    parser.add_argument("--output-dir", type=str, description="output directory")
+    parser.add_argument("--assembly_key_dir", type=str, help="directory containing parent answer keys")
+    parser.add_argument("--ps4g_dir", type=str, help="directory containing PS4G data")
+    parser.add_argument("--output-dir", type=str, help="output directory")
     args = parser.parse_args()
 
     for ps4g_file in os.listdir(args.ps4g_dir):

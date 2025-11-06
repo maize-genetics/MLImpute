@@ -177,8 +177,8 @@ def merge_pop(pop1, pop2):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ref-fasta", type=str, description="full file path to reference fasta")
-    parser.add_argument("--assembly-list", type=str, description="file containing full file paths and names for assembly fastas")
+    parser.add_argument("--ref-fasta", type=str, help="full file path to reference fasta")
+    parser.add_argument("--assembly-list", type=str, help="file containing full file paths and names for assembly fastas")
     args = parser.parse_args()
 
     assembly_founder_paths = []

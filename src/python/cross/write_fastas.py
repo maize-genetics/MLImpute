@@ -21,7 +21,7 @@ def write_fasta(founder, chromosomes, fa_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assembly-list", type=str, description="file containing full file paths and names for assembly fastas")
+    parser.add_argument("--assembly-list", type=str, help="file containing full file paths and names for assembly fastas")
     parser.add_argument("--chromosome-list", type=str, help="file containing chromosomes names")
     parser.add_argument("--assembly-dir", type=str, help="directory containing assembly fasta files")
     args = parser.parse_args()
