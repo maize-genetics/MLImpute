@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import logging
 from MLImpute.src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
 from tqdm import tqdm
-
+import argparse
+import os
 
 def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     """
@@ -66,52 +66,59 @@ def build_answer_key(keyfile):
 
 
 if __name__ == '__main__':
-    ps4g_file = "B97_1_ps4g.txt"
-    key_file = "B97_key.bed"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--assembly_key_dir", type=str,
+                        description="directory containing parent answer keys")
+    parser.add_argument("--ps4g_dir", type=str, description="directory containing PS4G data")
+    parser.add_argument("--output-dir", type=str, description="output directory")
+    args = parser.parse_args()
 
-    sample_name = ps4g_file.split("_ps4g")[0]
+    for ps4g_file in os.listdir(args.ps4g_dir):
+        sample_name = ps4g_file.split("_ps4g")[0]
+        assembly = ps4g_file.split("_")[0]
+        key_file = f"{assembly}_key.bed"
 
-    ps4g_df = load_ps4g_file(ps4g_file)
-    print("loaded file")
+        ps4g_df = load_ps4g_file(ps4g_file)
+        print("loaded file")
 
-    metadata, gamete_data = extract_metadata(ps4g_file)
-    gamete_to_idx = {str(d["gamete"]): int(d["gamete_index"]) for d in gamete_data}
-    print("extracted metadata")
+        metadata, gamete_data = extract_metadata(ps4g_file)
+        gamete_to_idx = {str(d["gamete"]): int(d["gamete_index"]) for d in gamete_data}
+        print("extracted metadata")
 
-    key_dict = build_answer_key(key_file)
-    print("created answer key")
+        key_dict = build_answer_key(key_file)
+        print("created answer key")
 
-    chromosomes = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10"]
+        chromosomes = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10"]
 
-    for chr in chromosomes:
-        ps4g_chr = ps4g_df[ps4g_df["refContig"] == chr]
-        matrix = create_chromosome_matrix(ps4g_chr.reset_index(), gamete_to_idx, key_dict)
-        # count number of -1
+        for chr in chromosomes:
+            ps4g_chr = ps4g_df[ps4g_df["refContig"] == chr]
+            matrix = create_chromosome_matrix(ps4g_chr.reset_index(), gamete_to_idx, key_dict)
+            # count number of -1
 
-        # Separate data and labels
-        X = matrix[:, :-1]
-        y = matrix[:, -1].astype(int)
+            # Separate data and labels
+            X = matrix[:, :-1]
+            y = matrix[:, -1].astype(int)
 
-        # 1️⃣ Count of missing labels
-        missing_mask = (y == -1)
-        num_missing = missing_mask.sum()
-        num_total = len(y)
-        print("percent unlabeled: ", num_missing/num_total)
+            # 1️⃣ Count of missing labels
+            missing_mask = (y == -1)
+            num_missing = missing_mask.sum()
+            num_total = len(y)
+            print("percent unlabeled: ", num_missing/num_total)
 
-        # 2️⃣ For rows with valid labels
-        valid_mask = ~missing_mask
-        valid_indices = np.where(valid_mask)[0]
+            # 2️⃣ For rows with valid labels
+            valid_mask = ~missing_mask
+            valid_indices = np.where(valid_mask)[0]
 
-        has_nonzero = []
+            has_nonzero = []
 
-        for i in valid_indices:
-            label_idx = int(y[i])
-            row = X[i, :]
-            # does this row have a nonzero value at its label index?
-            val = row[label_idx]
-            has_nonzero.append(val > 0)
+            for i in valid_indices:
+                label_idx = int(y[i])
+                row = X[i, :]
+                # does this row have a nonzero value at its label index?
+                val = row[label_idx]
+                has_nonzero.append(val > 0)
 
-        has_nonzero = np.array(has_nonzero)
-        print("accuracy: ", has_nonzero.mean())
+            has_nonzero = np.array(has_nonzero)
+            print("accuracy: ", has_nonzero.mean())
 
-        #np.save(f"{sample_name}_{chr}_matrix.npy", matrix.astype(np.int8))
+            np.save(f"{sample_name}_{chr}_matrix.npy", matrix.astype(np.int8))
