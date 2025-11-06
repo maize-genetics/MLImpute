@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from MLImpute.src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
 from tqdm import tqdm
 import argparse
 import os
@@ -121,4 +121,4 @@ if __name__ == '__main__':
             has_nonzero = np.array(has_nonzero)
             print("accuracy: ", has_nonzero.mean())
 
-            np.save(f"{sample_name}_{chr}_matrix.npy", matrix.astype(np.int8))
+            np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", matrix.astype(np.int8))
