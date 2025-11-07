@@ -10,7 +10,6 @@ Necessary files:
 
 `python pick_crossovers.py --ref-fasta /fastas-dir/ref.fa --assembly-list assembly_list.txt`
 
-User must define assembly names and chromosomes
 
 
 **Step 3: Create chain files (create {assembly}.chain) from maf files**
