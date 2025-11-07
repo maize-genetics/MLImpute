@@ -113,10 +113,12 @@ class SegmentationDataset(Dataset):
         input_ids = np.concatenate(([self.window_size+2], junctions))
         mask = np.ones(len(junctions) + 1)
 
+        # Note: we are relying on the data collator to handle padding, so labels do not have
+        # a fixed length
         return {
-            'pixel_values': torch.tensor(window, dtype=torch.float),
-            'labels': labels,
-            'decoder_attention_mask': mask,
-            'decoder_input_ids': torch.tensor(input_ids)
+            'pixel_values': torch.tensor(window, dtype=torch.float),  #(3, image_size, image_size)
+            'labels': labels,  # (torch.int64, variable length)
+            'decoder_attention_mask': mask,  # (boolean, same length as labels)
+            'decoder_input_ids': torch.tensor(input_ids)  # (torch.int64, same length as labels)
         }
 
