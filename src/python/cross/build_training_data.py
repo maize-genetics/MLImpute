@@ -28,11 +28,9 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     for i, row in tqdm(enumerate(ps4g.itertuples()), total=len(ps4g)):
         X_multihot[i, row.gameteSet] = row.count  # vectorized assignment
         if row.refPosBinned >= len(answer_key[row.refContig]): parent = None
-        else: parent = answer_key[row.refContig][row.refPosBinned] # TODO: what if idx is out of bounds?
+        else: parent = answer_key[row.refContig][row.refPosBinned]
 
         X_multihot[i, -1] = gamete_to_idx.get(str(parent), -1) # convert parent to idx
-
-    # need to assign labels
 
     return X_multihot
 
@@ -63,6 +61,53 @@ def build_answer_key(keyfile):
         answer_key[chrom] = arr
 
     return answer_key
+
+def collapse_matrix(chrom_matrix, positions):
+    """
+    Collapse rows in a NumPy matrix by summing rows with the same binned position,
+    excluding the last column (labels).
+
+    Args:
+        chrom_matrix (np.ndarray): shape (n_rows, n_cols)
+            Feature matrix where the last column represents labels.
+        positions (list or array-like): length n_rows
+            Binned positions corresponding to each row.
+
+    Returns:
+        collapsed_matrix (np.ndarray): shape (n_unique_bins, n_cols)
+            Collapsed features with the same labels appended.
+        collapsed_positions (np.ndarray): shape (n_unique_bins,)
+    """
+    positions = np.asarray(positions)
+
+    # Separate features and labels
+    features = chrom_matrix[:, :-1]
+    labels = chrom_matrix[:, -1]
+
+    # Find unique positions and mapping
+    unique_pos, idx, inv_idx = np.unique(positions, return_index=True, return_inverse=True)
+
+    # Collapse features by summing
+    collapsed_features = np.zeros((len(unique_pos), features.shape[1]), dtype=features.dtype)
+    np.add.at(collapsed_features, inv_idx, features)
+
+    collapsed_labels = labels[idx]
+
+    # Combine features + labels back
+    collapsed_matrix = np.column_stack([collapsed_features, collapsed_labels])
+
+    return collapsed_matrix, unique_pos
+
+def include_all_pos(collapsed_matrix, unique_pos, length):
+    last_bin = length // 256
+
+    all_pos_matrix = np.zeros((last_bin+1, chrom_matrix.shape[1]-1)) # what should label for these bins be? -1?
+    all_pos_labels = np.full((last_bin+1, 1), -1)
+    all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1)
+    all_pos_matrix[unique_pos, :] = collapsed_matrix
+
+
+    return all_pos_matrix
 
 
 if __name__ == '__main__':
