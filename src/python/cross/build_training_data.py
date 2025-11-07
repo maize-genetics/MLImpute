@@ -67,24 +67,26 @@ def build_answer_key(keyfile):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assembly_key_dir", type=str, help="directory containing parent answer keys")
-    parser.add_argument("--ps4g_dir", type=str, help="directory containing PS4G data")
+    parser.add_argument("--assembly-key-dir", type=str, help="directory containing parent answer keys")
+    parser.add_argument("--ps4g-dir", type=str, help="directory containing PS4G data")
     parser.add_argument("--output-dir", type=str, help="output directory")
     args = parser.parse_args()
+
+    os.makedirs(args.output_dir, exist_ok=True)
 
     for ps4g_file in os.listdir(args.ps4g_dir):
         sample_name = ps4g_file.split("_ps4g")[0]
         assembly = ps4g_file.split("_")[0]
         key_file = f"{assembly}_key.bed"
 
-        ps4g_df = load_ps4g_file(ps4g_file)
+        ps4g_df = load_ps4g_file(f"{args.ps4g_dir}/{ps4g_file}")
         print("loaded file")
 
-        metadata, gamete_data = extract_metadata(ps4g_file)
+        metadata, gamete_data = extract_metadata(f"{args.ps4g_dir}/{ps4g_file}")
         gamete_to_idx = {str(d["gamete"]): int(d["gamete_index"]) for d in gamete_data}
         print("extracted metadata")
 
-        key_dict = build_answer_key(key_file)
+        key_dict = build_answer_key(f"{args.assembly_key_dir}/{key_file}")
         print("created answer key")
 
         chromosomes = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10"]
