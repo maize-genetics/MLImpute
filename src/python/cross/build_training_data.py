@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from MLImpute.src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
 from tqdm import tqdm
 import argparse
 import os
@@ -36,8 +36,8 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
 
 def build_answer_key(keyfile):
     '''
-    return a dictionary answer_key mapping binned positions to labels
-    does not include unlabelled bins
+    return a dictionary answer_key mapping chromosome to a list of labels, with indices corresponding to binned positions
+    may include unlabelled bins
     '''
     key_df = (pd.read_csv(keyfile, sep="\t", header=None, usecols=[3, 4, 5, 6],
                          names=["ref_chr", "ref_start", "ref_end", "founder"]).drop_duplicates().sort_values(by=["ref_chr", "ref_start"]))
