@@ -107,7 +107,7 @@ def simulate_rounds(chrom_lengths: Dict[Union[int, str], int],
         for f in founders:
             pop[f][c] = lines[f]
 
-    return pop.values()
+    return list(pop.values())
 
 # ----------------------------
 # Diagnostics / summaries
