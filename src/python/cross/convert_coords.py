@@ -58,7 +58,7 @@ def adjust_coords(df, length):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assembly-list", type=str, description="file containing full file paths and names for assembly fastas")
+    parser.add_argument("--assembly-list", type=str, help="file containing full file paths and names for assembly fastas")
     parser.add_argument("--chain-dir", type=str, help="chain file directory")
     args = parser.parse_args()
 
