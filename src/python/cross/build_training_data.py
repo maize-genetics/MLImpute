@@ -35,6 +35,10 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     return X_multihot
 
 def build_answer_key(keyfile):
+    '''
+    return a dictionary answer_key mapping binned positions to labels
+    does not include unlabelled bins
+    '''
     key_df = (pd.read_csv(keyfile, sep="\t", header=None, usecols=[3, 4, 5, 6],
                          names=["ref_chr", "ref_start", "ref_end", "founder"]).drop_duplicates().sort_values(by=["ref_chr", "ref_start"]))
 
@@ -99,13 +103,15 @@ def collapse_matrix(chrom_matrix, positions):
     return collapsed_matrix, unique_pos
 
 def include_all_pos(collapsed_matrix, unique_pos, length):
+    '''
+    Adds unlabelled bins to the collapsed matrix with -1 labels
+    '''
     last_bin = length // 256
 
     all_pos_matrix = np.zeros((last_bin+1, chrom_matrix.shape[1]-1)) # what should label for these bins be? -1?
     all_pos_labels = np.full((last_bin+1, 1), -1)
     all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1)
     all_pos_matrix[unique_pos, :] = collapsed_matrix
-
 
     return all_pos_matrix
 
