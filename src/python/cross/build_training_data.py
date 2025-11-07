@@ -108,7 +108,7 @@ def include_all_pos(collapsed_matrix, unique_pos, length):
     '''
     last_bin = length // 256
 
-    all_pos_matrix = np.zeros((last_bin+1, chrom_matrix.shape[1]-1)) # what should label for these bins be? -1?
+    all_pos_matrix = np.zeros((last_bin+1, collapsed_matrix.shape[1]-1))
     all_pos_labels = np.full((last_bin+1, 1), -1)
     all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1)
     all_pos_matrix[unique_pos, :] = collapsed_matrix
