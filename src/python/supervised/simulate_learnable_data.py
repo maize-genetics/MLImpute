@@ -1,3 +1,7 @@
+# Temporary file, simulate a dataset that has a basic pattern to learn
+# using this so that I can troubleshoot causal language issues without
+# having the actual traning datasets
+
 import numpy as np
 
 out_file_name = "foo.npy"
@@ -23,7 +27,6 @@ previous_hap = -1
 
 while current_crossover < length:
     next_crossover = current_crossover + np.random.randint(min_dist, max_dist)
-    print(next_crossover)
 
     if next_crossover > length:
         next_crossover = length
