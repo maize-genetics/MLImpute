@@ -140,7 +140,7 @@ if __name__ == '__main__':
         key_dict = build_answer_key(f"{args.assembly_key_dir}/{key_file}")
         print("created answer key")
 
-        chromosomes = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10"]
+        chromosomes = ps4g_df["refContig"].unique()
 
         for chr in chromosomes:
             ps4g_chr = ps4g_df[ps4g_df["refContig"] == chr]
