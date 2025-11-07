@@ -4,6 +4,7 @@ from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
 from tqdm import tqdm
 import argparse
 import os
+import logging
 
 def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     """
@@ -23,7 +24,7 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     # Get number of unique gametes
     num_classes = len(gamete_to_idx)
 
-    X_multihot = np.zeros((len(ps4g), num_classes + 1), dtype=np.float32)
+    X_multihot = np.zeros((len(ps4g), num_classes + 1), dtype=np.int8)
 
     for i, row in tqdm(enumerate(ps4g.itertuples()), total=len(ps4g)):
         X_multihot[i, row.gameteSet] = row.count  # vectorized assignment
@@ -130,15 +131,19 @@ if __name__ == '__main__':
         assembly = ps4g_file.split("_")[0]
         key_file = f"{assembly}_key.bed"
 
-        ps4g_df = load_ps4g_file(f"{args.ps4g_dir}/{ps4g_file}")
-        print("loaded file")
+        try: ps4g_df = load_ps4g_file(f"{args.ps4g_dir}/{ps4g_file}")
+        except Exception as e:
+            logging.info(f"Error loading {ps4g_file}: {e}")
+            raise
+
+        logging.info("Loaded file")
 
         metadata, gamete_data = extract_metadata(f"{args.ps4g_dir}/{ps4g_file}")
         gamete_to_idx = {str(d["gamete"]): int(d["gamete_index"]) for d in gamete_data}
-        print("extracted metadata")
+        logging.info("extracted metadata")
 
         key_dict = build_answer_key(f"{args.assembly_key_dir}/{key_file}")
-        print("created answer key")
+        logging.info("created answer key")
 
         chromosomes = ps4g_df["refContig"].unique()
 
@@ -155,7 +160,7 @@ if __name__ == '__main__':
             missing_mask = (y == -1)
             num_missing = missing_mask.sum()
             num_total = len(y)
-            print("percent unlabeled: ", num_missing/num_total)
+            logging.info("percent unlabeled: ", num_missing/num_total)
 
             # 2️⃣ For rows with valid labels
             valid_mask = ~missing_mask
@@ -171,6 +176,6 @@ if __name__ == '__main__':
                 has_nonzero.append(val > 0)
 
             has_nonzero = np.array(has_nonzero)
-            print("accuracy: ", has_nonzero.mean())
+            logging.info("accuracy: ", has_nonzero.mean())
 
             np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", matrix.astype(np.int8))
