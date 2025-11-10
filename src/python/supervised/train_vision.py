@@ -6,8 +6,6 @@ import argparse
 import torch.optim as optim
 from dataset_vision import SegmentationDataset, custom_data_collator
 
- # TODO NOTE: this version contains a yet-unsolved bug. Will update when fixed
-
 # arguments for running the script
 def parse_args():
     parser = argparse.ArgumentParser()
