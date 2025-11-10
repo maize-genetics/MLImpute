@@ -11,18 +11,18 @@ import numpy as np
 import wandb
 from tqdm import tqdm
 import argparse
-
+import os
 
 # Model architecture
 # Effectively just a modernbert model with a simple classifier head and some dropout
 class BertTagger(nn.Module):
-    def __init__(self, bert, parent_dim, dropout):
+    def __init__(self, bert, parent_dim, dropout, device):
         super().__init__()
-
+        self.device = device
         self.bert = bert
         embedding_dim = bert.config.to_dict()["hidden_size"]
         self.embedding = nn.Linear(parent_dim, embedding_dim)
-        self.fc = nn.Linear(embedding_dim, parent_dim)
+        self.fc = nn.Linear(embedding_dim, parent_dim+1)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, input_ids):
@@ -33,30 +33,56 @@ class BertTagger(nn.Module):
         return predictions
 
 # Dataset class
-# TODO: input file handling should be changed
 # there will be multiple input files to be memory-mapped with numpy
 # and the labels are a part of the regular input files, not a separate window
 class LabeledDataset(Dataset):
-    def __init__(self, input_file, label_file, window_size=512, top_n=25, step_size=128):
+    def __init__(self, file_dir, input_file_names, window_size=512, num_parents=24, step_size=128):
+        self.file_dir = file_dir
+        self.input_file_names = input_file_names
         self.window_size = window_size
-        self.top_n = top_n
+        self.num_parents = num_parents
         self.step_size = step_size
-        self.matrix = np.load(input_file)[:, 0:top_n]
-        self.labels = np.load(label_file)
+        self.windows = self.__generate_windows__()
 
-        self.n_windows = (self.matrix.shape[0] - window_size) // step_size
+        self.n_windows = len(self.windows)
+
+    # uses a list to store all valid windows
+    # this could be manipulated to skip windows with unlabeled bins
+    def __generate_windows__(self):
+        # windows is a list of tuples, where each tuple represents a training data point
+        # the tuples are formatted as (file index, window step index)
+        # multiply window step index by step_size to get the index of the first position in the window
+        windows = [] # file idx, window step idx
+
+        for idx in range(len(self.input_file_names)):
+            filelen = np.load(f"{self.file_dir}/{self.input_file_names[idx]}").shape[0]
+            num_windows = (filelen - self.window_size) // self.step_size
+            windows.extend([(idx, idy) for idy in range(num_windows)])
+
+        return windows
 
     def __len__(self):
         return self.n_windows
 
     # only required pieces of data are the input embeddings and the correct labels
     def __getitem__(self, idx):
-        pos_start = idx * self.step_size
+        # retrieve window index from list
+        file_idx, pos_idx = self.windows[idx]
+
+        # convert to position start and end
+        pos_start = pos_idx * self.step_size
         pos_end = pos_start + self.window_size
 
+        # grab segment from mmaped numpy
+        ip = np.load(f"{self.file_dir}/{self.input_file_names[file_idx]}", allow_pickle=True, mmap_mode='r')[pos_start:pos_end]
+
+        matrix = ip[:, 0:self.num_parents+1]
+        labels = torch.tensor(matrix[:, -1], dtype=torch.int64)
+        labels[labels == -1] = 24
+
         return {
-            "input_embeds": torch.tensor(self.matrix[pos_start:pos_end], dtype=torch.float),
-            "labels": torch.tensor(self.labels[pos_start:pos_end], dtype=torch.int64)
+            "input_embeds": torch.tensor(matrix[:, :-1], dtype=torch.float),
+            "labels": labels
         }
 
 
@@ -92,7 +118,7 @@ def train(model, iterator, optimizer, criterion, num_warmup_steps,num_stable_ste
             # so that we guarantee we end in a valley at the final batch
             if len(iterator) - idx <= 2* steps_per_round:
                 lr_scheduler = get_wsd_schedule(optimizer, num_warmup_steps, num_decay_steps,
-                                                num_training_steps=len(iterator-idx))
+                                                num_training_steps=(len(iterator)-idx))
             else:
                 lr_scheduler = get_wsd_schedule(optimizer, num_warmup_steps, num_decay_steps,
                                             num_stable_steps=num_stable_steps)
@@ -152,15 +178,14 @@ def parse_args():
 
     parser.add_argument("--num-parents", "--np", type=int, default=24, help="number of parents")
     parser.add_argument("--max-seq-length", "--sl", type=int, default=512, help="maximum input sequence length")
-    parser.add_argument("--data-file-name", type=str, required=True, help="path to the input training data")
-    parser.add_argument("--label-file-name", type=str, required=True, help="path to the input labels")
+    parser.add_argument("--data-file-path", type=str, required=True, help="path to the input training data")
     parser.add_argument("--num-epochs", "-e", type=int, default=9, help="number of training epochs")
     parser.add_argument("--num-hidden-layers", "--nh", type=int, default=12, help="number of hidden layers in BERT")
     parser.add_argument("--step-size", "-s", type=int, default=128, help="distance between the start points of each training window")
     parser.add_argument("--project-name", "--pn", type=str, default="test", help="wandb project name")
     parser.add_argument("--run-name", "--rn", type=str, default="run-1", help="wand run name")
     parser.add_argument("--batch-size", "-b", type=int, default=8, help="batch size")
-    parser.add_argument("--save-model-path", "-s", type=str, default="best_model.pt", help="path to save the best performing model")
+    parser.add_argument("--save-model-path", type=str, default="best_model.pt", help="path to save the best performing model")
     parser.add_argument("--steps-to-print", "--sp", type=int, default=100, help="steps between reporting to wandb")
     parser.add_argument("--warmup-steps", "--warm", type=int, default=20, help="number of warmup steps")
     parser.add_argument("--stable-steps", "--stable", type=int, default=200, help="number of stable steps. Should probably be larger than default (200)")
@@ -172,16 +197,16 @@ def parse_args():
 
 def main():
     args = parse_args()
-    device="cuda"
+    device="cuda" if torch.cuda.is_available() else "cpu"
 
     # Initializing model
     configuration = ModernBertConfig(num_hidden_layers=args.num_hidden_layers,
                                      max_position_embeddings=args.max_seq_length)
-    model = BertTagger(ModernBertModel(configuration), args.num_parents, 0.1)
+    model = BertTagger(ModernBertModel(configuration), args.num_parents, 0.1, device=device)
 
     # Initializing dataset
-    dataset = LabeledDataset(args.data_file_name, args.label_file_name, args.max_seq_length,
-                             args.num_parents, args.step_size)
+    filenames = os.listdir(args.data_file_path)
+    dataset = LabeledDataset(args.data_file_path, filenames, args.max_seq_length, args.num_parents, args.step_size)
     dataset_chunks = torch.utils.data.random_split(dataset, [1 / (args.num_epochs + 1)] * (args.num_epochs + 1))
 
     # Setting up optimizer and loss function
@@ -192,7 +217,7 @@ def main():
     criterion.to(device)
 
     # start up wandb run
-    wandb.init(project=args.project_name, name=args.run_name, config={
+    wandb.init(project=args.project_name, entity="maize-genetics", name=args.run_name, config={
             "epochs": args.num_epochs,
             "batch_size": args.batch_size,
             "learning_rate": "WSD"
