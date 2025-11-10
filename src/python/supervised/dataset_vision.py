@@ -15,6 +15,7 @@ import torch
 def custom_data_collator(features: list[InputDataClass]) -> dict[str, Any]:
     # loss calculations will ignore this token
     padding_token = -100
+    input_padding_token = 6144 # TODO remove hard-coding
 
     # pad label features to the length of the longest
     # right-padded for training
@@ -25,7 +26,7 @@ def custom_data_collator(features: list[InputDataClass]) -> dict[str, Any]:
             pad_len = longest_seq-feat["labels"].shape[0]
             feat["labels"] = np.concatenate((feat["labels"], [padding_token]*pad_len))
             feat["decoder_input_ids"] = np.concatenate((feat["decoder_input_ids"],
-                                                        [padding_token]*pad_len))
+                                                        [input_padding_token]*pad_len))
             feat["decoder_attention_mask"] = np.concatenate((feat["decoder_attention_mask"],
                                                              np.zeros(pad_len)))
 
