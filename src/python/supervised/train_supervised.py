@@ -178,7 +178,8 @@ def parse_args():
 
     parser.add_argument("--num-parents", "--np", type=int, default=24, help="number of parents")
     parser.add_argument("--max-seq-length", "--sl", type=int, default=512, help="maximum input sequence length")
-    parser.add_argument("--data-file-path", type=str, required=True, help="path to the input training data")
+    parser.add_argument("--training-data-path", type=str, required=True, help="path to the input training data")
+    parser.add_argument("--validation-data-path", type=str, required=True, help="path to the input validation data")
     parser.add_argument("--num-epochs", "-e", type=int, default=9, help="number of training epochs")
     parser.add_argument("--num-hidden-layers", "--nh", type=int, default=12, help="number of hidden layers in BERT")
     parser.add_argument("--step-size", "-s", type=int, default=128, help="distance between the start points of each training window")
@@ -204,10 +205,14 @@ def main():
                                      max_position_embeddings=args.max_seq_length)
     model = BertTagger(ModernBertModel(configuration), args.num_parents, 0.1, device=device)
 
-    # Initializing dataset
-    filenames = os.listdir(args.data_file_path)
-    dataset = LabeledDataset(args.data_file_path, filenames, args.max_seq_length, args.num_parents, args.step_size)
-    dataset_chunks = torch.utils.data.random_split(dataset, [1 / (args.num_epochs + 1)] * (args.num_epochs + 1))
+    # Initializing training dataset
+    training_filenames = os.listdir(args.training_data_path)
+    training_dataset = LabeledDataset(args.training_data_path, training_filenames, args.max_seq_length, args.num_parents, args.step_size)
+    #dataset_chunks = torch.utils.data.random_split(dataset, [1 / (args.num_epochs + 1)] * (args.num_epochs + 1))
+
+    # Initializing validation dataset
+    validation_filenames = os.listdir(args.validation_data_path)
+    validation_dataset = LabeledDataset(args.validation_data_path, validation_filenames, args.max_seq_length, args.num_parents, args.step_size)
 
     # Setting up optimizer and loss function
     optimizer = optim.AdamW(model.parameters())
@@ -227,8 +232,8 @@ def main():
 
     # loop through epochs for training
     for epoch in range(args.num_epochs):
-        dataloader = DataLoader(dataset_chunks[epoch], batch_size=args.batch_size, shuffle=True)
-        test_dataloader = DataLoader(dataset_chunks[-1], batch_size=args.batch_size, shuffle=False)
+        dataloader = DataLoader(training_dataset, batch_size=args.batch_size, shuffle=True)
+        test_dataloader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False)
         train_loss, train_acc = train(model, dataloader, optimizer, criterion, args.warmup_steps,
                                       args.stable_steps, args.decay_steps, args.steps_to_print)
         test_loss, test_acc = evaluate(model, test_dataloader, criterion)
