@@ -7,6 +7,7 @@ from transformers.data.data_collator import default_data_collator
 from torch.utils.data import Dataset
 import numpy as np
 import torch
+import pandas as pd
 
 
 # Slightly modified from default data collator
@@ -44,13 +45,18 @@ def custom_data_collator(features: list[InputDataClass]) -> dict[str, Any]:
 # to make the data suitable for input to the vision model we wrap it to a square format,
 # normalize it, and create the three input channels
 class SegmentationDataset(Dataset):
-    def __init__(self, input_file_names, image_size=384, num_parents=24, step_size=1536):
-        self.input_file_names = input_file_names
+    def __init__(self, keyfile, image_size=384, num_parents=24, step_size=1536, windows=None, split_norm_levels=False, include_index=False):
+        self.keyfile = pd.read_csv(keyfile, sep="\t")
         self.window_size = (image_size * image_size) // num_parents
         self.image_size = image_size
         self.num_parents = num_parents
         self.step_size = step_size
-        self.windows = self.__generate_windows__()
+        if windows is not None:
+            self.windows = list(pd.read_csv(windows, sep="\t").itertuples(index=False))
+        else:
+            self.windows = self.__generate_windows__()
+        self.split_norm_levels = split_norm_levels
+        self.include_index = include_index
 
         self.n_windows = len(self.windows)
 
@@ -62,8 +68,8 @@ class SegmentationDataset(Dataset):
         # multiply window step index by step_size to get the index of the first position in the window
         windows = [] # file idx, window step idx
 
-        for idx in range(len(self.input_file_names)):
-            filelen = np.load(self.input_file_names[idx]).shape[0]
+        for idx in range(len(self.keyfile)):
+            filelen = self.keyfile.iloc[idx]["length"]
             num_windows = (filelen - self.window_size) // self.step_size
             windows.extend([(idx, idy) for idy in range(num_windows)])
 
@@ -87,24 +93,34 @@ class SegmentationDataset(Dataset):
         pos_end = pos_start + self.window_size
 
         # grab segment from mmaped numpy
-        ip = np.load(self.input_file_names[file_idx], allow_pickle=True, mmap_mode='r')[pos_start:pos_end]
-
-        matrix = ip[:, 0:self.num_parents]
-
-        # normalize the matrix according to ViT's requirements (mean 0.5 std 0.5)
-        mean = np.mean(matrix)
-        sd = np.std(matrix)
-        matrix = (matrix - mean) / sd
-        matrix = matrix * 0.5 + 0.5
+        ip = np.load(self.keyfile["path"].iloc[file_idx], allow_pickle=True, mmap_mode='r')[pos_start:pos_end]
 
         # separate labels and generate junctions aka crossover points
         labels_binned = ip[:, self.num_parents]
         junctions = self.__bins_to_idx__(labels_binned)
 
-        # wrap input data to the square aspect ratio
-        # and triple it to produce a greyscale RGB image
-        window = np.hstack(np.split(matrix, self.window_size // self.image_size))
-        window = np.stack((window, window, window), axis=0)
+        matrix = ip[:, 0:self.num_parents]
+        matrix = np.hstack(np.split(matrix, self.window_size // self.image_size))
+
+        # normalize the matrix according to ViT's requirements (mean 0.5 std 0.5)
+        mean = np.mean(matrix)
+        sd = np.std(matrix)
+        matrix_r = (matrix - mean) / sd
+        matrix_r = matrix_r * 0.5 + 0.5
+
+        if self.split_norm_levels:
+            matrix_g = (matrix - self.keyfile.iloc[file_idx]["chrom_mean"]) / self.keyfile.iloc[file_idx]["chrom_stdev"]
+            matrix_g = matrix_g * 0.5 + 0.5
+
+            matrix_b = (matrix - self.keyfile.iloc[file_idx]["global_mean"]) / self.keyfile.iloc[file_idx]["global_stdev"]
+            matrix_b = matrix_b * 0.5 + 0.5
+
+            window = np.stack((matrix_r, matrix_g, matrix_b), axis=0)
+
+        else:
+            # wrap input data to the square aspect ratio
+            # and triple it to produce a greyscale RGB image
+            window = np.stack((matrix_r, matrix_r, matrix_r), axis=0)
 
         # We've got labels and decoder input id's separately here, even though they should just be
         # shifted versions of one another. This was part of debugging that I did because
@@ -116,10 +132,20 @@ class SegmentationDataset(Dataset):
 
         # Note: we are relying on the data collator to handle padding, so labels do not have
         # a fixed length
-        return {
-            'pixel_values': torch.tensor(window, dtype=torch.float),  #(3, image_size, image_size)
-            'labels': labels,  # (torch.int64, variable length)
-            'decoder_attention_mask': mask,  # (boolean, same length as labels)
-            'decoder_input_ids': torch.tensor(input_ids)  # (torch.int64, same length as labels)
-        }
+        if self.include_index:
+            return {
+                'pixel_values': torch.tensor(window, dtype=torch.float),  #(3, image_size, image_size)
+                'labels': labels,  # (torch.int64, variable length)
+                'decoder_attention_mask': mask,  # (boolean, same length as labels)
+                'decoder_input_ids': torch.tensor(input_ids),  # (torch.int64, same length as labels)
+                'file_idx': file_idx,
+                'pos_idx': pos_idx
+            }
+        else:
+            return {
+                'pixel_values': torch.tensor(window, dtype=torch.float),  #(3, image_size, image_size)
+                'labels': labels,  # (torch.int64, variable length)
+                'decoder_attention_mask': mask,  # (boolean, same length as labels)
+                'decoder_input_ids': torch.tensor(input_ids)  # (torch.int64, same length as labels)
+            }
 

@@ -94,7 +94,7 @@ def path_acc(preds, labels):
 
 
 # training loop
-def train(model, iterator, optimizer, criterion, num_warmup_steps,num_stable_steps, num_decay_steps, steps_to_print):
+def train(model, iterator, optimizer, criterion, num_warmup_steps, num_stable_steps, num_decay_steps, steps_to_print):
     epoch_loss = 0
     epoch_acc = 0
 
