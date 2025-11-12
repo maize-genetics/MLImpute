@@ -15,6 +15,7 @@ def parse_args():
     parser.add_argument("--image-size", type=int, default=384, help="image side length: should be multiple of num_parents")
     parser.add_argument("--checkpoint", type=str, default=None, help="path to a previous training checkpoint")
     parser.add_argument("--keyfile", type=str, required=True, help="keyfile with list of input files")
+    parser.add_argument("--windows", type=str, default=None, help="Optional, specify which windows to include")
     parser.add_argument("--num-epochs", "-e", type=int, default=2, help="number of training epochs")
     parser.add_argument("--skip-warmup", action="store_true", help="skip the warmup stage of WSD")
     parser.add_argument("--allow-cpu",  action="store_true", help="allow cpu for training (not recommended)")
@@ -73,7 +74,7 @@ def main():
     with open(args.keyfile, 'r') as file:
         input_files = [filename.strip() for filename in file.readlines()]
 
-    dataset = SegmentationDataset(input_files)
+    dataset = SegmentationDataset(args.keyfile, windows=args.windows)
 
     dataset_chunks = torch.utils.data.random_split(dataset, [0.9, 0.1])
     dataset_train = dataset_chunks[0]
