@@ -2,7 +2,7 @@ from tqdm import tqdm
 from transformers import VisionEncoderDecoderModel
 import torch
 import argparse
-from dataset_vision import SegmentationDataset, custom_data_collator
+from dataset_vision import SegmentationDataset, custom_data_collator, SumCrossEntropy, BinnedCrossEntropy
 import sys
 from torch.utils.data import DataLoader
 
@@ -48,3 +48,12 @@ dl = iter(dataloader)
 model.eval()
 
 batch = next(dl)
+
+model._loss_function = SumCrossEntropy()
+
+outputs = model(pixel_values=batch["pixel_values"], labels=batch["labels"],
+                decoder_input_ids=batch["decoder_input_ids"], decoder_attention_mask=batch["decoder_attention_mask"])
+
+c1 = BinnedCrossEntropy(0, 6144)
+
+loss1 = c1(outputs["logits"], batch["labels"], 0, 0)

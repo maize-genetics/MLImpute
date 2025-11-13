@@ -4,9 +4,8 @@ import torch
 from transformers import Trainer, TrainingArguments
 import argparse
 import torch.optim as optim
-from dataset_vision import SegmentationDataset, custom_data_collator
+from dataset_vision import SegmentationDataset, custom_data_collator, SumCrossEntropy
 import sys
-from torch.nn.functional import cross_entropy
 
 # arguments for running the script
 def parse_args():
@@ -26,50 +25,6 @@ def parse_args():
 
     args = parser.parse_args()
     return args
-
-class SumCrossEntropy(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.loss = torch.nn.CrossEntropyLoss(reduction="sum")
-
-    def forward(self, logits,labels,vocab_size,num_items_in_batch):
-        return self.loss(torch.permute(logits, (0, 2, 1)), labels)
-
-
-
-class BinnedCrossEntropy(torch.nn.Module):
-    def __init__(self, spread, max_token):
-        super().__init__()
-        self.spread = spread
-        self.max_token = max_token
-
-    def forward(self, logits, labels, vocab_size, num_items_in_batch):
-        y_pred = torch.softmax(logits, dim=2)
-
-        loss = 0
-
-        for idx in range(y_pred.shape[0]):
-            for idy in range(y_pred.shape[1]):
-                if labels[idx, idy] >= 0: # ignore -100 tokens
-
-                    if labels[idx, idy] >= self.max_token:
-                        binned_prob = y_pred[idx, idy, labels[idx, idy]]
-                    else:
-                        min_label = labels[idx, idy] - self.spread
-                        if min_label < 0:
-                            min_label = 0
-
-                        max_label = labels[idx,idy] + self.spread
-                        if max_label > self.max_token:
-                            max_label = self.max_token
-
-                        binned_prob = torch.sum(y_pred[idx, idy, min_label:max_label])
-
-                    loss += -1 * torch.log(binned_prob)
-
-        # TODO options for sum vs mean
-        return loss
-
 
 
 def main():
