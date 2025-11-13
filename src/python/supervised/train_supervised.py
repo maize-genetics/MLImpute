@@ -13,6 +13,18 @@ from tqdm import tqdm
 import argparse
 import os
 
+class HapLossSmooth(nn.Module):
+    def __init__(self, lambda_smooth=0.2):
+        super(HapLossSmooth, self).__init__()
+        self.lambda_smooth = lambda_smooth
+        self.cross_entropy = nn.CrossEntropyLoss()
+
+    def __call__(self, predictions, targets):
+        diff = predictions[:, :, 1:] - predictions[:, :, -1]
+        smoothness_penalty = torch.mean(torch.abs(diff))
+        ce_loss = self.cross_entropy(predictions, targets)
+        return ce_loss + self.lambda_smooth * smoothness_penalty
+
 # Model architecture
 # Effectively just a modernbert model with a simple classifier head and some dropout
 class BertTagger(nn.Module):
@@ -216,7 +228,8 @@ def main():
 
     # Setting up optimizer and loss function
     optimizer = optim.AdamW(model.parameters())
-    criterion = nn.CrossEntropyLoss()
+    #criterion = nn.CrossEntropyLoss()
+    criterion = HapLossSmooth(lambda_smooth=0.2)
 
     model.to(device)
     criterion.to(device)

@@ -49,6 +49,8 @@ def main():
     model.load_state_dict(ckpt)
     model.to(device)
 
+    os.makedirs(args.save_dir, exist_ok=True)
+
     filenames = os.listdir(args.data_path)
     for file in filenames:
         dataset = LabeledDataset(args.data_path, [file], args.max_seq_length, args.num_parents, args.step_size)
@@ -56,7 +58,7 @@ def main():
         predictions = inference(model, dataloader)
         pred_file = file.split("_matrix")[0]
         np.save(os.path.join(args.save_dir, pred_file), predictions)
-        #np.save(os.path.join(args.save_dir, file), predictions)
+        #np.save(os.path.join(args.save_dir, file), predictions_bestpt)
 
 
 
