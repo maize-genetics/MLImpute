@@ -2,6 +2,7 @@ import biokotlin.seq.NucSeqRecord
 import biokotlin.seqIO.FastaIO
 import biokotlin.seqIO.SeqType
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
@@ -65,14 +66,18 @@ class FastaLineWrapper(val wrapSize: Int = 60){
     }
 }
 
-class ConvertToFasta: CliktCommand() {
-    val gvcfFile: String by option(help="gvcf file").required()      
+class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
+    val gvcfFile: String by option(help="gvcf file").required()
     val outFile: String by option(help="out fasta").required()
     val fastaFile: String by option(help="ref fasta").required()
     val missingRecordsAs by option(help="if a position is missing a gvcf record (variant or ref block), fill " +
             "with N's (asN), reference (asRef) or omit sequence (asNone). Default asRef").enum<MissingGT>().default(MissingGT.asRef)
     val missingGenotypeAs by option(help="if the sample has a missing genotype (.), fill the position with N's (asN)," +
             "reference (asRef), or omit sequence (asNone)").enum<MissingGT>().default(MissingGT.asN)
+
+    override fun commandHelpEpilog(context: Context): String {
+        return "Constructs a fasta file based on the variants listed in the given GVCF file. "
+    }
 
     override fun run() {
         convertGVCFToFasta(gvcfFile, fastaFile, outFile, missingRecordsAs = missingRecordsAs, missingGenotypeAs = missingGenotypeAs)
@@ -216,16 +221,19 @@ class ConvertToFasta: CliktCommand() {
 
 }
 
-class DownsampleGvcf: CliktCommand(){
+class DownsampleGvcf: CliktCommand(help="Sample variants from GVCF"){
     val gvcfDir: String by option(help="gvcf directory").required()
     val outDir: String by option(help="out gvcf directory").required()
     val ignoreContig: String by option(help="comma-separated list of string patterns to ignore").default("")
-    val rates: String? by option(help="comma-separated list of downsampling rates to use for each chromosome")
+    val rates: String by option(help="comma-separated list of downsampling rates to use for each chromosome")
+        .default("0.01,0.05,0.1,0.15,0.2,0.3,0.35,0.4,0.45,0.49")
     val seed: Int? by option(help="random seed").int()
     val keepRef: Boolean by option(help="keep ref blocks").boolean().default(true)
     val minRefBlockSize: Int by option(help="minimum reference block size to sample").int().default(20)
 
-
+    override fun commandHelpEpilog(context: Context): String {
+        return "Sample variants from a GVCF file at a fixed rate per chromosome"
+    }
     override fun run() {
         val ignoreStrings = ignoreContig.split(",")
 
@@ -234,11 +242,8 @@ class DownsampleGvcf: CliktCommand(){
                 val inFile = filePath.toString()
                 val outFile =  "$outDir/${filePath.fileName.nameWithoutExtension}_subsampled.gvcf"
 
-                println(inFile)
-                println(outFile)
 
-                val rateList = rates?.split(",")?.map{it.toDouble()} ?: listOf(0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.35, 0.4, 0.45, 0.49)
-
+                val rateList = rates.split(",").map{it.toDouble()}
 
                 downsample(inFile, outFile, rateList, ignorePatterns = ignoreStrings,
                     keepRef=keepRef, randomSeed = seed, minRefBlockSize = minRefBlockSize)
@@ -303,10 +308,6 @@ class DownsampleGvcf: CliktCommand(){
 
         val contigLines = header.contigLines.sortedBy{it.contigIndex}.map{it.id}
 
-        println(contigLines.joinToString(", "))
-        println(header.contigLines.map{it.contigIndex}.joinToString(", "))
-
-
         val writer = VariantContextWriterBuilder()
             .unsetOption(Options.INDEX_ON_THE_FLY)
             .setOutputFile(File(outFile))
@@ -339,8 +340,6 @@ class DownsampleGvcf: CliktCommand(){
 
                     lastBlockChange = 0
 
-                    println(record.contig)
-                    println("sample rate: $sampleRate")
                 }
 
                 val genotype = record.getGenotype(name)
@@ -384,7 +383,6 @@ class DownsampleGvcf: CliktCommand(){
 }
 
 class Sample: CliktCommand() {
-
     override fun run() = Unit
 }
 
