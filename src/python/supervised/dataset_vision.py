@@ -36,7 +36,7 @@ def custom_data_collator(features: list[InputDataClass]) -> dict[str, Any]:
 
     # pass padded tokens to default collator
     batch = default_data_collator(features)
-    batch["return_dict"] = False
+    # batch["return_dict"] = False
 
     return batch
 
