@@ -2,9 +2,18 @@ from tqdm import tqdm
 from transformers import VisionEncoderDecoderModel
 import torch
 import argparse
-from dataset_vision import SegmentationDataset, custom_data_collator, SumCrossEntropy, BinnedCrossEntropy
+from dataset_vision import SegmentationDataset, custom_data_collator, SumCrossEntropy, FuzzyCrossEntropy, BinnedCrossEntropy, BinomialKLLoss
 import sys
 from torch.utils.data import DataLoader
+import time
+
+def time_loss(pred, label, criterion):
+    start = time.perf_counter()
+    loss = criterion(pred, label)
+    end = time.perf_counter()
+
+    print(end - start)
+    return loss
 
 # arguments for running the script
 def parse_args():
@@ -49,11 +58,17 @@ model.eval()
 
 batch = next(dl)
 
-model._loss_function = SumCrossEntropy()
+#model._loss_function = SumCrossEntropy()
 
 outputs = model(pixel_values=batch["pixel_values"], labels=batch["labels"],
                 decoder_input_ids=batch["decoder_input_ids"], decoder_attention_mask=batch["decoder_attention_mask"])
 
-c1 = BinnedCrossEntropy(0, 6144)
+c1 = FuzzyCrossEntropy(reduction="sum")
+c2 = BinnedCrossEntropy(4, 6145, "sum")
+c3 = SumCrossEntropy()
+c4 = BinomialKLLoss(reduction="sum")
 
-loss1 = c1(outputs["logits"], batch["labels"], 0, 0)
+loss1 = time_loss(outputs["logits"], batch["labels_smoothed"], c1)
+loss2 = time_loss(outputs["logits"], batch["labels"], c2)
+loss3 = time_loss(outputs["logits"], batch["labels"], c3)
+loss4 = time_loss(outputs["logits"], batch["labels_binom"], c4)

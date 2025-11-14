@@ -4,7 +4,7 @@ import torch
 from transformers import Trainer, TrainingArguments
 import argparse
 import torch.optim as optim
-from dataset_vision import SegmentationDataset, custom_data_collator, SumCrossEntropy
+from dataset_vision import SegmentationDataset, custom_data_collator, SumCrossEntropy, FuzzyCrossEntropy
 import sys
 
 # arguments for running the script
@@ -22,7 +22,9 @@ def parse_args():
     parser.add_argument("--run-name", "--rn", type=str, default="run-1", help="wandb run name")
     parser.add_argument("--batch-size", "-b", type=int, default=16, help="batch size")
     parser.add_argument("--save-model-path", "-s", type=str, default="output_model", help="path to save the best performing model")
-
+    parser.add_argument("--loss-type", type=str, default="mean", help="type of categorical cross entropy loss to use. Choose from 'mean', 'sum' or 'fuzzy")
+    parser.add_argument("--learning_rate", type=float, default=0.001, help="max learning rate")
+    # TODO: allow more control over fuzzy loss
     args = parser.parse_args()
     return args
 
@@ -68,11 +70,12 @@ def main():
         model.config.vocab_size = pos_length+3
         model.config.eos_token_id = pos_length+1
 
+    if args.loss_type == "sum":
         criterion = SumCrossEntropy()
         model._loss_function = criterion
-
-        # model.loss_function(NLLLoss())
-
+    elif args.loss_type == "fuzzy":
+        criterion = FuzzyCrossEntropy([0, 2, 4, 16], pos_length, reduction="sum")
+        model._loss_function = criterion
 
     # set up dataset, including random split for validation
     with open(args.keyfile, 'r') as file:
@@ -91,7 +94,7 @@ def main():
     # set up optimizer and scheduler
     # we pre-calculate the number of training and warmup steps needed
     # based on batch size
-    optimizer = optim.AdamW(model.parameters())
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     # 10% warmup/decay
     len_warmup = (len(dataset_train) * args.num_epochs) // (args.batch_size * 10 * num_devices)
