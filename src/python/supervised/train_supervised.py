@@ -20,7 +20,7 @@ class HapLossSmooth(nn.Module):
         self.cross_entropy = nn.CrossEntropyLoss()
 
     def __call__(self, predictions, targets):
-        diff = predictions[:, :, 1:] - predictions[:, :, -1]
+        diff = predictions[:, :, 1:] - predictions[:, :, :-1]
         smoothness_penalty = torch.mean(torch.abs(diff))
         ce_loss = self.cross_entropy(predictions, targets)
         return ce_loss + self.lambda_smooth * smoothness_penalty
