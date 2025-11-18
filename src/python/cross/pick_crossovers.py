@@ -195,22 +195,27 @@ if __name__ == "__main__":
 
     ref_chrom_lengths = chrom_lengths(args.ref_fasta, exclude_scaffolds=True)
 
-    # 1/2 chromosome lengths (bp) as "arm" lengths
-    ref_arm_lengths = {chrom: length // 2 for chrom, length in ref_chrom_lengths.items()}
+    # 1/4 chromosome lengths (bp) as "arm" lengths
+    ref_arm_lengths = {chrom: length // 4 for chrom, length in ref_chrom_lengths.items()}
 
     founder_chroms = chrom_lengths_dicts(assembly_founder_paths, exclude_scaffolds=True)
 
-    landrace_pop = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=1250)
+    pop1 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=1)
+    pop2 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=10)
+    pop3 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=50)
+    pop4 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=125)
 
-    # Run once to get two parent cross (cross ~ 5 Mbp)
-    two_parent_pop = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=1)
-
-    # For each chromosome, shift either landrace or two_parent by chrom_length
+    # For each chromosome, assign each pop to one region of the chromosome
+    shift = [0, 1, 2, 3]
     for chrom, length in ref_arm_lengths.items():
-        shift = random.choice([0, 1]) # randomly choose 0 or 1
-        if shift: shift_chrom_arm(landrace_pop, chrom, length)
-        else: shift_chrom_arm(two_parent_pop, chrom, length)
+        random.shuffle(shift)
+        shift_chrom_arm(pop1, chrom, length*shift[0])
+        shift_chrom_arm(pop2, chrom, length*shift[1])
+        shift_chrom_arm(pop3, chrom, length*shift[2])
+        shift_chrom_arm(pop4, chrom, length*shift[3])
 
-    pop = merge_pop(landrace_pop, two_parent_pop)
+    pop12 = merge_pop(pop1, pop2)
+    pop34 = merge_pop(pop3, pop4)
+    pop = merge_pop(pop12, pop34)
 
     convert_pop_to_key(pop, assembly_founders)
