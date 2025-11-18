@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import torch
 import pandas as pd
+from scipy.stats import binom
 
 
 # Slightly modified from default data collator
@@ -31,7 +32,19 @@ def custom_data_collator(features: list[InputDataClass]) -> dict[str, Any]:
             feat["decoder_attention_mask"] = np.concatenate((feat["decoder_attention_mask"],
                                                              np.zeros(pad_len)))
 
+            feat["labels_smoothed"] = np.concatenate((
+                feat["labels_smoothed"], np.full(
+                    (pad_len,
+                     feat["labels_smoothed"].shape[1],
+                     feat["labels_smoothed"].shape[2]), -1)))
+
+            feat["labels_binom"] = np.concatenate((
+                feat["labels_binom"], np.full((pad_len, feat["labels_binom"].shape[1]), 10)
+            ))
+
         feat["labels"] = torch.tensor(feat["labels"], dtype=torch.int64).clone()
+        feat["labels_smoothed"] = torch.tensor(feat["labels_smoothed"], dtype=torch.int64).clone()
+        feat["labels_binom"] = torch.tensor(feat["labels_binom"]).clone()
         feat["decoder_input_ids"] = torch.tensor(feat["decoder_input_ids"], dtype=torch.int64).clone()
 
     # pass padded tokens to default collator
@@ -84,6 +97,40 @@ class SegmentationDataset(Dataset):
     def __bins_to_idx__(self, labels_binned):
         return [idx+1 for idx in range(labels_binned.shape[0] - 1) if labels_binned[idx] != labels_binned[idx+1]]
 
+    def fit_edge(self, idx):
+        if idx < 0:
+            return 0
+        elif idx > self.window_size:
+            return self.window_size
+        else:
+            return idx
+    def spread(self, idx):
+        x = torch.zeros((self.window_size, 4))
+        x[idx, 0] = 1
+        x[self.fit_edge(idx - 4): self.fit_edge(idx + 5), 1] = 1
+        x[self.fit_edge(idx - 16): self.fit_edge(idx + 17), 2] = 1
+        x[self.fit_edge(idx - 32): self.fit_edge(idx + 33), 3] = 1
+
+        return x
+
+    def dist(self, idx):
+        x = torch.zeros((self.window_size))
+        # TODO: parameterize
+        midpoint = 32 // 2
+
+        for idy in range(32):
+            if 0 <= idx+idy-midpoint < self.window_size:
+                x[idx + idy - midpoint] = binom.pmf(idy, 32, 0.5)
+
+        return x
+
+
+    def __distribute_labels__(self, labels_binned):
+        return [self.spread(idx + 1) for idx in range(labels_binned.shape[0] - 1) if labels_binned[idx] != labels_binned[idx + 1]]
+
+    def __distribute_labels_2__(self, labels_binned):
+        return [self.dist(idx + 1) for idx in range(labels_binned.shape[0] - 1) if labels_binned[idx] != labels_binned[idx + 1]]
+
     def __getitem__(self, idx):
         # retrieve window index from list
         file_idx, pos_idx = self.windows[idx]
@@ -126,8 +173,27 @@ class SegmentationDataset(Dataset):
         # shifted versions of one another. This was part of debugging that I did because
         # I think the default shifting function built into the model isn't working right
         # for our needs. Specifying both overrides the default though.
-        labels = np.concatenate((junctions, [self.window_size + 1]))
+        labels0 = np.concatenate((junctions, [self.window_size + 1]))
         input_ids = np.concatenate(([self.window_size+2], junctions))
+
+        labels = np.array(self.__distribute_labels__(ip[:, self.num_parents]))
+
+        labels_binom = np.array(self.__distribute_labels_2__(ip[:, self.num_parents]))
+
+        # add special tokens and end token
+        if labels.shape[0] == 0: #no crossovers
+            labels = np.zeros((1, self.window_size + 3, 4))
+            labels_binom = np.zeros((1, self.window_size + 3))
+        else: # yes crossovers
+            labels = np.concatenate((labels, np.zeros((labels.shape[0], 3, labels.shape[2]))), axis=1)
+            labels = np.concatenate((labels, np.zeros((1, labels.shape[1], labels.shape[2]))), axis=0)
+            labels_binom = np.concatenate((labels_binom, np.zeros((labels_binom.shape[0], 3))), axis=1)
+            labels_binom = np.concatenate((labels_binom, np.zeros((1, labels_binom.shape[1]))), axis=0)
+
+        # add end token label (no smoothing)
+        labels[labels.shape[0]-1, self.window_size+1] = 1
+        labels_binom[labels_binom.shape[0]-1, self.window_size+1] = 1
+
         mask = np.ones(len(junctions) + 1)
 
         # Note: we are relying on the data collator to handle padding, so labels do not have
@@ -135,7 +201,9 @@ class SegmentationDataset(Dataset):
         if self.include_index:
             return {
                 'pixel_values': torch.tensor(window, dtype=torch.float),  #(3, image_size, image_size)
-                'labels': labels,  # (torch.int64, variable length)
+                'labels': labels0,  # (torch.int64, variable length)
+                "labels_smoothed": labels,
+                "labels_binom": labels_binom,
                 'decoder_attention_mask': mask,  # (boolean, same length as labels)
                 'decoder_input_ids': torch.tensor(input_ids),  # (torch.int64, same length as labels)
                 'file_idx': file_idx,
@@ -144,8 +212,102 @@ class SegmentationDataset(Dataset):
         else:
             return {
                 'pixel_values': torch.tensor(window, dtype=torch.float),  #(3, image_size, image_size)
-                'labels': labels,  # (torch.int64, variable length)
+                'labels': labels0,  # (torch.int64, variable length)
+                "labels_smoothed": labels,
+                "labels_binom": labels_binom,
                 'decoder_attention_mask': mask,  # (boolean, same length as labels)
                 'decoder_input_ids': torch.tensor(input_ids)  # (torch.int64, same length as labels)
             }
+
+
+class SumCrossEntropy(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.loss = torch.nn.CrossEntropyLoss(reduction="sum")
+
+    def forward(self, logits,labels,vocab_size=None,num_items_in_batch=None):
+        return self.loss(torch.permute(logits, (0, 2, 1)), labels)
+
+
+
+class BinnedCrossEntropy(torch.nn.Module):
+    def __init__(self, spread, max_token, reduction="mean"):
+        super().__init__()
+        self.spread = spread
+        self.max_token = max_token
+        self.reduction = reduction
+
+    def forward(self, logits, labels, vocab_size=None, num_items_in_batch=None):
+        y_pred = torch.softmax(logits, dim=2)
+
+        loss = 0# torch.zeros((y_pred.shape[0], y_pred.shape[1]))
+
+        for idx in range(y_pred.shape[0]):
+            for idy in range(y_pred.shape[1]):
+                if labels[idx, idy] >= 0: # ignore -100 tokens
+
+                    if labels[idx, idy] >= self.max_token or self.spread == 0:
+                        binned_prob = y_pred[idx, idy, labels[idx, idy]]
+                    else:
+                        min_label = labels[idx, idy] - self.spread
+                        if min_label < 0:
+                            min_label = 0
+
+                        max_label = labels[idx,idy] + self.spread
+                        if max_label > self.max_token:
+                            max_label = self.max_token
+
+                        binned_prob = torch.sum(y_pred[idx, idy, min_label:max_label])
+
+                    #loss[idx, idy] = -1 * torch.log(binned_prob)
+                    loss += -1 * torch.log(binned_prob)
+
+        if self.reduction == "mean":
+            return loss / torch.sum(labels > 0)
+        else: # sum
+            return loss
+
+class FuzzyCrossEntropy(torch.nn.Module):
+    def __init__(self, reduction="mean"):
+        super().__init__()
+        self.reduction = reduction
+
+    def forward(self, logits, labels, vocab_size=None, num_items_in_batch=None):
+        pred = torch.softmax(logits, dim=2)
+
+        loss = 0
+        mask = labels[:,:,0,0] >= 0
+
+        for lvl in [0]: #range(labels.shape[3]):
+            lbl = labels[:,:,:,lvl]
+
+            x = -1 * torch.log(torch.sum(torch.mul(pred, lbl>0), dim=2))
+            loss += torch.nansum(torch.mul(x, mask))
+
+        if self.reduction == "mean":
+            return (loss / 4) / torch.sum(mask)
+        else: #sum
+            return loss / 4
+
+class BinomialKLLoss(torch.nn.Module):
+    def __init__(self, reduction="mean"):
+        super().__init__()
+        self.reduction = reduction
+
+        self.pointwise_loss = torch.nn.KLDivLoss(reduction="none")
+
+    def forward(self, logits, labels, vocab_size=None, num_items_in_batch=None):
+        pred = torch.log_softmax(logits, dim=2)
+
+        mask = labels <= 1  # use values greater than 1 as a mask token
+
+        pl = torch.mul(self.pointwise_loss(pred, labels), mask)
+
+        if self.reduction == "none":
+            return pl
+        elif self.reduction == "mean":
+            return torch.sum(pl) / torch.sum(mask)
+        else: # sum
+            return torch.sum(pl)
+
 
