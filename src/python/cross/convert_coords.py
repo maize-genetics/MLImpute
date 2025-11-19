@@ -74,7 +74,7 @@ if __name__ == "__main__":
                 assembly_founder_paths.append(parts[0])
                 assembly_founders.append(parts[1])
 
-    founder_chroms = chrom_lengths_dicts(assembly_founders, exclude_scaffolds=True)
+    founder_chroms = chrom_lengths_dicts(assembly_founder_paths, exclude_scaffolds=True)
 
     # add duplicate columns to refkey files
     for founder in assembly_founders:

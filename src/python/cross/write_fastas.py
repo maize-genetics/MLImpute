@@ -51,4 +51,4 @@ if __name__ == "__main__":
 
     # Use all available cores, or limit manually (e.g. processes=8)
     with Pool(processes=cpu_count()) as pool:
-        pool.map(run_founder, assembly_founders)
+        pool.map(run_founder, range(len(assembly_founders)))

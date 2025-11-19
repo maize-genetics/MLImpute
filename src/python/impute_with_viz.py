@@ -161,7 +161,7 @@ def run_imputation_with_visualization(args):
         if args.global_weights:
             sys.argv.extend(['--global-weights', args.global_weights])
         if args.HMM:
-            sys.argv.extend(['--HMM', str(args.HMM)])
+            sys.argv.extend(['--hmm', str(args.HMM)])
         if args.diploid:
             sys.argv.extend(['--diploid', str(args.diploid)])
         if args.collapse_bed:
@@ -244,7 +244,7 @@ def main():
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     parser.add_argument("--global-weights", type=str, default=None)
-    parser.add_argument("--HMM", type=bool, default=False)
+    parser.add_argument("--hmm", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
     parser.add_argument("--window-size", type=int, default=21, help="Size of the sliding window for KNN model (must be odd)")
 
