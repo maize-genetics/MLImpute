@@ -48,6 +48,6 @@ Necessary files:
 - reference gff
 - recombined assembly fastas
 
-**Step 9: Map fastq reads of the original, non-mutated and non-recombined assebmlies**
+**Step 9: Map fastq reads of the original, non-mutated and non-recombined assemblies**
 
 `ropebwt mem`
