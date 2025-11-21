@@ -188,8 +188,7 @@ def main():
     # start up wandb run
     wandb.init(project=args.project_name, entity="maize-genetics", name=args.run_name, config={
             "epochs": args.num_epochs,
-            "batch_size": args.batch_size,
-            "learning_rate": "WSD"
+            "batch_size": args.batch_size
         })
 
     best_loss = float('inf')
