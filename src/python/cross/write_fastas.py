@@ -41,10 +41,6 @@ if __name__ == "__main__":
     with open(args.chromosome_list) as f:
         chromosomes = [line.strip() for line in f if line.strip()]
 
-    for founder in range(len(assembly_founders)):
-        # concurrently generate fasta files for each
-        write_fasta(founder, chromosomes, args.assembly_dir)
-
     def run_founder(founder):
         """Wrapper for multiprocessing."""
         write_fasta(founder, chromosomes, args.assembly_dir)
