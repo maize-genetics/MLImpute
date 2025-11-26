@@ -214,6 +214,19 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
             }
 
             reader.close()
+
+            //Need to go through the list of seen chroms and make sure all chroms in the fasta were seen
+            val seenChromsSet = seenChroms.toSet()
+            fasta.keys.filter { !seenChromsSet.contains(it) }.forEach { key ->
+                //write out the entire chrom as missing
+                writer.write("\n>$key\n")
+                lineWrapper.reset()
+
+                val seq0 = fasta[key]!!.seq()
+                writer.write(lineWrapper.wrapLine(seq0))
+
+            }
+
         }
 
     }
