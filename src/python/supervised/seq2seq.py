@@ -13,6 +13,7 @@ from train_supervised import LabeledDataset, path_acc, evaluate
 class Encoder(nn.Module):
     def __init__(self, in_features, emb_dim, hidden_dim):
         super().__init__()
+        self.conv = FixedConvolutions()
         self.proj = nn.Linear(in_features, emb_dim)
         self.rnn = nn.GRU(emb_dim, hidden_dim)
 
@@ -20,9 +21,75 @@ class Encoder(nn.Module):
         """
         src_feats: (seq_len, batch_size, in_features)  # in_features = 24
         """
-        emb = self.proj(src_feats)          # (seq_len, batch, emb_dim)
+        conv = self.conv(src_feats)
+        emb = self.proj(conv)          # (seq_len, batch, emb_dim)
         outputs, hidden = self.rnn(emb)     # hidden: (1, batch, hidden_dim)
         return hidden
+
+class FixedConvolutions(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Assume single-channel input for simplicity
+
+        # 1) Edge along SEQUENCE (width / 512)
+        # kernel (1, 3): horizontal derivative
+        self.edge = nn.Conv2d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=(1, 3),
+            padding=(0, 1),
+            bias=False
+        )
+
+        # 2) Blur along SEQUENCE (width / 512)
+        # kernel (1, 3): horizontal smoothing
+        self.blur = nn.Conv2d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=(1, 3),
+            padding=(0, 1),
+            bias=False
+        )
+
+        # 3) Contrast across PARENTS (height / 24)
+        # kernel (3, 1): vertical second derivative
+        self.contrast = nn.Conv2d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=(3, 1),
+            padding=(1, 0),
+            bias=False
+        )
+
+        # --- Initialize filters ---
+
+        # Edge along sequence: [-1, 0, 1] across W
+        edge_x = torch.tensor([[-1., 0., 1.]])  # (1, 3)
+        self.edge.weight.data[:] = edge_x.view(1, 1, 1, 3)
+
+        # Blur along sequence: [1, 2, 1] / 4 across W
+        blur_x = torch.tensor([[1., 2., 1.]]) / 4.0  # (1, 3)
+        self.blur.weight.data[:] = blur_x.view(1, 1, 1, 3)
+
+        # Contrast across parents: [1, -2, 1]^T across H
+        contrast_y = torch.tensor([[1.],
+                                   [-2.],
+                                   [1.]])  # (3, 1)
+        self.contrast.weight.data[:] = contrast_y.view(1, 1, 3, 1)
+
+        # Freeze these
+        for p in self.parameters():
+            p.requires_grad = False
+
+    def forward(self, x):
+        # x.shape [max_seq_len, batch_size, num_parents]
+        x = x.permute(1, 2, 0)
+        x = x.unsqueeze(1) # [batch_size, 1, num_parents, max_seq_length]
+        x = self.edge(x)
+        x = self.blur(x)
+        x = self.contrast(x)
+        x = x.squeeze(1)
+        return x.permute(2, 0, 1) # [max_seq_length, batch_size, num_parents]
 
 
 class Decoder(nn.Module):
@@ -153,6 +220,7 @@ def parse_args():
     parser.add_argument("--steps-to-print", "--sp", type=int, default=100, help="steps between reporting to wandb")
     parser.add_argument("--embedding-dim", type=int, default=12, help="embedding dimension")
     parser.add_argument("--hidden-dim", type=int, default=24, help="hidden dimension")
+    parser.add_argument("--ls", type=float, default=0.0, help="smoothing hyperparameter")
 
     args = parser.parse_args()
     return args
@@ -181,6 +249,7 @@ def main():
     # Setting up optimizer and loss function
     optimizer = optim.AdamW(model.parameters(), lr=1e-4)
     criterion = nn.CrossEntropyLoss()
+    #criterion = SmoothPredict(lambda_smooth=args.ls)
 
     model.to(device)
     criterion.to(device)
