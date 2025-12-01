@@ -58,17 +58,17 @@ model.eval()
 
 batch = next(dl)
 
-#model._loss_function = SumCrossEntropy()
+model._loss_function = BinomialKLLoss(reduction="none")
 
 outputs = model(pixel_values=batch["pixel_values"], labels=batch["labels"],
                 decoder_input_ids=batch["decoder_input_ids"], decoder_attention_mask=batch["decoder_attention_mask"])
 
-c1 = FuzzyCrossEntropy(reduction="sum")
-c2 = BinnedCrossEntropy(4, 6145, "sum")
-c3 = SumCrossEntropy()
-c4 = BinomialKLLoss(reduction="sum")
-
-loss1 = time_loss(outputs["logits"], batch["labels_smoothed"], c1)
-loss2 = time_loss(outputs["logits"], batch["labels"], c2)
-loss3 = time_loss(outputs["logits"], batch["labels"], c3)
-loss4 = time_loss(outputs["logits"], batch["labels_binom"], c4)
+# c1 = FuzzyCrossEntropy(reduction="sum")
+# c2 = BinnedCrossEntropy(4, 6145, "sum")
+# c3 = SumCrossEntropy()
+# c4 = BinomialKLLoss(reduction="sum")
+#
+# loss1 = time_loss(outputs["logits"], batch["labels_smoothed"], c1)
+# loss2 = time_loss(outputs["logits"], batch["labels"], c2)
+# loss3 = time_loss(outputs["logits"], batch["labels"], c3)
+# loss4 = time_loss(outputs["logits"], batch["labels_binom"], c4)
