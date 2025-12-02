@@ -92,7 +92,7 @@ def run_hmm_imputation(args):
 
 def haploid_hmm(device, test_matrix, weights):
     log_e = F.log_softmax(test_matrix * weights, dim=-1)  # [L, num_classes]
-    p_stay = max(weights) * 0.2
+    p_stay = 0.99
     N = log_e.shape[1]
     p_switch = (1.0 - p_stay)
     log_A = torch.full((N, N), math.log(p_switch / (N - 1)))
@@ -113,7 +113,7 @@ def diploid_hmm(device, test_matrix, weights):
     log_e = F.log_softmax(test_matrix * weights, dim=-1)
     homo_penalty = -0.1
     N = log_e.shape[1]
-    p_stay = float(weights.max()) * 0.20  # tweak if needed
+    p_stay = 0.99  # tweak if needed
     p_switch = (1.0 - p_stay)
     log_A = torch.full((N, N), math.log(p_switch / (N - 1)))
     log_A.fill_diagonal_(math.log(p_stay))

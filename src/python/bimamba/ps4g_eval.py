@@ -92,7 +92,7 @@ def evaluate_model(model, test_loader, test_matrix, window_size, step_size, devi
             pos_offsets = torch.arange(window_size, device=device).unsqueeze(0)  # [1, L]
             global_positions = (start_indices + pos_offsets).reshape(-1)  # [B*L]
 
-            # Flatten predictions
+            # Flatten predictions_bestpt
             pred_labels = batch_predictions.reshape(-1)  # [B*L]
 
             # Construct per-row decode indexing
@@ -132,7 +132,7 @@ step_size = window_size
 lr = 1e-6
 lambda_smooth = 0.2
 
-model_checkpoint = "saved_models/weighted/5.pth"
+model_checkpoint = "saved_models/weighted/autoencoder.pth"
 model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers)
 print(model)
 
