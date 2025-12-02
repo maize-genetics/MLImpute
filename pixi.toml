@@ -1,7 +1,7 @@
-[project]
+[workspace]
 name      = "ml-impute-env-pixi"
 channels  = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
 
 [activation.env]
 PYTHONPATH = "${PIXI_PROJECT_ROOT}/src"
@@ -15,8 +15,6 @@ pandas       = "*"
 scikit-learn = "*"
 numba        = ">=0.61.2,<0.62"
 wandb        = ">=0.21.0,<0.22"
-pytorch      = "*"
-torchvision  = "*"
 
 [pypi-dependencies]
 transformers = "*"
@@ -25,23 +23,25 @@ pytest-cov   = "*"
 lightning    = "*"
 tqdm         = "*"
 pysam        = "*"
+torch        = "*"
+torchvision  = "*"
 
 
-# "GPU only" dependencies (only for Linux)
+# "GPU only" dependencies (Linux and Windows)
 [feature.gpu]
-platforms = ["linux-64"]
+platforms = ["linux-64", "win-64"]
 
 [feature.gpu.system-requirements]
 cuda = "12"
 
 [feature.gpu.dependencies]
 cuda-version = "12.8.*"
-pytorch-gpu  = "*"
-torchvision  = "*"
 cuda-toolkit = "*"
 
 [feature.gpu.pypi-dependencies]
 mamba-ssm = "*"
+torch = "*"
+torchvision = "*"
 
 
 # Set up environments

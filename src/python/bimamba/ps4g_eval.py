@@ -92,7 +92,7 @@ def evaluate_model(model, test_loader, test_matrix, window_size, step_size, devi
             pos_offsets = torch.arange(window_size, device=device).unsqueeze(0)  # [1, L]
             global_positions = (start_indices + pos_offsets).reshape(-1)  # [B*L]
 
-            # Flatten predictions
+            # Flatten predictions_bestpt
             pred_labels = batch_predictions.reshape(-1)  # [B*L]
 
             # Construct per-row decode indexing
@@ -132,7 +132,7 @@ step_size = window_size
 lr = 1e-6
 lambda_smooth = 0.2
 
-model_checkpoint = "saved_models/weighted/5.pth"
+model_checkpoint = "saved_models/weighted/autoencoder.pth"
 model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers)
 print(model)
 
@@ -185,8 +185,11 @@ for line in comments:
             "gamete_index": int(idx),
         })
 
-# collapse positions
-collapsed_df = ps4g.groupby('pos').agg({
+# collapse positions using refContig and refPosBinned
+ps4g['position_id'] = ps4g['refContig'].astype(str) + '_' + ps4g['refPosBinned'].astype(str)
+collapsed_df = ps4g.groupby('position_id').agg({
+    'refContig': 'first',
+    'refPosBinned': 'first',
     'gameteSet': lambda x: list(set().union(*x)),  # union all sets
     'count': 'sum'  # sum counts
 }).reset_index()
@@ -198,7 +201,8 @@ index_array = [index_to_name[i] for i in range(max_index + 1)]
 predicted_parents = np.array(index_array)[predictions.cpu().numpy()]
 
 ps4g_preds['parents'] = predicted_parents
-agg = ps4g_preds.groupby(['pos', 'parents']).size().unstack(fill_value=0)
+ps4g_preds['position_id'] = ps4g_preds['refContig'].astype(str) + '_' + ps4g_preds['refPosBinned'].astype(str)
+agg = ps4g_preds.groupby(['position_id', 'parents']).size().unstack(fill_value=0)
 print("aggregated CML69: ", (agg['CML69'] != 0).sum()/len(agg))
 
 # Print results
