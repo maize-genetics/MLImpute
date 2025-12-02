@@ -48,6 +48,26 @@ Necessary files:
 - reference gff
 - recombined assembly fastas
 
-**Step 9: Map fastq reads of the original, non-mutated and non-recombined assemblies**
+**Step 9: Convert maf files to gvcfs**
 
-`ropebwt mem`
+`biokotlin-tools maf-to-gvcf-converter --reference-file REF_FILE.fa --maf-file sample.maf --output-file sample.gvcf --sample-name sample`
+
+**Step 10: Build spline knots**
+
+`phg build-spline-knots --vcf-dir /path/to/gvcf-dir/ --vcf-type gvcf --output-dir splines`
+
+**Step 11: Build ropebwt index (do not include the reference)**
+
+`phg rope-bwt-chr-index --keyfile keyfile.txt --output-dir ropebwt-index --index-file-prefix ropebwt_index`
+
+**Step 12: Map fastq reads of the original, non-mutated and non-recombined assemblies**
+
+`ropebwt3 mem ropebwt-index/ropebwt_index.fmd sample.fq -l 148 -p num_parents*2 > ropebwt-output/sample.bed`
+
+**Step 13: Convert ropebwt bed files into ps4g files**
+
+`phg convert-ropebwt2ps4g-file --ropebwt-bed ropebwt-output/sample.bed --output-dir ps4g --spline-knot-dir splines --sort-positions`
+
+**Step 14: Convert ps4g files into training matrices**
+
+`python build_training_data.py --assembly-key-dir path/to/assembly_keys/ --ps4g-dir ps4g --output-dir training-data`
