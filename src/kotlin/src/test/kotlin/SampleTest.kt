@@ -25,8 +25,31 @@ class SampleTest {
         //chrom1 should be reference
         assertEquals(originalSeq["1"]!!.seq(), updatedSeq["1"]!!.seq())
         //chrom2 should match LineA's chrom 2
-        //This part is not working correctly.  I think LineA's fasta is not consistent with the gvcf
-//        assertEquals(lineASeq["2"]!!.seq(), updatedSeq["2"]!!.seq())
+        assertEquals(lineASeq["2"]!!.seq(), updatedSeq["2"]!!.seq())
+
+    }
+
+    @Test
+    fun testSampleFastaExcludeChr2() {
+        val gvcfFile = "data/LineA.g.vcf"
+        val refFile = "data/ref.fa"
+        val outputFile = "data/ref_updated.fa"
+        val lineAFile = "data/LineA.fa"
+        val ignorePatterns = listOf("2")
+
+        val convertToFasta = ConvertToFasta()
+        convertToFasta.convertGVCFToFasta(gvcfFile, refFile, outputFile, ignorePatterns = ignorePatterns)
+
+        //Load in all the fastas to compare the results
+        val originalSeq= FastaIO(refFile, SeqType.nucleotide).readAll() as Map<String, NucSeqRecord>
+        val updatedSeq = FastaIO(outputFile, SeqType.nucleotide).readAll() as Map<String, NucSeqRecord>
+        val lineASeq = FastaIO(lineAFile, SeqType.nucleotide).readAll() as Map<String, NucSeqRecord>
+
+        //chrom1 should be reference
+        assertEquals(originalSeq["1"]!!.seq(), updatedSeq["1"]!!.seq())
+
+        //chrom2 should be excluded
+        assertFalse(updatedSeq.containsKey("2"))
 
     }
 }

@@ -70,6 +70,7 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
     val gvcfFile: String by option(help="gvcf file").required()
     val outFile: String by option(help="out fasta").required()
     val fastaFile: String by option(help="ref fasta").required()
+    val ignoreContig: String by option(help="comma-separated list of string patterns to ignore").default("")
     val missingRecordsAs by option(help="if a position is missing a gvcf record (variant or ref block), fill " +
             "with N's (asN), reference (asRef) or omit sequence (asNone). Default asRef").enum<MissingGT>().default(MissingGT.asRef)
     val missingGenotypeAs by option(help="if the sample has a missing genotype (.), fill the position with N's (asN)," +
@@ -80,7 +81,8 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
     }
 
     override fun run() {
-        convertGVCFToFasta(gvcfFile, fastaFile, outFile, missingRecordsAs = missingRecordsAs, missingGenotypeAs = missingGenotypeAs)
+        val ignoreStrings = ignoreContig.split(",")
+        convertGVCFToFasta(gvcfFile, fastaFile, outFile, ignorePatterns = ignoreStrings, missingRecordsAs = missingRecordsAs, missingGenotypeAs = missingGenotypeAs)
     }
 
     /** Function to convert a genotype in a GVCF file to a fasta sequence.
@@ -96,8 +98,9 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
      *  alleleIdx: optional. In a diploid or polyploid, the index of the allele to use. Defaults to 0.
      */
     fun convertGVCFToFasta(gvcfFile: String, refFasta: String, outFile: String, sampleName: String? = null,
-                           missingRecordsAs: MissingGT = MissingGT.asRef, missingGenotypeAs: MissingGT = MissingGT.asN,
-                           alleleIdx: Int = 0){
+                           ignorePatterns: List<String> = listOf(), missingRecordsAs: MissingGT = MissingGT.asRef,
+                           missingGenotypeAs: MissingGT = MissingGT.asN, alleleIdx: Int = 0){
+
 
         // stream directly to output to save on RAM
         File(outFile).bufferedWriter().use{writer ->
@@ -107,6 +110,29 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
             val iterator = reader.iterator()
 
             val lineWrapper = FastaLineWrapper()
+
+            var headerWritten = false
+
+            fun writeHeader(chrom: String) {
+                if (!headerWritten) {
+                    writer.write(">$chrom\n")
+                    headerWritten = true
+                } else {
+                    writer.write("\n>$chrom\n")
+                }
+            }
+
+            fun writeSeq(contig : String, seq: String) {
+                if (ignorePatterns.isNotEmpty()) {
+                    if (ignorePatterns.any { pattern -> contig.contains(pattern) }) {
+                        null
+                    } else {
+                        writer.write(lineWrapper.wrapLine(seq))
+                    }
+                } else {
+                    writer.write(lineWrapper.wrapLine(seq))
+                }
+            }
 
             val fasta = FastaIO(refFasta, SeqType.nucleotide).readAll() as Map<String, NucSeqRecord>
 
@@ -133,19 +159,26 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
                         if (previousRecordEnd < fasta[previousChrom]!!.size()) {
                             if (missingRecordsAs == MissingGT.asN) {
                                 val seq0 = "N".repeat(fasta[previousChrom]!!.size()-previousRecordEnd)
-                                writer.write(lineWrapper.wrapLine(seq0))
+                                writeSeq(previousChrom, seq0)
                             } else if (missingRecordsAs == MissingGT.asRef) {
                                 val seq0 = fastaSeq.substring(previousRecordEnd, fasta[previousChrom]!!.size())
-                                writer.write(lineWrapper.wrapLine(seq0))
+                                writeSeq(previousChrom, seq0)
                             }
                         }
                     }
 
-                    // write fasta info line
-                    if(previousChrom == "null") {
-                        writer.write(">$chrom\n")
+                    // check if chrom should be excluded
+                    if (ignorePatterns.isNotEmpty()) {
+                        if(ignorePatterns.any{pattern -> chrom.contains(pattern)}) {
+                            // don't write fasta info line
+                            null
+                        } else {
+                            // write fasta info line
+                            writeHeader(chrom)
+                        }
                     } else {
-                        writer.write("\n>$chrom\n")
+                        // write fasta info line
+                        writeHeader(chrom)
                     }
 
                     // ordering issue
@@ -166,10 +199,10 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
                 if (previousRecordEnd < (record.start - 1)) {
                     if (missingRecordsAs == MissingGT.asN) {
                         val seq0 = "N".repeat(record.start - previousRecordEnd - 1)
-                        writer.write(lineWrapper.wrapLine(seq0))
+                        writeSeq(chrom, seq0)
                     } else if (missingRecordsAs == MissingGT.asRef) {
                         val seq0 = fastaSeq.substring(previousRecordEnd, record.start-1)
-                        writer.write(lineWrapper.wrapLine(seq0))
+                        writeSeq(chrom, seq0)
                     }
                 }
 
@@ -194,7 +227,8 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
                         allele.baseString
                     }
                 }
-                writer.write(lineWrapper.wrapLine(seq))
+
+                writeSeq(chrom, seq)
 
                 previousRecordEnd = record.end
                 previousRecordStart = record.start
@@ -205,10 +239,11 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
                 if (previousRecordEnd < fasta[previousChrom]!!.size()) {
                     if (missingRecordsAs == MissingGT.asN) {
                         val seq0 = "N".repeat(fasta[previousChrom]!!.size()-previousRecordEnd)
-                        writer.write(lineWrapper.wrapLine(seq0))
+                        writeSeq(previousChrom, seq0)
+
                     } else if (missingRecordsAs == MissingGT.asRef) {
                         val seq0 = fastaSeq.substring(previousRecordEnd, fasta[previousChrom]!!.size())
-                        writer.write(lineWrapper.wrapLine(seq0))
+                        writeSeq(previousChrom, seq0)
                     }
                 }
             }
@@ -218,12 +253,23 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
             //Need to go through the list of seen chroms and make sure all chroms in the fasta were seen
             val seenChromsSet = seenChroms.toSet()
             fasta.keys.filter { !seenChromsSet.contains(it) }.forEach { key ->
-                //write out the entire chrom as missing
-                writer.write("\n>$key\n")
-                lineWrapper.reset()
+                //write out the entire chrom as missing if not excluded
+                if (ignorePatterns.isNotEmpty()) {
+                    if (ignorePatterns.any { pattern -> key.contains(pattern) }) {
+                        null
+                    } else {
+                        writeHeader(key)
+                        lineWrapper.reset()
+                        val seq0 = fasta[key]!!.seq()
+                        writer.write(lineWrapper.wrapLine(seq0))
+                    }
+                } else {
+                    writeHeader(key)
+                    lineWrapper.reset()
 
-                val seq0 = fasta[key]!!.seq()
-                writer.write(lineWrapper.wrapLine(seq0))
+                    val seq0 = fasta[key]!!.seq()
+                    writer.write(lineWrapper.wrapLine(seq0))
+                }
 
             }
 
