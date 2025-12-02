@@ -16,7 +16,7 @@ from pathlib import Path
 
 # Import the main imputation functionality
 from impute import main as run_imputation, load_input
-from array_utils import create_visualization_response, create_error_response, generate_parent_path_data
+from array_utils import create_visualization_response, create_error_response
 
 def parse_bed_file(bed_file_path):
     """
@@ -39,20 +39,20 @@ def parse_bed_file(bed_file_path):
             return None
         
         # Check if first line is a header by looking for expected column names
-        if data_lines[0].startswith('chrom_idx') or 'parent1' in data_lines[0]:
+        if data_lines[0].startswith('chrom') or 'parent1' in data_lines[0]:
             data_lines = data_lines[1:]  # Skip header
-            
+
         positions = []
         parent1_samples = []
         parent2_samples = []
-        
+
         for line in data_lines:
             parts = line.split('\t')
-            if len(parts) >= 4:  # chrom_idx, pos, parent1, parent2
-                # Create position identifier from chrom_idx and pos
-                chrom_idx = parts[0]
+            if len(parts) >= 4:  # chrom, pos, parent1, parent2
+                # Create position identifier from chrom and pos
+                chrom = parts[0]
                 pos = parts[1]
-                pos_name = f"Chr{chrom_idx}_{pos}"
+                pos_name = f"{chrom}_{pos}"
                 positions.append(pos_name)
                 
                 # Extract parent information (columns 2 and 3 are parent1 and parent2)
@@ -161,7 +161,7 @@ def run_imputation_with_visualization(args):
         if args.global_weights:
             sys.argv.extend(['--global-weights', args.global_weights])
         if args.HMM:
-            sys.argv.extend(['--HMM', str(args.HMM)])
+            sys.argv.extend(['--hmm', str(args.HMM)])
         if args.diploid:
             sys.argv.extend(['--diploid', str(args.diploid)])
         if args.collapse_bed:
@@ -184,31 +184,14 @@ def run_imputation_with_visualization(args):
         
         # Check if output file exists (either newly created or pre-existing)
         if not args.output.exists():
-            # If no BED file was created, generate demo data instead
-            logging.warning("No BED output file found, generating demo parent path data")
-            data = generate_parent_path_data(num_positions=15, num_samples=8, seed=42)
-            
-            highlights = []
-            for path_point in data['parent1_path']:
-                highlights.append({
-                    'row': path_point['sample'],
-                    'col': path_point['position'],
-                    'parent': 'parent1'
-                })
-            for path_point in data['parent2_path']:
-                highlights.append({
-                    'row': path_point['sample'], 
-                    'col': path_point['position'],
-                    'parent': 'parent2'
-                })
-            
-            data['metadata']['highlights'] = highlights
-            visualization_data = create_visualization_response(
-                data['matrix'], 
-                data['row_labels'], 
-                data['col_labels'], 
-                data['metadata']
-            )
+            # If no BED file was created, return an error
+            logging.error("No BED output file found - imputation may have failed")
+            return json.dumps({
+                'success': False,
+                'message': 'Imputation failed - no output file was created',
+                'output_file': None,
+                'visualization_data': create_error_response('No BED output file was created')
+            })
         else:
             # Parse the BED file to extract parent path information
             logging.info(f"Parsing BED output file: {args.output}")
@@ -222,36 +205,19 @@ def run_imputation_with_visualization(args):
                     bed_data['metadata']
                 )
             else:
-                # Fallback to demo data if BED parsing fails
-                logging.warning("Failed to parse BED file, generating demo data")
-                data = generate_parent_path_data(num_positions=15, num_samples=8, seed=42)
-                
-                highlights = []
-                for path_point in data['parent1_path']:
-                    highlights.append({
-                        'row': path_point['sample'],
-                        'col': path_point['position'],
-                        'parent': 'parent1'
-                    })
-                for path_point in data['parent2_path']:
-                    highlights.append({
-                        'row': path_point['sample'], 
-                        'col': path_point['position'],
-                        'parent': 'parent2'
-                    })
-                
-                data['metadata']['highlights'] = highlights
-                visualization_data = create_visualization_response(
-                    data['matrix'], 
-                    data['row_labels'], 
-                    data['col_labels'], 
-                    data['metadata']
-                )
+                # Return an error if BED parsing fails
+                logging.error("Failed to parse BED file")
+                return json.dumps({
+                    'success': False,
+                    'message': 'Imputation completed but failed to parse output BED file',
+                    'output_file': str(args.output) if args.output.exists() else None,
+                    'visualization_data': create_error_response('Failed to parse BED file for visualization')
+                })
         
         # Return the results in the expected format
         result = {
-            'success': True,
-            'message': 'Imputation and visualization completed successfully',
+            'success': imputation_success,
+            'message': 'Imputation and visualization completed successfully' if imputation_success else 'Imputation had issues but output file was processed for visualization',
             'output_file': str(args.output) if args.output.exists() else None,
             'visualization_data': visualization_data
         }
@@ -278,7 +244,7 @@ def main():
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     parser.add_argument("--global-weights", type=str, default=None)
-    parser.add_argument("--HMM", type=bool, default=False)
+    parser.add_argument("--hmm", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
     parser.add_argument("--window-size", type=int, default=21, help="Size of the sliding window for KNN model (must be odd)")
 

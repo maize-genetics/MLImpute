@@ -104,8 +104,9 @@ def create_multihot_matrix(ps4g, gamete_data, weight_strat, collapse):
     gamete_indices = [entry["gamete_index"] for entry in gamete_data]
     num_classes = len(gamete_indices)
 
-    # Map position to index
-    unique_positions = ps4g['pos'].unique()
+    # Create unique position identifiers using refContig and refPosBinned
+    ps4g['position_id'] = ps4g['refContig'].astype(str) + '_' + ps4g['refPosBinned'].astype(str)
+    unique_positions = ps4g['position_id'].unique()
     pos_to_idx = {pos: i for i, pos in enumerate(unique_positions)}
 
     if collapse:
@@ -155,33 +156,23 @@ def collapse_ps4g(num_classes, ps4g, unique_positions):
     """ Collapse the PS4G DataFrame by position and aggregate gamete sets.
     Args:
         num_classes (int): Number of unique gametes.
-        ps4g (pd.DataFrame): DataFrame containing the PS4G data.
-        unique_positions (np.ndarray): Array of unique positions.
+        ps4g (pd.DataFrame): DataFrame containing the PS4G data with position_id column.
+        unique_positions (np.ndarray): Array of unique position identifiers.
     Returns:
         np.ndarray: A multihot encoded matrix with collapsed gamete sets.
         pd.DataFrame: DataFrame containing collapsed PS4G data with aggregated counts.
     """
-    collapsed_df = ps4g.groupby('pos').agg({
+    collapsed_df = ps4g.groupby('position_id').agg({
+        'refContig': 'first',
+        'refPosBinned': 'first',
         'gameteSet': lambda x: sorted(set().union(*x)),
         'count': 'sum'
     }).reset_index()
-    collapsed_df = collapsed_df.set_index('pos').loc[unique_positions].reset_index()
+    collapsed_df = collapsed_df.set_index('position_id').loc[unique_positions].reset_index()
     X_multihot = np.zeros((len(collapsed_df), num_classes), dtype=np.float32)
     for i, indices in enumerate(collapsed_df['gameteSet']):
         X_multihot[i, indices] = 1  # vectorized assignment
     return X_multihot, collapsed_df
-
-
-def decode_position(encoded_pos):
-    """
-    Decode a 32-bit integer that packs:
-      • the upper-8 bits → an index (0-255)
-      • the lower-24 bits → a position, but quantised in bins of 256 bp
-    This is lossy because we multiplied by 256 during encoding.
-    """
-    idx = (encoded_pos >> 24) & 0xFF           # top-byte index (unsigned)
-    pos = (encoded_pos & 0x0FFFFFF) * 256      # restore to bp units
-    return idx, pos
 
 
 def build_index_lookup(ps4g_file):

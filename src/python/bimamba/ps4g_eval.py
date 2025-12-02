@@ -185,8 +185,11 @@ for line in comments:
             "gamete_index": int(idx),
         })
 
-# collapse positions
-collapsed_df = ps4g.groupby('pos').agg({
+# collapse positions using refContig and refPosBinned
+ps4g['position_id'] = ps4g['refContig'].astype(str) + '_' + ps4g['refPosBinned'].astype(str)
+collapsed_df = ps4g.groupby('position_id').agg({
+    'refContig': 'first',
+    'refPosBinned': 'first',
     'gameteSet': lambda x: list(set().union(*x)),  # union all sets
     'count': 'sum'  # sum counts
 }).reset_index()
@@ -198,7 +201,8 @@ index_array = [index_to_name[i] for i in range(max_index + 1)]
 predicted_parents = np.array(index_array)[predictions.cpu().numpy()]
 
 ps4g_preds['parents'] = predicted_parents
-agg = ps4g_preds.groupby(['pos', 'parents']).size().unstack(fill_value=0)
+ps4g_preds['position_id'] = ps4g_preds['refContig'].astype(str) + '_' + ps4g_preds['refPosBinned'].astype(str)
+agg = ps4g_preds.groupby(['position_id', 'parents']).size().unstack(fill_value=0)
 print("aggregated CML69: ", (agg['CML69'] != 0).sum()/len(agg))
 
 # Print results

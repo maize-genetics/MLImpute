@@ -5,6 +5,19 @@
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafb);
 }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
@@ -80,9 +93,53 @@
 .visualization-container {
   flex: 1;
   padding: 1rem;
-  overflow: auto;
+  overflow: hidden;
   background: #fff;
   min-height: 0;
+}
+
+.sidebar-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f8f9fa;
+  border-right: 1px solid #dee2e6;
+  min-width: 200px;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+}
+
+.resize-handle:hover,
+.resize-handle.resizing {
+  background: #007bff;
+  opacity: 0.6;
+}
+
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 100%;
+  background: #dee2e6;
+  transition: all 0.2s ease;
+}
+
+.resize-handle:hover::before,
+.resize-handle.resizing::before {
+  background: #007bff;
 }
 
 .container {
@@ -155,9 +212,6 @@ button {
   outline: none;
 }
 
-#greet-input {
-  margin-right: 5px;
-}
 
 @media (prefers-color-scheme: dark) {
   :root {
