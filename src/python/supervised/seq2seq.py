@@ -13,7 +13,7 @@ from train_supervised import LabeledDataset, path_acc, evaluate
 class Encoder(nn.Module):
     def __init__(self, in_features, emb_dim, hidden_dim):
         super().__init__()
-        self.conv = FixedConvolutions()
+        #self.conv = FixedConvolutions()
         self.proj = nn.Linear(in_features, emb_dim)
         self.rnn = nn.GRU(emb_dim, hidden_dim)
 
@@ -21,8 +21,8 @@ class Encoder(nn.Module):
         """
         src_feats: (seq_len, batch_size, in_features)  # in_features = 24
         """
-        conv = self.conv(src_feats)
-        emb = self.proj(conv)          # (seq_len, batch, emb_dim)
+        #conv = self.conv(src_feats)
+        emb = self.proj(src_feats)          # (seq_len, batch, emb_dim)
         outputs, hidden = self.rnn(emb)     # hidden: (1, batch, hidden_dim)
         return hidden
 
