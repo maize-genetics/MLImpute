@@ -12,6 +12,7 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     0 = miss
     Read count = hit
     Last position represents the label
+    Replace values >128 with 127 (max value for np.int8)
 
     Args:
         ps4g (pd.DataFrame): DataFrame containing the PS4G data for one chromosome.
@@ -27,7 +28,8 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
     X_multihot = np.zeros((len(ps4g), num_classes + 1), dtype=np.int8)
 
     for i, row in tqdm(enumerate(ps4g.itertuples()), total=len(ps4g)):
-        X_multihot[i, row.gameteSet] = row.count  # vectorized assignment
+        count = min(row.count, 127)
+        X_multihot[i, row.gameteSet] = count  # vectorized assignment
         if row.refPosBinned >= len(answer_key[row.refContig]): parent = None
         else: parent = answer_key[row.refContig][row.refPosBinned]
 
