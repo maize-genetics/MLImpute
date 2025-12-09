@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
-from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from src.python.cross.chrom_lengths import chrom_lengths
 from tqdm import tqdm
 import argparse
 import os
@@ -105,15 +106,16 @@ def collapse_matrix(chrom_matrix, positions):
 
     return collapsed_matrix, unique_pos
 
-def include_all_pos(collapsed_matrix, unique_pos, length):
+def include_all_pos(collapsed_matrix, unique_pos, answer_key, gamete_to_idx):
     '''
     Adds unlabelled bins to the collapsed matrix with -1 labels
     '''
-    last_bin = length // 256
+    last_bin = len(answer_key)
 
-    all_pos_matrix = np.zeros((last_bin+1, collapsed_matrix.shape[1]-1))
-    all_pos_labels = np.full((last_bin+1, 1), -1)
-    all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1)
+    all_pos_matrix = np.zeros((last_bin, collapsed_matrix.shape[1]-1), dtype=np.int8)
+    labels = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key], dtype=np.int8)
+    all_pos_labels = labels.reshape(-1, 1)
+    all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1, dtype=np.int8)
     all_pos_matrix[unique_pos, :] = collapsed_matrix
 
     return all_pos_matrix
@@ -124,6 +126,8 @@ if __name__ == '__main__':
     parser.add_argument("--assembly-key-dir", type=str, help="directory containing parent answer keys")
     parser.add_argument("--ps4g-dir", type=str, help="directory containing PS4G data")
     parser.add_argument("--output-dir", type=str, help="output directory")
+    parser.add_argument("--collapse", type=bool, default=False, help="flag to collapse ps4g by position")
+    parser.add_argument("--include-all-pos", type=bool, default=False, help="flag to include empty positions, must collapse")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -180,4 +184,13 @@ if __name__ == '__main__':
             has_nonzero = np.array(has_nonzero)
             logging.info("accuracy: ", has_nonzero.mean())
 
-            np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", matrix.astype(np.int8))
+            if args.collapse:
+                collapsed_matrix, unique_pos = collapse_matrix(matrix, ps4g_chr["refPosBinned"])
+                if args.include_all_pos:
+                    length = len(key_dict[chr])
+                    all_pos_matrix = include_all_pos(collapsed_matrix, unique_pos, key_dict[chr], gamete_to_idx)
+                    np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)
+                else:
+                    np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", collapsed_matrix)
+            else:
+                np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", matrix)
