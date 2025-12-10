@@ -199,7 +199,7 @@ class SmoothPredictDiploid(nn.Module):
     """
     Optional smoothing loss for diploid predictions.
     By default this *penalizes* positions where consecutive time steps
-    have the same predictions (keeps original sign convention).
+    don't have the same predictions (keeps original sign convention).
     """
     def __init__(self, lambda_smooth=0.2, ploidy=2):
         super().__init__()
@@ -212,17 +212,17 @@ class SmoothPredictDiploid(nn.Module):
         ce_loss = self.ce(logits, targets)
 
         # split into hap1 and hap2
-        preds_hap1 = logits[:, :, 0].argmax(dim=-1)  # (B, T, 1)
-        preds_hap2 = logits[:, :, 1].argmax(dim=-1)  # (B, T, 1)
+        preds_hap1 = logits[:, :, 0, :].argmax(dim=-1)  # (B, T)
+        preds_hap2 = logits[:, :, 1, :].argmax(dim=-1)  # (B, T)
 
         if preds_hap1.size(1) <= 1 or preds_hap2.size(1) <= 1:
             return ce_loss
 
         # compare adjacent time steps for each haplotype
-        diff_hap1 = (preds_hap1[:-1] != preds_hap1[1:])
-        diff_hap2 = (preds_hap2[:-1] != preds_hap2[1:])
+        diff_hap1 = (preds_hap1[:, :-1] != preds_hap1[:, 1:])
+        diff_hap2 = (preds_hap2[:, :-1] != preds_hap2[:, 1:])
 
-        smoothness_penalty = diff_hap1.float().sum() + diff_hap2.float().sum()
+        smoothness_penalty = torch.mean(torch.sum(diff_hap1.float(), dim=1)) + torch.mean(torch.sum(diff_hap2.float(), dim=1))
 
         return ce_loss + self.lambda_smooth * smoothness_penalty
 
@@ -252,7 +252,10 @@ def train(model, iterator, optimizer, criterion, steps_to_print):
             # predictions: (batch, seq_len, ploidy, vocab)
             pred_labels = predictions.argmax(dim=-1)  # (batch, seq_len, ploidy)
             # exact-match both haplotypes at each position
-            acc = path_acc(predictions.detach().cpu(), labels.detach().cpu())
+            B, T, P, V = predictions.shape
+            predictions_flat = predictions.reshape(B, T * P, V)  # (B, T*P, V)
+            labels_flat = labels.reshape(B, T * P)  # (B, T*P)
+            acc = path_acc(predictions_flat.detach().cpu(), labels_flat.detach().cpu())
 
         loss.backward()
         optimizer.step()
