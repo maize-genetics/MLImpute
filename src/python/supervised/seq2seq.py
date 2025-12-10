@@ -162,7 +162,7 @@ class SmoothPredict(nn.Module):
         self.cross_entropy = nn.CrossEntropyLoss()
     def __call__(self, logits, targets):
         predictions = torch.argmax(logits, dim=-1)
-        diff = (predictions[:-1] == predictions[1:])
+        diff = (predictions[:-1] != predictions[1:])
         smoothness_penalty = torch.sum(diff.float())
         ce_loss = self.cross_entropy(logits, targets)
         return ce_loss + self.lambda_smooth * smoothness_penalty
