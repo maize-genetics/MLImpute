@@ -6,7 +6,7 @@ import argparse
 import os
 import logging
 
-def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
+def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key1, answer_key2=None):
     """
     Create a multihot encoded matrix [# entries, num_gametes + 1] from the PS4G data.
     0 = miss
@@ -24,16 +24,24 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key):
 
     # Get number of unique gametes
     num_classes = len(gamete_to_idx)
-
-    X_multihot = np.zeros((len(ps4g), num_classes + 1), dtype=np.int8)
+    if answer_key2 is None:
+        X_multihot = np.zeros((len(ps4g), num_classes + 1), dtype=np.int8)
+    else:
+        X_multihot = np.zeros((len(ps4g), num_classes + 2), dtype=np.int8)
 
     for i, row in tqdm(enumerate(ps4g.itertuples()), total=len(ps4g)):
         count = min(row.count, 127)
         X_multihot[i, row.gameteSet] = count  # vectorized assignment
-        if row.refPosBinned >= len(answer_key[row.refContig]): parent = None
-        else: parent = answer_key[row.refContig][row.refPosBinned]
 
-        X_multihot[i, -1] = gamete_to_idx.get(str(parent), -1) # convert parent to idx
+        if row.refPosBinned >= len(answer_key1[row.refContig]): parent1 = None
+        else: parent1 = answer_key1[row.refContig][row.refPosBinned]
+
+        if answer_key2 is not None:
+            if row.refPosBinned >= len(answer_key2[row.refContig]): parent2 = None
+            else: parent2 = answer_key2[row.refContig][row.refPosBinned]
+            X_multihot[i, -2] = gamete_to_idx.get(str(parent2), -1)  # convert parent to idx
+
+        X_multihot[i, -1] = gamete_to_idx.get(str(parent1), -1) # convert parent to idx
 
     return X_multihot
 
@@ -69,7 +77,7 @@ def build_answer_key(keyfile):
 
     return answer_key
 
-def collapse_matrix(chrom_matrix, positions):
+def collapse_matrix(chrom_matrix, positions, diploid=False):
     """
     Collapse rows in a NumPy matrix by summing rows with the same binned position,
     excluding the last column (labels).
@@ -88,8 +96,12 @@ def collapse_matrix(chrom_matrix, positions):
     positions = np.asarray(positions)
 
     # Separate features and labels
-    features = chrom_matrix[:, :-1]
-    labels = chrom_matrix[:, -1]
+    if diploid:
+        features = chrom_matrix[:, :-2]
+        labels = chrom_matrix[:, -2:]
+    else:
+        features = chrom_matrix[:, :-1]
+        labels = chrom_matrix[:, -1]
 
     # Find unique positions and mapping
     unique_pos, idx, inv_idx = np.unique(positions, return_index=True, return_inverse=True)
@@ -105,17 +117,22 @@ def collapse_matrix(chrom_matrix, positions):
 
     return collapsed_matrix, unique_pos
 
-def include_all_pos(collapsed_matrix, unique_pos, answer_key, gamete_to_idx):
+def include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, answer_key1, answer_key2=None):
     '''
     Adds unlabelled bins to the collapsed matrix with -1 labels
     '''
-    last_bin = len(answer_key)
+    last_bin = min(len(answer_key1), len(answer_key2)) # TODO: make sure this the right length
 
-    all_pos_matrix = np.zeros((last_bin, collapsed_matrix.shape[1]-1), dtype=np.int8)
-    labels = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key], dtype=np.int8)
-    all_pos_labels = labels.reshape(-1, 1)
-    all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1, dtype=np.int8)
-    all_pos_matrix[unique_pos, :] = collapsed_matrix
+    all_pos_matrix = np.zeros((last_bin, collapsed_matrix.shape[1]), dtype=np.int8)
+    labels_1 = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key1], dtype=np.int8)
+    all_pos_labels_1 = labels_1[:last_bin]
+    if answer_key2 is not None:
+        labels_2 = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key2], dtype=np.int8)
+        all_pos_labels_2 = labels_2[:last_bin]
+        all_pos_matrix[:, -2] = all_pos_labels_2
+    all_pos_matrix[:, -1] = all_pos_labels_1
+
+    all_pos_matrix[unique_pos, ...] = collapsed_matrix
 
     return all_pos_matrix
 
@@ -127,14 +144,33 @@ if __name__ == '__main__':
     parser.add_argument("--output-dir", type=str, help="output directory")
     parser.add_argument("--collapse", type=bool, default=False, help="flag to collapse ps4g by position")
     parser.add_argument("--include-all-pos", type=bool, default=False, help="flag to include empty positions, must collapse")
+    parser.add_argument("--sample-assembly-key", type=str, help="""\
+                                                                                tab separated file
+                                                                                [sample] [assembly1] (optional) [assembly2]
+                                                                                {sample}_ps4g.txt
+                                                                                {assembly1}_key.bed
+                                                                                {assembly2}_key.bed
+                                                                                """)
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    sample_asm_key = pd.read_csv(args.sample_assembly_key, sep="\t", header=None)
+
     for ps4g_file in os.listdir(args.ps4g_dir):
         sample_name = ps4g_file.split("_ps4g")[0]
-        assembly = ps4g_file.split("_")[0]
-        key_file = f"{assembly}_key.bed"
+        row = sample_asm_key[sample_asm_key[0] == sample_name]
+        if row.empty:
+            raise ValueError(f"Sample {sample_name} not found in sample-assembly-key file.")
+        assembly1 = row[1].iloc[0]
+        key_file1 = f"{assembly1}_key.bed"
+        if sample_asm_key.shape[1] > 2:
+            assembly2 = row[2].iloc[0]
+            key_file2 = f"{assembly2}_key.bed"
+            diploid = True
+        else:
+            key_file2 = None
+            diploid = False
 
         try: ps4g_df = load_ps4g_file(f"{args.ps4g_dir}/{ps4g_file}")
         except Exception as e:
@@ -147,14 +183,19 @@ if __name__ == '__main__':
         gamete_to_idx = {str(d["gamete"]): int(d["gamete_index"]) for d in gamete_data}
         logging.info("extracted metadata")
 
-        key_dict = build_answer_key(f"{args.assembly_key_dir}/{key_file}")
+        key_dict1 = build_answer_key(f"{args.assembly_key_dir}/{key_file1}")
+        if diploid:
+            key_dict2 = build_answer_key(f"{args.assembly_key_dir}/{key_file2}")
+        else:
+            key_dict2 = None
+
         logging.info("created answer key")
 
         chromosomes = ps4g_df["refContig"].unique()
 
         for chr in chromosomes:
             ps4g_chr = ps4g_df[ps4g_df["refContig"] == chr]
-            matrix = create_chromosome_matrix(ps4g_chr.reset_index(), gamete_to_idx, key_dict)
+            matrix = create_chromosome_matrix(ps4g_chr.reset_index(), gamete_to_idx, key_dict1, key_dict2)
             # count number of -1
 
             # Separate data and labels
@@ -184,10 +225,12 @@ if __name__ == '__main__':
             logging.info("accuracy: ", has_nonzero.mean())
 
             if args.collapse:
-                collapsed_matrix, unique_pos = collapse_matrix(matrix, ps4g_chr["refPosBinned"])
+                collapsed_matrix, unique_pos = collapse_matrix(matrix, ps4g_chr["refPosBinned"], diploid)
                 if args.include_all_pos:
-                    length = len(key_dict[chr])
-                    all_pos_matrix = include_all_pos(collapsed_matrix, unique_pos, key_dict[chr], gamete_to_idx)
+                    if diploid:
+                        all_pos_matrix = include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, key_dict1[chr], key_dict2[chr])
+                    else:
+                        all_pos_matrix = include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, key_dict1[chr], answer_key2=None)
                     np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)
                 else:
                     np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", collapsed_matrix)
