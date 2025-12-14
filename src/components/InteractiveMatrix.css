@@ -1,3 +1,4 @@
+/* MD3 Interactive Matrix Styles */
 .interactive-matrix {
   display: flex;
   flex-direction: column;
@@ -14,7 +15,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -24,12 +25,12 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: white;
-  border: 1px solid #e1e5e9;
-  border-radius: 4px;
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
   padding: 0;
   margin: 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--md-sys-elevation-level1);
   flex: 1;
   min-height: 400px;
   width: 100%;
@@ -41,31 +42,33 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  background: #f8f9fa;
-  padding: 0.75rem;
-  border-radius: 0.25rem;
-  border: 1px solid #dee2e6;
-  font-size: 0.875rem;
+  background: var(--md-sys-color-surface-container);
+  padding: 1rem;
+  border-radius: var(--md-sys-shape-corner-medium);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
   max-width: 100%;
   overflow-x: auto;
 }
 
 .info-section {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 .info-label {
-  font-weight: 600;
-  color: #495057;
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  color: var(--md-sys-color-on-surface);
   min-width: 60px;
 }
 
 .info-value {
-  color: #6c757d;
-  font-family: monospace;
-  font-size: 0.8em;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-body-small-size);
   word-break: break-all;
 }
 
@@ -77,11 +80,12 @@
   }
   
   .matrix-container {
-    gap: 5px;
+    gap: 8px;
   }
   
   .matrix-info {
-    font-size: 0.75rem;
+    font-size: var(--md-sys-typescale-body-small-size);
+    padding: 0.75rem;
   }
   
   .info-section {
