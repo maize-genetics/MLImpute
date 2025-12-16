@@ -8,7 +8,14 @@ from tqdm import tqdm
 import argparse
 import os
 from torch.utils.data import DataLoader, Dataset
-from train_supervised import path_acc
+
+# Calculates the accuracy of the path (for a more practical measurement of performance than loss)
+def path_acc_diploid(preds, labels):
+    p1, p2 = preds[:, :, 0], preds[:, :, 1]
+    l1, l2 = labels[:, :, 0], labels[:, :, 1]
+
+    correct = ((p1 == l1) & (p2 == l2)) | ((p1 == l2) & (p2 == l1))
+    return correct.float().mean()
 
 # Dataset class
 # there will be multiple input files to be memory-mapped with numpy
@@ -65,7 +72,7 @@ class LabeledDatasetDiploid(Dataset):
             "labels": labels
         }
 
-class Encoder(nn.Module):
+class EncoderDiploid(nn.Module):
     def __init__(self, in_features, emb_dim, hidden_dim):
         super().__init__()
         self.proj = nn.Linear(in_features, emb_dim)
@@ -79,7 +86,7 @@ class Encoder(nn.Module):
         outputs, hidden = self.rnn(emb)     # hidden: (1, batch, hidden_dim)
         return hidden
 
-class Decoder(nn.Module):
+class DecoderDiploid(nn.Module):
     def __init__(self, output_dim, emb_dim, hidden_dim, ploidy=2):
         super().__init__()
         self.output_dim = output_dim      # vocab_size = num_parents + 1
@@ -117,7 +124,7 @@ class Decoder(nn.Module):
 
         return prediction, hidden
 
-class Seq2Seq(nn.Module):
+class Seq2SeqDiploid(nn.Module):
     def __init__(self, encoder, decoder, device, ploidy=2):
         super().__init__()
         self.encoder = encoder
@@ -179,7 +186,7 @@ class DiploidCrossEntropyLoss(nn.Module):
     def __init__(self, ploidy=2):
         super().__init__()
         self.ploidy = ploidy
-        self.ce = nn.CrossEntropyLoss()
+        self.ce = nn.CrossEntropyLoss(reduction='mean')
 
     def forward(self, logits, targets):
         # logits: (B, T, P, V)
@@ -195,6 +202,49 @@ class DiploidCrossEntropyLoss(nn.Module):
 
         return self.ce(logits, targets)
 
+class DiploidUnorderedCrossEntropyLoss(nn.Module):
+    """
+    Swap-invariant CE for diploid outputs.
+    logits:  (B, T, 2, V)
+    targets: (B, T, 2)
+    Chooses the better of (t0->p0,t1->p1) vs (t0->p1,t1->p0) per sample.
+    """
+    def __init__(self, reduction="mean"):
+        super().__init__()
+        self.reduction = reduction  # "mean" or "sum" or "none"
+
+    def forward(self, logits, targets):
+        B, T, P, V = logits.shape
+        assert P == 2, "This loss is written for diploid (P=2)."
+
+        # CE per token, no reduction yet: (B, T)
+        ce00 = F.cross_entropy(logits[:, :, 0, :].reshape(B*T, V),
+                               targets[:, :, 0].reshape(B*T),
+                               reduction="none").reshape(B, T)
+        ce11 = F.cross_entropy(logits[:, :, 1, :].reshape(B*T, V),
+                               targets[:, :, 1].reshape(B*T),
+                               reduction="none").reshape(B, T)
+        ce01 = F.cross_entropy(logits[:, :, 0, :].reshape(B*T, V),
+                               targets[:, :, 1].reshape(B*T),
+                               reduction="none").reshape(B, T)
+        ce10 = F.cross_entropy(logits[:, :, 1, :].reshape(B*T, V),
+                               targets[:, :, 0].reshape(B*T),
+                               reduction="none").reshape(B, T)
+
+        # loss_noswap = (ce00 + ce11).sum(dim=1)  # (B,)
+        # loss_swap   = (ce01 + ce10).sum(dim=1)  # (B,)
+        loss_noswap = (ce00 + ce11).mean(dim=1)  # (B,)
+        loss_swap   = (ce01 + ce10).mean(dim=1)  # (B,)
+
+        loss = torch.minimum(loss_noswap, loss_swap)  # (B,)
+
+        if self.reduction == "none":
+            return loss
+        if self.reduction == "sum":
+            return loss.sum()
+        return loss.mean()
+
+
 class SmoothPredictDiploid(nn.Module):
     """
     Optional smoothing loss for diploid predictions.
@@ -204,7 +254,8 @@ class SmoothPredictDiploid(nn.Module):
     def __init__(self, lambda_smooth=0.2, ploidy=2):
         super().__init__()
         self.lambda_smooth = lambda_smooth
-        self.ce = DiploidCrossEntropyLoss(ploidy=ploidy)
+        #self.ce = DiploidCrossEntropyLoss(ploidy=ploidy)
+        self.ce = DiploidUnorderedCrossEntropyLoss(reduction="mean")
 
     def forward(self, logits, targets):
         # logits: (B, T, P, V)
@@ -253,9 +304,10 @@ def train(model, iterator, optimizer, criterion, steps_to_print):
             pred_labels = predictions.argmax(dim=-1)  # (batch, seq_len, ploidy)
             # exact-match both haplotypes at each position
             B, T, P, V = predictions.shape
-            predictions_flat = predictions.reshape(B, T * P, V)  # (B, T*P, V)
-            labels_flat = labels.reshape(B, T * P)  # (B, T*P)
-            acc = path_acc(predictions_flat.detach().cpu(), labels_flat.detach().cpu())
+            #predictions_flat = predictions.reshape(B, T * P, V)  # (B, T*P, V)
+            #labels_flat = labels.reshape(B, T * P)  # (B, T*P)
+            #acc = path_acc(predictions_flat.detach().cpu(), labels_flat.detach().cpu())
+            acc = path_acc_diploid(pred_labels, labels)
 
         loss.backward()
         optimizer.step()
@@ -282,7 +334,8 @@ def evaluate(model, iterator, criterion):
 
             predictions = model(input_embeds)
             loss = criterion(predictions, labels)
-            acc = path_acc(predictions.detach().cpu(), labels.detach().cpu())
+            pred_labels = predictions.argmax(dim=-1)  # (batch, seq_len, ploidy)
+            acc = path_acc_diploid(pred_labels.detach().cpu(), labels.detach().cpu())
 
             epoch_loss += loss.item()
             epoch_acc += acc
@@ -321,9 +374,9 @@ def main():
     HID_DIM = args.hidden_dim
     ploidy = 2
 
-    enc = Encoder(args.num_parents, EMB_DIM, HID_DIM)
-    dec = Decoder(args.num_parents + 1, EMB_DIM, HID_DIM, ploidy=ploidy)
-    model = Seq2Seq(enc, dec, device, ploidy=ploidy)
+    enc = EncoderDiploid(args.num_parents, EMB_DIM, HID_DIM)
+    dec = DecoderDiploid(args.num_parents + 1, EMB_DIM, HID_DIM, ploidy=ploidy)
+    model = Seq2SeqDiploid(enc, dec, device, ploidy=ploidy)
 
     # Initializing training dataset
     training_filenames = os.listdir(args.training_data_path)
