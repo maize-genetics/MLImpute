@@ -51,3 +51,14 @@ python seq2seq_diploid.py
     --embedding-dim (embedding dimension)
     --hidden-dim (hidden dimension)
     --ls (smoothing hyperparameter)
+
+seq2seq_diploid_inference.py
+    --data-path (path to the input data)
+    --batch-size (batch size)
+    --model-path (path to model)
+    --save-dir (path to save imputed paths)
+    --num-parents (number of parents)
+    --max-seq-length (maximum input sequence length)
+    --step-size (distance between the start points of each training window)
+    --embedding-dim (embedding dimension)
+    --hidden-dim (hidden dimension)
