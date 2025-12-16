@@ -1,12 +1,15 @@
+# train a CNN or a simple neural net for classification
+# can be 1d or 2d convolutions, and binary or multiclass classification
+
 import argparse
 import torch
 from torch.utils.data import DataLoader
 import os
-from src.python.supervised.deprecated.dataset_labeled import CategoricalDataset, CategoricalMulticlassDataset
+from dataset_labeled import CategoricalDataset, CategoricalMulticlassDataset
 import wandb
 from tqdm import tqdm
 import sys
-from src.python.supervised.deprecated.models_labeled import CNN, CNN2D, FullyConnected
+from models_labeled import CNN, CNN2D, FullyConnected
 
 
 def train(model, train_loader, test_loader, optimizer, criterion, epochs, save_path,

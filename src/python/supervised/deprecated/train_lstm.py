@@ -1,3 +1,5 @@
+# Train an LSTM model to predict the next crossover point in a series
+
 import argparse
 import torch
 from torch.utils.data import DataLoader

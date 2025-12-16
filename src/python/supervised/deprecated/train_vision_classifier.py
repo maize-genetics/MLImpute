@@ -1,10 +1,12 @@
+# train a VitForImageClasification model to detect whether or not a crossover occurs in the dataset
+
 from transformers import get_wsd_schedule
 from transformers import ViTForImageClassification
 import torch
 from transformers import Trainer, TrainingArguments
 import argparse
 import torch.optim as optim
-from dataset_vision import CategoricalSegmentationDataset
+from dataset_labeled import CategoricalVisionSegmentationDataset
 import sys
 
 # arguments for running the script
@@ -62,7 +64,7 @@ def main():
 
 
 
-    dataset = CategoricalSegmentationDataset(args.keyfile, windows=args.windows)
+    dataset = CategoricalVisionSegmentationDataset(args.keyfile, windows=args.windows)
 
     dataset_chunks = torch.utils.data.random_split(dataset, [0.9, 0.1])
     dataset_train = dataset_chunks[0]

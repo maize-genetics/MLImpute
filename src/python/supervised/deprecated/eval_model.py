@@ -139,6 +139,7 @@ def main():
     model = model.to(device)
     model.eval()
 
+    # allocate space for results
     file_idx = [0] * len(dataset)
     start_pos = [0] * len(dataset)
     actual = [0] * len(dataset)
@@ -162,6 +163,7 @@ def main():
             file_idx[indices[0]:indices[-1]+1] = file_indices.detach().tolist()
             start_pos[indices[0]:indices[-1] + 1] = start_positions.detach().tolist()
 
+            # handle list outputs vs single-class outputs
             if binary:
                 labels = [str(lab) for lab in labels]
                 output = [str(out) for out in outputs]
@@ -172,6 +174,7 @@ def main():
             actual[indices[0]:indices[-1]+1] = labels
             predicted[indices[0]:indices[-1]+1] = output
 
+    # package in dataframe and write
     df = pd.DataFrame({"file_idx": file_idx,
                        "start_pos": start_pos,
                        "actual": actual,

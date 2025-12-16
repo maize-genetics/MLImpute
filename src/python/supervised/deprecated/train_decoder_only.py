@@ -1,12 +1,15 @@
+# train a ModernBertDecoder model for next crossover prediction
+
 import torch
 from transformers import get_wsd_schedule
 import argparse
 import sys
 from transformers import Trainer, TrainingArguments
 import torch.optim as optim
-from src.python.supervised.deprecated.models_labeled import DecoderOnlyConfig, DecoderOnlyModel
-from src.python.supervised.deprecated.dataset_labeled import BaseSegmentationDataset
-from loss_functions import CrossEntropy
+from models_labeled import DecoderOnlyConfig, DecoderOnlyModel
+from dataset_labeled import BaseSegmentationDataset
+from loss_functions import CrossEntropy, BinomialKLLoss
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -18,6 +21,8 @@ def parse_args():
     parser.add_argument("--keyfile", type=str, required=True, help="keyfile with list of input files")
     parser.add_argument("--windows", type=str, default=None, help="Optional, specify which windows to include")
     parser.add_argument("--num-epochs", "-e", type=int, default=2, help="number of training epochs")
+    parser.add_argument("--distribute-loss", action="store_true",
+                        help="use distributed loss instead of cross-entropy loss")
     parser.add_argument("--skip-warmup", action="store_true", help="skip the warmup stage of WSD")
     parser.add_argument("--allow-cpu", action="store_true", help="allow cpu for training (not recommended)")
     parser.add_argument("--run-name", "--rn", type=str, default="run-1", help="wandb run name")
@@ -58,19 +63,26 @@ def main():
         model = DecoderOnlyModel.from_pretrained(args.checkpoint)
     else:
         # If no checkpoint is provided, we initialize a new model
-        config = DecoderOnlyConfig(num_parents=args.num_parents, vocab_size=pos_length + 3, max_position_embeddings=256,
-                                   is_decoder=True, pad_token_id=pos_length, eos_token_id=pos_length + 1,
-                                   bos_token_id=pos_length + 2, cls_token_id=pos_length + 1, sep_token_id=pos_length + 2,
-                                   add_cross_attention=True, num_hidden_layers=6, num_attention_heads=12)
+        config = DecoderOnlyConfig(num_parents=args.num_parents, vocab_size=pos_length + 3,
+                                   max_position_embeddings=pos_length, is_decoder=True, pad_token_id=pos_length,
+                                   eos_token_id=pos_length + 1, bos_token_id=pos_length + 2,
+                                   cls_token_id=pos_length + 1, sep_token_id=pos_length + 2, add_cross_attention=True,
+                                   num_hidden_layers=6, num_attention_heads=12)
 
         model = DecoderOnlyModel(config)
 
-    loss_weights = torch.ones(pos_length+3, dtype=torch.float)
-    loss_weights[pos_length:pos_length+3] = 0.01 # weight special tokens less than regular tokens
-    criterion = CrossEntropy(reduction="sum", weight=loss_weights)
-    model.model._loss_function = criterion
+    if args.distribute_loss:
+        loss_weights = torch.ones(pos_length + 3, dtype=torch.float)
+        loss_weights[pos_length:pos_length + 3] = 0.01  # weight special tokens less than regular tokens
+        dataset = BaseSegmentationDataset(args.keyfile, windows=args.windows, input_len=pos_length, step_size=step_size,
+                                          preload=True)
+        criterion = CrossEntropy(reduction="sum", weight=loss_weights)
+    else:
+        dataset = BaseSegmentationDataset(args.keyfile, windows=args.windows, input_len=pos_length, step_size=step_size,
+                                          preload=True, distribute_label_density=True)
+        criterion = BinomialKLLoss(reduction="sum")
 
-    dataset = BaseSegmentationDataset(args.keyfile, windows=args.windows, input_len=pos_length, step_size=step_size)
+    model.model._loss_function = criterion
 
     dataset_chunks = torch.utils.data.random_split(dataset, [0.95, 0.05])
     dataset_train = dataset_chunks[0]

@@ -264,5 +264,5 @@ class FullyConnected(nn.Module):
             self.net.append(nn.Sigmoid())
 
     def forward(self, src):
-        return self.net(src.flatten())
+        return self.net(src.flatten(1))
 

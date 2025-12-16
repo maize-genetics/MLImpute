@@ -25,11 +25,17 @@ class BaseSegmentationDataset(Dataset):
             preload -- if true, load all data into memory. Use this if running inference on a single or a few samples, to improve speed.
     """
     def __init__(self, keyfile, input_len=256, num_parents=24, step_size=128, windows=None, include_index=False,
-                 end_token=None, include_end_token_rate=1.0, preload=False):
+                 end_token=None, include_end_token_rate=1.0, preload=False, distribute_label_density=False):
         self.keyfile = pd.read_csv(keyfile, sep="\t")
         self.input_len = input_len
         self.num_parents = num_parents
         self.step_size = step_size
+        self.distribute_label_density = distribute_label_density
+
+        if distribute_label_density:
+            self.format_labels = self.distribute_labels
+        else:
+            self.format_labels = self.int_labels
 
         if windows is not None:
             self.windows = list(pd.read_csv(windows, sep="\t").itertuples(index=False))
@@ -70,6 +76,61 @@ class BaseSegmentationDataset(Dataset):
     def __len__(self):
         return self.n_windows
 
+
+
+    def dist(self, idx):
+        """Returns the binomial distribution of a label for distribute_label_density=True"""
+
+        x = torch.zeros((self.input_len))
+        # TODO: parameterize
+        midpoint = 32 // 2
+
+        for idy in range(32):
+            # special tokens (i.e. <END>) do not get distributed density
+            if 0 <= idx + idy - midpoint < self.input_len:
+                x[idx + idy - midpoint] = binom.pmf(idy, 32, 0.5)
+
+        return x
+
+    def distribute_labels(self, junctions):
+        """Configure labels as binomial distributions.
+            Returns:
+                input_ids: input token IDs
+                labels_binom: labels formatted as distributions
+                mask: attention mask
+                int_labels: labels formatted as token IDs. Useful for quickly identifying the correct answer
+        """
+
+        input_ids, int_labels, mask = self.__junctions_to_io__(junctions)
+        labels_binom = np.array([self.dist(idx) for idx in junctions])
+
+        # add special tokens and end token
+        if labels_binom.shape[0] == 0:  # no crossovers
+
+            labels_binom = np.zeros((1, self.input_len + 3))
+        else:  # yes crossovers
+
+            labels_binom = np.concatenate((labels_binom, np.zeros((labels_binom.shape[0], 3))), axis=1)
+            labels_binom = np.concatenate((labels_binom, np.zeros((1, labels_binom.shape[1]))), axis=0)
+
+        # add end token label (no smoothing)
+        labels_binom[labels_binom.shape[0] - 1, self.input_len + 1] = 1
+
+        return input_ids, labels_binom, mask, int_labels
+
+    def int_labels(self, junctions):
+        """Configure labels as integer token IDs.
+            Returns:
+                input_ids: input token IDs
+                labels: labels formatted as token IDs
+                mask: attention mask
+                int_labels: labels formatted as token IDs
+
+            labels are returned twice to keep format consistent with distribute_labels()
+        """
+        input_ids, labels, mask = self.__junctions_to_io__(junctions)
+        # we do this to keep the format consistent with distributed labels
+        return input_ids, labels, mask, labels
 
     def __bins_to_idx__(self, labels_binned):
         """Converts per-position labels from .npy files to a list of crossover points"""
@@ -126,14 +187,15 @@ class BaseSegmentationDataset(Dataset):
         window = (matrix - mean) / sd
 
         # format input ids and labels
-        input_ids, labels, mask = self.__junctions_to_io__(junctions)
+        input_ids, labels, mask, int_labels = self.format_labels(junctions)
 
         # Note: we are relying on the data collator to handle padding, so labels do not have a fixed length
         return_dict = {
             'encoder_hidden_states': torch.tensor(window, dtype=torch.float),  # (input_len, num_parents)
             'labels': torch.tensor(labels),  # (N - variable depending on the number of crossovers in a window)
             'attention_mask': mask,  # (N)
-            'input_ids': torch.tensor(input_ids)  # (N)
+            'input_ids': torch.tensor(input_ids),  # (N)
+            'int_labels': torch.tensor(int_labels)
         }
 
         if self.include_index:
@@ -156,12 +218,15 @@ class BaseSegmentationDataset(Dataset):
         for feat in features:
             if feat["labels"].shape[0] < longest_seq:
                 pad_len = longest_seq - feat["labels"].shape[0]
-                feat["labels"] = np.concatenate((feat["labels"], [padding_token] * pad_len))
+
+                if self.distribute_label_density:
+                    labels_dim = (pad_len, *feat["labels"].shape[1:])
+                    feat["labels"] = np.concatenate((feat["labels"], np.full(labels_dim, 0)))
+                else:
+                    feat["labels"] = np.concatenate((feat["labels"], [padding_token] * pad_len))
                 feat["input_ids"] = np.concatenate((feat["input_ids"], [input_padding_token] * pad_len))
                 feat["attention_mask"] = np.concatenate((feat["attention_mask"], np.zeros(pad_len)))
-
-            feat["labels"] = torch.tensor(feat["labels"], dtype=torch.int64).clone()
-            feat["input_ids"] = torch.tensor(feat["input_ids"], dtype=torch.int64).clone()
+                feat["int_labels"] = np.concatenate((feat["int_labels"], [padding_token] * pad_len))
 
         # pass padded tokens to default collator
         batch = default_data_collator(features)
@@ -183,72 +248,14 @@ class VisionSegmentationDataset(BaseSegmentationDataset):
     def __init__(self, keyfile, image_size=384, num_parents=24, step_size=1536, windows=None, split_norm_levels=False,
                  include_index=False, preload=False, distribute_label_density=False):
         window_size = (image_size * image_size) // num_parents
-        super().__init__(keyfile, window_size, num_parents, step_size, windows, include_index, preload)
+        super().__init__(keyfile, window_size, num_parents, step_size, windows, include_index, preload,
+                         distribute_label_density)
 
         # use variables for these functions to avoid conditionals in training
         if split_norm_levels:
             self.norm_func = self.normalize_global
         else:
             self.norm_func = self.normalize_local
-
-        if distribute_label_density:
-            self.format_labels = self.distribute_labels
-        else:
-            self.format_labels = self.int_labels
-
-    def dist(self, idx):
-        """Returns the binomial distribution of a label for distribute_label_density=True"""
-
-        x = torch.zeros((self.input_len))
-        # TODO: parameterize
-        midpoint = 32 // 2
-
-        for idy in range(32):
-            # special tokens (i.e. <END>) do not get distributed density
-            if 0 <= idx + idy - midpoint < self.input_len:
-                x[idx + idy - midpoint] = binom.pmf(idy, 32, 0.5)
-
-        return x
-
-    def distribute_labels(self, junctions):
-        """Configure labels as binomial distributions.
-            Returns:
-                input_ids: input token IDs
-                labels_binom: labels formatted as distributions
-                mask: attention mask
-                int_labels: labels formatted as token IDs. Useful for quickly identifying the correct answer
-        """
-
-        input_ids, int_labels, mask = self.__junctions_to_io__(junctions)
-        labels_binom = np.array([self.dist(idx) for idx in junctions])
-
-        # add special tokens and end token
-        if labels_binom.shape[0] == 0:  # no crossovers
-
-            labels_binom = np.zeros((1, self.input_len + 3))
-        else:  # yes crossovers
-
-            labels_binom = np.concatenate((labels_binom, np.zeros((labels_binom.shape[0], 3))), axis=1)
-            labels_binom = np.concatenate((labels_binom, np.zeros((1, labels_binom.shape[1]))), axis=0)
-
-        # add end token label (no smoothing)
-        labels_binom[labels_binom.shape[0] - 1, self.input_len + 1] = 1
-
-        return input_ids, labels_binom, mask, int_labels
-
-    def int_labels(self, junctions):
-        """Configure labels as integer token IDs.
-            Returns:
-                input_ids: input token IDs
-                labels: labels formatted as token IDs
-                mask: attention mask
-                int_labels: labels formatted as token IDs
-
-            labels are returned twice to keep format consistent with distribute_labels()
-        """
-        input_ids, labels, mask = self.__junctions_to_io__(junctions)
-        # we do this to keep the format consistent with distributed labels
-        return input_ids, labels, mask, labels
 
     def normalize_local(self, matrix, file_idx):
         """Normalize the input matrix.

@@ -32,6 +32,7 @@ out_array = np.zeros((length, num_parents+1), dtype=int)
 current_crossover = 0
 previous_hap = -1
 
+# at random intervals, change the distribution we sample from
 while current_crossover < length:
     next_crossover = current_crossover + np.random.randint(min_dist, max_dist)
 
@@ -56,4 +57,5 @@ while current_crossover < length:
     current_crossover = next_crossover
     previous_hap = haplotype
 
+# saves in same .npy format as the real sequencing data
 np.save(out_file_name, out_array)
