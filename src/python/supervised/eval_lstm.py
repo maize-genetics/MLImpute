@@ -1,9 +1,9 @@
 from tqdm import tqdm
-from transformers import ViTForImageClassification
 import torch
 import argparse
-from src.python.supervised.deprecated.dataset_labeled import CategoricalVisionSegmentationDataset
 import sys
+from src.python.supervised.deprecated.models_labeled import LstmSegmentationEncDec
+from src.python.supervised.deprecated.dataset_labeled import BaseSegmentationDataset
 from torch.utils.data import DataLoader
 
 # arguments for running the script
@@ -11,11 +11,10 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--num-parents", type=int, default=24, help="number of parents")
-    parser.add_argument("--image-size", type=int, default=384, help="image side length: should be multiple of num_parents")
     parser.add_argument("--checkpoint", type=str, required=True, help="path to a previous training checkpoint")
     parser.add_argument("--keyfile", type=str, required=True, help="keyfile with list of input files")
     parser.add_argument("--allow-cpu",  action="store_true", help="allow cpu for training (not recommended)")
-    parser.add_argument("--batch-size", "-b", type=int, default=16, help="batch size")
+    parser.add_argument("--batch-size", "-b", type=int, default=64, help="batch size")
     parser.add_argument("--output", type=str, required=True, help="path to output file")
     args = parser.parse_args()
     return args
@@ -34,20 +33,20 @@ def main():
             sys.exit()
 
     # for processing the "images"
-    chunks = args.image_size // args.num_parents
-    pos_length = args.image_size * chunks
+    pos_length = 256
 
-    # WSD is suited for picking up from a previous training checkpoint
-    # So, we make this an option
+    model = LstmSegmentationEncDec(24, 256, 12, 0.1)
 
-    model = ViTForImageClassification.from_pretrained(args.checkpoint)
+    state_dict = torch.load(args.checkpoint)
+    model.load_state_dict(state_dict)
 
-    dataset = CategoricalVisionSegmentationDataset(args.keyfile, include_index=True)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+    dataset = BaseSegmentationDataset(args.keyfile, include_index=True)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=dataset.collate)
 
     # set up model
     model = model.to(device)
     model.eval()
+    model.eval_mode()
 
     with open(args.output, "w") as writer:
         writer.write("file_idx\tstart_pos\tactual\tpredicted\n")
@@ -55,15 +54,15 @@ def main():
 
         with torch.no_grad():
             for batch in tqdm(dataloader, desc="Evaluating..."):
-                input_ids = batch["pixel_values"].to(device)
+                input_ids = batch["encoder_hidden_states"].to(device)
 
-                outputs= model(input_ids).cpu().detach()
+                outputs = model(input_ids).cpu().detach().squeeze()
 
                 for idx in range(input_ids.shape[0]):
                     writer.write(str(int(batch["file_idx"][idx])) + "\t" + str(int(batch["pos_idx"][idx]) * dataset.step_size) + "\t")
 
-                    writer.write(str(batch["labels"][idx]) + "\t")
-                    writer.write(",".join([str(y) for y in outputs["logits"][idx].tolist() if y < pos_length]) + "\n")
+                    writer.write(",".join([str(int(y)) for y in batch["labels"][idx].tolist() if y < pos_length and y > 0]) + "\t")
+                    writer.write(",".join([str(int(y)) for y in outputs[idx].tolist() if y < pos_length]) + "\n")
 
 
 

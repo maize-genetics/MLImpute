@@ -1,4 +1,4 @@
-# File to hold the various iterations of datasets for this training
+"""# File to hold the various iterations of datasets for this training
 # "Default" is segmentation dataset
 # also holds the data collator for this dataset
 from transformers.data.data_collator import InputDataClass
@@ -436,3 +436,4 @@ class BinomialKLLoss(torch.nn.Module):
             return torch.sum(pl) / torch.sum(mask)
         else:  # sum
             return torch.sum(pl)
+"""

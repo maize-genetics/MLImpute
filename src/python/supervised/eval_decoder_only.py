@@ -1,8 +1,9 @@
 from tqdm import tqdm
 import torch
 import argparse
-from train_decoder_only import DecoderOnlyModel, DecoderOnlyDataset, decoder_data_collator
 import sys
+from src.python.supervised.deprecated.models_labeled import DecoderOnlyModel
+from src.python.supervised.deprecated.dataset_labeled import BaseSegmentationDataset
 from torch.utils.data import DataLoader
 
 # arguments for running the script
@@ -39,12 +40,14 @@ def main():
 
     model = DecoderOnlyModel.from_pretrained(args.checkpoint)
 
-    dataset = DecoderOnlyDataset(args.keyfile, include_index=True)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=decoder_data_collator)
+    dataset = BaseSegmentationDataset(args.keyfile, include_index=True)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=dataset.collate)
 
     # set up model
     model = model.to(device)
     model.eval()
+
+
 
     with open(args.output, "w") as writer:
         writer.write("file_idx\tstart_pos\tactual\tpredicted\n")
