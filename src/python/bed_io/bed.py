@@ -1,21 +1,67 @@
 import numpy as np
 import pandas as pd
 
-from python.ps4g_io.ps4g import build_index_lookup
+from src.python.ps4g_io.ps4g import decode_position, build_index_lookup
 
 
-def output_bed_file(output_bed, chroms, positions, final_predictions, index_array, collapse_bed_regions=True):
-    """
-    Output BED file with imputation predictions.
+def output_bed_file_deprecated(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions=True):
+    bed_df = pd.DataFrame({
+        # TODO: convert chr_idx to chr
+        "chrom_idx": chroms[:len(final_predictions)],
+        "pos": positions[:len(final_predictions)],
+        "parent1": np.array(index_array)[final_predictions[:, 0]],
+        "parent2": np.array(index_array)[final_predictions[:, 1]],
+    })
+    # Save to BED file
+    if not collapse_bed_regions:
+        # If not collapsing, we can save directly
+        bed_df.to_csv(output_bed, sep="\t", index=False)
+    else:
+        output_collapse_bed_deprecated(bed_df, output_bed)
 
-    Args:
-        output_bed: Path to output BED file
-        chroms: Array of chromosome/contig identifiers
-        positions: Array of binned positions
-        final_predictions: Array of predicted parent indices (shape: [n, 2])
-        index_array: Array mapping gamete indices to gamete names
-        collapse_bed_regions: If True, collapse contiguous regions with same parents
-    """
+
+def output_collapse_bed_deprecated(bed_df, output_bed):
+    # Define group boundaries where parent1, parent2, or chrom changes
+    group_change = (
+            (bed_df["parent1"] != bed_df["parent1"].shift()) |
+            (bed_df["parent2"] != bed_df["parent2"].shift()) |
+            (bed_df["chrom_idx"] != bed_df["chrom_idx"].shift())
+    )
+    group_id = group_change.cumsum()
+    # Collapse into ranges
+    ranges_df = bed_df.groupby(group_id).agg({
+        "chrom_idx": "first",
+        "pos": ["min", "max"],
+        "parent1": "first",
+        "parent2": "first"
+    }).reset_index(drop=True)
+    # Clean up MultiIndex columns
+    ranges_df.columns = ["chrom_idx", "start", "end", "parent1", "parent2"]
+    # Save to BED file
+    ranges_df.to_csv(output_bed, sep="\t", index=False)
+
+
+def output_predictions_deprecated(ps4g_file, output_bed, final_predictions, collapse_bed_regions = True):
+    spline_pos = pd.read_csv(ps4g_file, sep="\t", comment="#")['pos']
+    decoded = np.vstack(np.vectorize(decode_position)(spline_pos)).T
+    chroms, positions = zip(*decoded)
+    index_array = build_index_lookup(ps4g_file)
+    output_bed_file_deprecated(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions)
+
+
+
+
+def output_bed_file(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions=True):
+    '''
+    output_bed: name of the desired output bed of imputed path
+    chroms: chromosomes/contigs of predictions
+    final_predictions: numpy array of predictions of shape [# predicted bins, 2]
+    index_array: function to convert predicted gamete idx to gamete name
+    positions: positions of predictions
+    collapse_bed_regions: bool value of whether to consolidate consecutive predictions
+
+    writes predictions to bed file
+    '''
     bed_df = pd.DataFrame({
         "chrom": chroms[:len(final_predictions)],
         "pos": positions[:len(final_predictions)],
@@ -31,13 +77,10 @@ def output_bed_file(output_bed, chroms, positions, final_predictions, index_arra
 
 
 def output_collapse_bed(bed_df, output_bed):
-    """
-    Collapse contiguous BED regions with the same parent assignments.
-
-    Args:
-        bed_df: DataFrame with chrom, pos, parent1, parent2 columns
-        output_bed: Path to output BED file
-    """
+    '''
+    bed_df: pandas dataframe containing non-collapsed bed file data
+    output_bed: name of the desired output bed of imputed path
+    '''
     # Define group boundaries where parent1, parent2, or chrom changes
     group_change = (
             (bed_df["parent1"] != bed_df["parent1"].shift()) |
@@ -58,23 +101,35 @@ def output_collapse_bed(bed_df, output_bed):
     ranges_df.to_csv(output_bed, sep="\t", index=False)
 
 
-def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_regions=True):
-    """
-    Output imputation predictions to BED format file.
+def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_regions = True):
+    '''
+    ps4g_file: name of the ps4g file for the imputed sample
+    output_bed: name of the desired output bed of imputed path
+    final_predictions: numpy array of predictions of shape [# predicted bins, 2]
+    collapse_bed_regions: bool value of whether to consolidate consecutive predictions
 
-    Args:
-        ps4g_file: Path to input PS4G file
-        output_bed: Path to output BED file
-        final_predictions: Array of predicted parent indices (shape: [n, 2])
-        collapse_bed_regions: If True, collapse contiguous regions with same parents
-    """
-    # Read the PS4G file to get chromosome and position information
-    ps4g_df = pd.read_csv(ps4g_file, sep="\t", comment="#")
-    chroms = ps4g_df['refContig'].values
-    positions = ps4g_df['refPosBinned'].values
-
-    # Get gamete index to name mapping
+    writes predictions to bed file
+    '''
+    chroms = pd.read_csv(ps4g_file, sep="\t", comment="#")['refContig']
+    positions = pd.read_csv(ps4g_file, sep="\t", comment="#")['refPosBinned'] * 256
     index_array = build_index_lookup(ps4g_file)
+    index_array.append(None) # add extra index to represent "unlabelled" prediction
+    output_bed_file(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions)
 
-    # Output to BED file
-    output_bed_file(output_bed, chroms, positions, final_predictions, index_array, collapse_bed_regions)
+
+def load_saved_predictions(sample_name, contigs, file_dir):
+    '''
+    sample_name: name of the imputed sample
+    contigs: list of chromosome/contig names
+    file_dir: directory containing saved numpy prediction files
+
+    returns: a numpy array containing all chromosome/contig predictions,
+            reshaped to [# predicted bins, 2]
+    '''
+    predictions = []
+    for c in contigs:
+        file_name = f"{file_dir}/{sample_name}_{c}.npy"
+        preds = np.load(file_name, allow_pickle=True)
+        predictions.append(preds)
+    all_predictions = np.concatenate(predictions, axis=0)
+    return all_predictions.reshape(-1, all_predictions.shape[-1])
