@@ -39,7 +39,8 @@ def parse_args():
     return args
 
 
-def main():
+#def main():
+if True:
     args = parse_args()
 
     if torch.cuda.is_available():
@@ -72,15 +73,15 @@ def main():
         model = DecoderOnlyModel(config)
 
     if args.distribute_loss:
+        dataset = BaseSegmentationDataset(args.keyfile, windows=args.windows, input_len=pos_length, step_size=step_size,
+                                          preload=True, distribute_label_density=True)
+        criterion = BinomialKLLoss(reduction="sum")
+    else:
         loss_weights = torch.ones(pos_length + 3, dtype=torch.float)
         loss_weights[pos_length:pos_length + 3] = 0.01  # weight special tokens less than regular tokens
         dataset = BaseSegmentationDataset(args.keyfile, windows=args.windows, input_len=pos_length, step_size=step_size,
                                           preload=True)
         criterion = CrossEntropy(reduction="sum", weight=loss_weights)
-    else:
-        dataset = BaseSegmentationDataset(args.keyfile, windows=args.windows, input_len=pos_length, step_size=step_size,
-                                          preload=True, distribute_label_density=True)
-        criterion = BinomialKLLoss(reduction="sum")
 
     model.model._loss_function = criterion
 
@@ -119,7 +120,7 @@ def main():
         weight_decay=0.01,
         logging_dir='./logs',
         logging_steps=args.logging_steps,
-        report_to="wandb",
+        #report_to="wandb",
         save_steps=args.save_steps,
         run_name=args.run_name
     )
@@ -134,6 +135,6 @@ def main():
     )
     trainer.train()
 
-
-if __name__ == '__main__':
-    main()
+#
+# if __name__ == '__main__':
+#    main()

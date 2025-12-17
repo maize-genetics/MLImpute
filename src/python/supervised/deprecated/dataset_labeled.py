@@ -24,6 +24,7 @@ class BaseSegmentationDataset(Dataset):
             include_end_token_rate -- proportion of end tokens that will be unmasked in the dataset. Used to downsample end tokens
             preload -- if true, load all data into memory. Use this if running inference on a single or a few samples, to improve speed.
     """
+
     def __init__(self, keyfile, input_len=256, num_parents=24, step_size=128, windows=None, include_index=False,
                  end_token=None, include_end_token_rate=1.0, preload=False, distribute_label_density=False):
         self.keyfile = pd.read_csv(keyfile, sep="\t")
@@ -55,7 +56,8 @@ class BaseSegmentationDataset(Dataset):
         self.preload = preload
 
         if preload:
-            self.matrices = [np.load(self.keyfile["path"].iloc[idx], allow_pickle=True) for idx in range(len(self.keyfile))]
+            self.matrices = [np.load(self.keyfile["path"].iloc[idx], allow_pickle=True) for idx in
+                             range(len(self.keyfile))]
 
     def __generate_windows__(self):
         """Stores all valid training windows as a list of tuples, for random access by get_item
@@ -75,8 +77,6 @@ class BaseSegmentationDataset(Dataset):
 
     def __len__(self):
         return self.n_windows
-
-
 
     def dist(self, idx):
         """Returns the binomial distribution of a label for distribute_label_density=True"""
@@ -226,7 +226,14 @@ class BaseSegmentationDataset(Dataset):
                     feat["labels"] = np.concatenate((feat["labels"], [padding_token] * pad_len))
                 feat["input_ids"] = np.concatenate((feat["input_ids"], [input_padding_token] * pad_len))
                 feat["attention_mask"] = np.concatenate((feat["attention_mask"], np.zeros(pad_len)))
-                feat["int_labels"] = np.concatenate((feat["int_labels"], [padding_token] * pad_len))
+
+                if "int_labels" in feat.keys():
+                    feat["int_labels"] = np.concatenate((feat["int_labels"], [padding_token] * pad_len))
+
+            if "int_labels" in feat.keys():
+                feat["int_labels"] = torch.tensor(feat["int_labels"], dtype=torch.int64).clone()
+            feat["input_ids"] = torch.tensor(feat["input_ids"], dtype=torch.int64).clone()
+            feat["labels"] = torch.tensor(feat["labels"]).clone()
 
         # pass padded tokens to default collator
         batch = default_data_collator(features)
@@ -245,6 +252,7 @@ class VisionSegmentationDataset(BaseSegmentationDataset):
                 categorical labels. This results in slower training, but allows for some "fuzziness" in loss function
                 and model accuracy, since loss can be conditioned on the distance to the nearest labeled crossover.
     """
+
     def __init__(self, keyfile, image_size=384, num_parents=24, step_size=1536, windows=None, split_norm_levels=False,
                  include_index=False, preload=False, distribute_label_density=False):
         window_size = (image_size * image_size) // num_parents
@@ -337,12 +345,19 @@ class VisionSegmentationDataset(BaseSegmentationDataset):
                 pad_len = longest_seq - feat["labels"].shape[0]
                 labels_dim = (pad_len, *feat["labels"].shape[1:])
 
-                feat["int_labels"] = np.concatenate((feat["int_labels"], [padding_token] * pad_len))
+                if self.distribute_label_density:
+                    labels_dim = (pad_len, *feat["labels"].shape[1:])
+                    feat["labels"] = np.concatenate((feat["labels"], np.full(labels_dim, 0)))
+                else:
+                    feat["labels"] = np.concatenate((feat["labels"], [padding_token] * pad_len))
+
+                if "int_labels" in feat.keys():
+                    feat["int_labels"] = np.concatenate((feat["int_labels"], [padding_token] * pad_len))
                 feat["decoder_input_ids"] = np.concatenate((feat["decoder_input_ids"], [input_padding_token] * pad_len))
                 feat["decoder_attention_mask"] = np.concatenate((feat["decoder_attention_mask"], np.zeros(pad_len)))
-                feat["labels"] = np.concatenate((feat["labels"], np.full(labels_dim, 0)))
 
-            feat["int_labels"] = torch.tensor(feat["int_labels"], dtype=torch.int64).clone()
+            if "int_labels" in feat.keys():
+                feat["int_labels"] = torch.tensor(feat["int_labels"], dtype=torch.int64).clone()
             feat["decoder_input_ids"] = torch.tensor(feat["decoder_input_ids"], dtype=torch.int64).clone()
             feat["labels"] = torch.tensor(feat["labels"]).clone()
 
@@ -361,6 +376,7 @@ class CategoricalDataset(BaseSegmentationDataset):
         whether a window has a crossover or not. Multiple crossovers within a window are treated the same as
         a single crossover.
     """
+
     def __init__(self, keyfile, input_len=64, num_parents=24, step_size=16, windows=None, include_index=False,
                  preload=False, padding=0):
         super().__init__(keyfile, input_len, num_parents, step_size, windows, include_index, preload)
@@ -409,7 +425,8 @@ class CategoricalMulticlassDataset(BaseSegmentationDataset):
         a single crossover.
     """
 
-    def __init__(self, keyfile, input_len=64, num_parents=24, step_size=16, windows=None, include_index=False, preload=False):
+    def __init__(self, keyfile, input_len=64, num_parents=24, step_size=16, windows=None, include_index=False,
+                 preload=False):
         super().__init__(keyfile, input_len, num_parents, step_size, windows, include_index, preload)
 
     def __getitem__(self, idx):
@@ -432,7 +449,7 @@ class CategoricalMulticlassDataset(BaseSegmentationDataset):
         if len(junctions) > 0:
             label = junctions[0] - start
         else:
-            label = end-start
+            label = end - start
 
         return_dict = {
             'inputs_embeds': torch.tensor(window, dtype=torch.float),
@@ -454,6 +471,7 @@ class CategoricalVisionSegmentationDataset(VisionSegmentationDataset):
     """Inherets from VisionSegmentationDataset, but returns a binary label
      for whether a crossover occurs, in the same manner as CategoricalDataset.
      """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

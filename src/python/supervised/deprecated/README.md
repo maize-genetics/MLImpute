@@ -59,8 +59,8 @@ In theory models can learn these sorts of relationships, but ours didn't on the 
 We tried implementing new loss functions that were "fuzzy" with respect to the correct label: one by combining
 cross entropy losses at different resolutions (e.g. nearest 4 positions, nearest 8 positions), and one by
 modeling our labels as binomial distributions centered around the true label and using Kullback-Leibler divergence loss.
-Both could be made to work, but were significantly slower than cross-entropy loss. If the speed issue could be 
-solved, I would like to revisit them. 
+Binned loss was very slow, but KL-divergence loss could be made to be on par with the speed of cross-entropy loss
+by generating the distributions on CPU and throwing some extra threads at it. These may be worth revisiting.
 
 We also tried an LSTM for next crossover prediction, as this was easier to set up as a numerical
 problem using mean-squared error loss. However, that left us with no special token to describe the end of 
