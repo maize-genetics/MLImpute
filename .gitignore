@@ -173,7 +173,49 @@ CLAUDE.md
 modernbert.pth
 
 # =========================================
+# Tauri Packaging Resources
+# =========================================
+# Bundled Python runtime and wheels - generated at build time
+src-tauri/resources/python-runtime/
+src-tauri/resources/wheelhouse/
+
+# =========================================
+# Kotlin / JVM
+# =========================================
+# Compiled class files
+*.class
+
+# Kotlin compiler
+.kotlin/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+gradle-app.setting
+!gradle-wrapper.properties
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Kotlin/Native
+*.klib
+*.knm
+
+# Kotlin Multiplatform / CLI builds
+kotlin-js-store/
+src/kotlin/bin/
+
+# =========================================
 # Misc
 # =========================================
+data/local/
 *.bed
+
+
 

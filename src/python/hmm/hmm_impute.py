@@ -4,7 +4,6 @@ import torch
 import math
 import argparse
 import torch.nn.functional as F
-from python.ps4g_io.ps4g import decode_position
 from python.hmm.viterbi import build_pair_states, viterbi_decode
 
 
@@ -35,10 +34,12 @@ def run_hmm_imputation(args):
     else:
         final_predictions = haploid_hmm(device, test_matrix, weights)
 
-    spline_pos = pd.read_csv(args.ps4g_file, sep="\t", comment="#")['pos']
-    decoded = np.vstack(np.vectorize(decode_position)(spline_pos)).T
-    chroms, positions = zip(*decoded)
+    # Read the PS4G file to get chromosome and position information
+    ps4g_df = pd.read_csv(args.ps4g_file, sep="\t", comment="#")
+    chroms = ps4g_df['refContig'].values
+    positions = ps4g_df['refPosBinned'].values
 
+    # Extract gamete index to name mapping from PS4G file header
     with open(args.ps4g_file, 'r') as file:
         comments = [line for line in file if line.startswith('#')]
 
@@ -61,8 +62,7 @@ def run_hmm_imputation(args):
     index_array = [index_to_name[i] for i in range(max_index + 1)]
 
     bed_df = pd.DataFrame({
-        # TODO: convert chr_idx to chr
-        "chrom_idx": chroms[:len(final_predictions)],
+        "chrom": chroms[:len(final_predictions)],
         "pos": positions[:len(final_predictions)],
         "parent1": np.array(index_array)[final_predictions[:, 0]],
         "parent2": np.array(index_array)[final_predictions[:, 1]],
@@ -72,27 +72,27 @@ def run_hmm_imputation(args):
     group_change = (
         (bed_df["parent1"] != bed_df["parent1"].shift()) |
         (bed_df["parent2"] != bed_df["parent2"].shift()) |
-        (bed_df["chrom_idx"] != bed_df["chrom_idx"].shift())
+        (bed_df["chrom"] != bed_df["chrom"].shift())
     )
     group_id = group_change.cumsum()
 
     # Collapse into ranges
     ranges_df = bed_df.groupby(group_id).agg({
-        "chrom_idx": "first",
+        "chrom": "first",
         "pos": ["min", "max"],
         "parent1": "first",
         "parent2": "first"
     }).reset_index(drop=True)
 
     # Clean up MultiIndex columns
-    ranges_df.columns = ["chrom_idx", "start", "end", "parent1", "parent2"]
+    ranges_df.columns = ["chrom", "start", "end", "parent1", "parent2"]
 
     # Save to BED file
     ranges_df.to_csv(args.output_bed, sep="\t", index=False)
 
 def haploid_hmm(device, test_matrix, weights):
     log_e = F.log_softmax(test_matrix * weights, dim=-1)  # [L, num_classes]
-    p_stay = max(weights) * 0.2
+    p_stay = 0.99
     N = log_e.shape[1]
     p_switch = (1.0 - p_stay)
     log_A = torch.full((N, N), math.log(p_switch / (N - 1)))
@@ -113,7 +113,7 @@ def diploid_hmm(device, test_matrix, weights):
     log_e = F.log_softmax(test_matrix * weights, dim=-1)
     homo_penalty = -0.1
     N = log_e.shape[1]
-    p_stay = float(weights.max()) * 0.20  # tweak if needed
+    p_stay = 0.99  # tweak if needed
     p_switch = (1.0 - p_stay)
     log_A = torch.full((N, N), math.log(p_switch / (N - 1)))
     log_A.fill_diagonal_(math.log(p_stay))

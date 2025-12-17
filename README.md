@@ -1,22 +1,24 @@
 # MLImpute
 Simple tool to run Machine Learning based imputation techniques
 
+## Prerequisites
 
-# Installation Conda Environment
+* [pixi](https://pixi.sh/latest/installation/) (v0.5+)
+* NVIDIA-based GPU hardware with CUDA (v12+)
+  + For `gpu` environment only (_see next section_)
+* Linux or macOS OS environment preferred
+
+
+## Setup
+
+**Retrieve project code**
 
 ```bash
-conda env create -f environment.yml
+git clone https://github.com/maize-genetics/MLImpute.git
+cd MLImpute
 ```
 
-# Installation using pixi
-
-Install pixi if you haven't already:
-
-```bash
-curl -sSf https://pixi.sh/install.sh | bash
-```
-
-Then, you can install the MLImpute package using:
+**Option A (_preferred_) - set up virtual environment (pixi)**
 
 ```bash
 # For CPU only
@@ -26,8 +28,13 @@ pixi install
 pixi install --environment gpu
 ```
 
+**Option B - set up virtual environment (conda)**
 
-# Run CLI Script
+```bash
+conda env create -f environment.yml
+```
+
+## Run (CLI tool)
 
 Conda:
 ```bash
@@ -39,7 +46,7 @@ Pixi:
 pixi run -- python impute.py --input <input_file> --output <output_file> --model <imputation_method>
 ```
 
-# Development
+# Development (GUI app - _experimental_)
 
 ## Prerequisites
 
@@ -52,7 +59,9 @@ pixi run -- python impute.py --input <input_file> --output <output_file> --model
 npm run tauri dev
 ```
 
-## Run the unit tests with HTML output
+# Testing
+
+## Run python unit tests with HTML output (CLI)
 
 ```bash
 pytest --cov=src --cov-report=term-missing --cov-report=html
