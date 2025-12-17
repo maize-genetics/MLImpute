@@ -180,11 +180,42 @@ src-tauri/resources/python-runtime/
 src-tauri/resources/wheelhouse/
 
 # =========================================
+# Kotlin / JVM
+# =========================================
+# Compiled class files
+*.class
+
+# Kotlin compiler
+.kotlin/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+gradle-app.setting
+!gradle-wrapper.properties
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Kotlin/Native
+*.klib
+*.knm
+
+# Kotlin Multiplatform / CLI builds
+kotlin-js-store/
+src/kotlin/bin/
+
+# =========================================
 # Misc
 # =========================================
+data/local/
 *.bed
-src/python/cross/*.txt
-src/python/cross/*.json
-src/python/cross/*.fa
-src/python/cross/*.pth
-src/python/cross/*.maf
+
+
+
