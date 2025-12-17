@@ -1,3 +1,7 @@
+# script to generate keyfile for use with labeled datasets
+# most datasets only need the file name and path,
+# but additional normalization parameters are calculated for certain vision models
+
 import numpy as np
 import pandas as pd
 import argparse
@@ -13,9 +17,6 @@ def parse_args():
 
     args = parser.parse_args()
     return args
-
-
-
 
 args = parse_args()
 

@@ -3,12 +3,20 @@
 # having the actual traning datasets
 
 import numpy as np
+import argparse
 
-out_file_name = "foo.npy"
-label_file_name = "bar.npy"
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument("--length", "-l", default=10_000_000, type=int, help="contig length")
+parser.add_argument("--out", "-o", default="foo.npy", help="output file name")
+
+args = parser.parse_args()
+
+out_file_name = args.out
 
 num_parents = 24
-length = 10_000_000
+length = args.length
 
 min_mean = 1
 max_mean = 100
@@ -20,18 +28,16 @@ min_dist = 100
 max_dist = 5000
 
 out_array = np.zeros((length, num_parents+1), dtype=int)
-crossovers = []
 
 current_crossover = 0
 previous_hap = -1
 
+# at random intervals, change the distribution we sample from
 while current_crossover < length:
     next_crossover = current_crossover + np.random.randint(min_dist, max_dist)
 
     if next_crossover > length:
         next_crossover = length
-
-    crossovers.append(next_crossover)
 
     haplotype = np.random.randint(0, num_parents)
 
@@ -51,6 +57,5 @@ while current_crossover < length:
     current_crossover = next_crossover
     previous_hap = haplotype
 
+# saves in same .npy format as the real sequencing data
 np.save(out_file_name, out_array)
-np.save(label_file_name, np.array(crossovers, dtype=int))
-
