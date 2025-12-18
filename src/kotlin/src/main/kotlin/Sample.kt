@@ -447,5 +447,5 @@ class Sample: CliktCommand() {
 
 
 fun main(args: Array<String>) {
-    Sample().subcommands(DownsampleGvcf(), ConvertToFasta()).main(args)
+    Sample().subcommands(DownsampleGvcf(), ConvertToFasta(), BedToVcf()).main(args)
 }
