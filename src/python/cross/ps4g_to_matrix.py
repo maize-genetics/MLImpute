@@ -65,7 +65,7 @@ def collapse_matrix_inference(chrom_matrix, positions):
     collapsed_features = np.zeros((len(unique_pos), features.shape[1]), dtype=np.int32)
     np.add.at(collapsed_features, inv_idx, features.astype(np.int32))
     # revert back to int8
-    collapsed_features = np.clip(collapsed_features, -128, 127).astype(np.int8)
+    collapsed_features = np.clip(collapsed_features, 0, 127).astype(np.int8)
     collapsed_labels = labels[idx]
 
     # Combine features + labels back
