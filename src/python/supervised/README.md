@@ -1,12 +1,12 @@
-Instructions for running seq2seq models. 
+# seq2seq imputation models
 
-The haploid and diploid versions are essentially the same, and in the future we can consolidate. 
+## Training
 
+**sequence to sequence GRU models**
 
+### Haploid
 
-**Haploid sequence to sequence GRU model:**
-
-python seq2seq.py
+`python seq2seq.py
     --num-parents (number of parents)
     --max-seq-length (maximum input sequence length)
     --training-data-path (path to the input training data)
@@ -20,23 +20,11 @@ python seq2seq.py
     --steps-to-print (steps between reporting to wandb)
     --embedding-dim (embedding dimension)
     --hidden-dim (hidden dimension)
-    --ls (smoothing hyperparameter)
+    --ls (smoothing hyperparameter)`
 
-seq2seq_inference.py
-    --data-path (path to the input data)
-    --batch-size (batch size)
-    --model-path (path to model)
-    --save-dir (path to save imputed paths)
-    --num-parents (number of parents)
-    --max-seq-length (maximum input sequence length)
-    --step-size (distance between the start points of each training window)
-    --embedding-dim (embedding dimension)
-    --hidden-dim (hidden dimension)
+### Diploid
 
-
-**Diploid sequence to sequence GRU model:**
-
-python seq2seq_diploid.py
+`python seq2seq_diploid.py
     --num-parents (number of parents)
     --max-seq-length (maximum input sequence length)
     --training-data-path (path to the input training data)
@@ -50,9 +38,15 @@ python seq2seq_diploid.py
     --steps-to-print (steps between reporting to wandb)
     --embedding-dim (embedding dimension)
     --hidden-dim (hidden dimension)
-    --ls (smoothing hyperparameter)
+    --ls (smoothing hyperparameter)`
 
-seq2seq_diploid_inference.py
+
+
+## Inference
+
+### Haploid
+
+`seq2seq_inference.py
     --data-path (path to the input data)
     --batch-size (batch size)
     --model-path (path to model)
@@ -61,4 +55,30 @@ seq2seq_diploid_inference.py
     --max-seq-length (maximum input sequence length)
     --step-size (distance between the start points of each training window)
     --embedding-dim (embedding dimension)
-    --hidden-dim (hidden dimension)
+    --hidden-dim (hidden dimension)`
+
+### Diploid
+
+`seq2seq_diploid_inference.py
+    --data-path (path to the input data)
+    --batch-size (batch size)
+    --model-path (path to model)
+    --save-dir (path to save imputed paths)
+    --num-parents (number of parents)
+    --max-seq-length (maximum input sequence length)
+    --step-size (distance between the start points of each training window)
+    --embedding-dim (embedding dimension)
+    --hidden-dim (hidden dimension)`
+
+## Visualization
+
+If having trouble, comment out the assert statements or try to readjust the matrix dimensions. 
+
+`../visualization/plot_predictions.py
+    --sample (sample name)
+    --chr (chromosome/contig name)
+    --start (start position)
+    --end (end position)
+    --matrix-dir (path to matrix directory)
+    --predictions (path to predictions numpy file)
+    --diploid (add this flag for diploid predictions)`
