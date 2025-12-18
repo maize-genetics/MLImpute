@@ -38,7 +38,7 @@ def main():
 
     # load in predictions
     all_predictions = np.load(args.predictions, allow_pickle=True).astype(float)
-    all_predictions[all_predictions == 24] = np.nan
+    all_predictions[all_predictions >= matrix.shape[1]] = np.nan
 
     if args.diploid:
         assert (all_predictions.shape[-1] == 2)

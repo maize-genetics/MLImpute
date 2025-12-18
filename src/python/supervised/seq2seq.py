@@ -7,8 +7,87 @@ import wandb
 from tqdm import tqdm
 import argparse
 import os
-from torch.utils.data import DataLoader
-from train_supervised import LabeledDataset, path_acc, evaluate
+from torch.utils.data import DataLoader, Dataset
+
+# Dataset class
+# there will be multiple input files to be memory-mapped with numpy
+# and the labels are a part of the regular input files, not a separate window
+class LabeledDataset(Dataset):
+    def __init__(self, file_dir, input_file_names, window_size=512, num_parents=24, step_size=128):
+        self.file_dir = file_dir
+        self.input_file_names = input_file_names
+        self.window_size = window_size
+        self.num_parents = num_parents
+        self.step_size = step_size
+        self.windows = self.__generate_windows__()
+
+        self.n_windows = len(self.windows)
+
+    # uses a list to store all valid windows
+    # this could be manipulated to skip windows with unlabeled bins
+    def __generate_windows__(self):
+        # windows is a list of tuples, where each tuple represents a training data point
+        # the tuples are formatted as (file index, window step index)
+        # multiply window step index by step_size to get the index of the first position in the window
+        windows = [] # file idx, window step idx
+
+        for idx in range(len(self.input_file_names)):
+            filelen = np.load(f"{self.file_dir}/{self.input_file_names[idx]}").shape[0]
+            num_windows = (filelen - self.window_size) // self.step_size
+            windows.extend([(idx, idy) for idy in range(num_windows)])
+
+        return windows
+
+    def __len__(self):
+        return self.n_windows
+
+    # only required pieces of data are the input embeddings and the correct labels
+    def __getitem__(self, idx):
+        # retrieve window index from list
+        file_idx, pos_idx = self.windows[idx]
+
+        # convert to position start and end
+        pos_start = pos_idx * self.step_size
+        pos_end = pos_start + self.window_size
+
+        # grab segment from mmaped numpy
+        ip = np.load(f"{self.file_dir}/{self.input_file_names[file_idx]}", allow_pickle=True, mmap_mode='r')[pos_start:pos_end]
+
+        matrix = ip[:, 0:self.num_parents+1]
+        labels = torch.tensor(matrix[:, -1], dtype=torch.int64)
+        labels[labels == -1] = 24
+
+        return {
+            "input_embeds": torch.tensor(matrix[:, :-1], dtype=torch.float),
+            "labels": labels
+        }
+
+# Calculates the accuracy of the path (for a more practical measurement of performance than loss)
+def path_acc(preds, labels):
+    pred_y = np.argmax(preds, -1)
+    num_correct = np.count_nonzero(pred_y == labels)
+    return num_correct / torch.numel(labels)
+
+#evaluation loop
+def evaluate(model, iterator, criterion):
+    epoch_loss = 0
+    epoch_acc = 0
+
+    device=model.device
+    model.eval()
+    with torch.no_grad():
+        for batch in tqdm(iterator, desc="Evaluating..."):
+            input_embeds = batch["input_embeds"].to(device)
+            labels = batch["labels"].to(device)
+
+            predictions = model(input_embeds)
+            loss = criterion(predictions.permute(0, 2, 1), labels)
+            acc = path_acc(predictions.detach().cpu(), labels.detach().cpu())
+
+            epoch_loss += loss.item()
+            epoch_acc += acc
+
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
 class Encoder(nn.Module):
     def __init__(self, in_features, emb_dim, hidden_dim):
