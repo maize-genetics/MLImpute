@@ -18,6 +18,7 @@ pub fn run() {
       commands::python_bootstrap::get_python_status,
       commands::python_bootstrap::run_python_command,
       commands::python_bootstrap::reset_python_environment,
+      commands::ps4g_parser::parse_ps4g_file,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

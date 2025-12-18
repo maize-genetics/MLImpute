@@ -81,7 +81,7 @@ class ConvertToFasta: CliktCommand(help="generate fasta from GVCF") {
     }
 
     override fun run() {
-        val ignoreStrings = ignoreContig.split(",")
+        val ignoreStrings = ignoreContig.split(",").filter { it.isNotBlank() }
         convertGVCFToFasta(gvcfFile, fastaFile, outFile, ignorePatterns = ignoreStrings, missingRecordsAs = missingRecordsAs, missingGenotypeAs = missingGenotypeAs)
     }
 
@@ -294,7 +294,7 @@ class DownsampleGvcf: CliktCommand(help="Sample variants from GVCF"){
         return "Sample variants from a GVCF file at a fixed rate per chromosome"
     }
     override fun run() {
-        val ignoreStrings = ignoreContig.split(",")
+        val ignoreStrings = ignoreContig.split(",").filter { it.isNotBlank() }
 
         Path(gvcfDir).forEachDirectoryEntry { filePath ->
             if(filePath.extension == "gvcf" || filePath.extension == "vcf") {
