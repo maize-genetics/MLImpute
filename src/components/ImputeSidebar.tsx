@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import Icon from '@mdi/react';
+import { mdiContentCopy } from '@mdi/js';
 import SystemSettings, { type AdapterInfo } from './SystemSettings';
 import './ImputeSidebar.css';
 
@@ -510,7 +512,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
               onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
               onMouseOut={(e) => e.currentTarget.style.opacity = '0.7'}
             >
-              📋
+              <Icon path={mdiContentCopy} size={0.7} />
             </button>
           </h4>
           {result.execution_time && (

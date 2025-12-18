@@ -16,6 +16,8 @@
     "download-python": "./scripts/download-python-runtime.sh"
   },
   "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
     "@tauri-apps/api": "^2.7.0",
     "@tauri-apps/plugin-dialog": "^2.3.2",
     "@tauri-apps/plugin-os": "^2.3.0",
