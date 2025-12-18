@@ -107,9 +107,11 @@ def collapse_matrix(chrom_matrix, positions, diploid=False):
     unique_pos, idx, inv_idx = np.unique(positions, return_index=True, return_inverse=True)
 
     # Collapse features by summing
-    collapsed_features = np.zeros((len(unique_pos), features.shape[1]), dtype=features.dtype)
-    np.add.at(collapsed_features, inv_idx, features)
-
+    # increase int size to account for possible int8 overflow
+    collapsed_features = np.zeros((len(unique_pos), features.shape[1]), dtype=np.int32)
+    np.add.at(collapsed_features, inv_idx, features.astype(np.int32))
+    # revert back to int8
+    collapsed_features = np.clip(collapsed_features, -128, 127).astype(np.int8)
     collapsed_labels = labels[idx]
 
     # Combine features + labels back
