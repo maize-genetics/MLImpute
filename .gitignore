@@ -207,13 +207,15 @@ release.properties
 *.klib
 *.knm
 
-# Kotlin Multiplatform
+# Kotlin Multiplatform / CLI builds
 kotlin-js-store/
+src/kotlin/bin/
 
 # =========================================
 # Misc
 # =========================================
 data/local/
 *.bed
+
 
 
