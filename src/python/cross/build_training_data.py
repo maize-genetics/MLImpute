@@ -8,7 +8,7 @@ import logging
 
 def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key1, answer_key2=None):
     """
-    Create a multihot encoded matrix [# entries, num_gametes + 1] from the PS4G data.
+    Create a multihot encoded matrix [# entries, num_gametes + 1 (or 2)] from the PS4G data.
     0 = miss
     Read count = hit
     Last position represents the label
