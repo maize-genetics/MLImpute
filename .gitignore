@@ -182,7 +182,6 @@ src-tauri/resources/wheelhouse/
 # =========================================
 # Misc
 # =========================================
-*.bed
 src/python/cross/*.txt
 src/python/cross/*.json
 src/python/cross/*.fa
