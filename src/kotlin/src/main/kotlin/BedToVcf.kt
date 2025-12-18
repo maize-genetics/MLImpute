@@ -2,6 +2,7 @@ import biokotlin.genome.Position
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import com.google.common.collect.Range
 import com.google.common.collect.RangeMap
 import com.google.common.collect.TreeRangeMap
 import htsjdk.variant.variantcontext.Allele
@@ -64,7 +65,7 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
                 val genotype2 = if (parts.size >=5) parts[4] else genotype1
                 val posStart = Position(chrom, start+1 ) // BED is 0-based, Position is 1-based
                 val posEnd = Position(chrom, end)
-                rangeMap.put(com.google.common.collect.Range.closedOpen(posStart, posEnd), Pair(genotype1, genotype2))
+                rangeMap.put(Range.closed(posStart, posEnd), Pair(genotype1, genotype2))
             }
         }
 
@@ -110,7 +111,8 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         vc: VariantContext,
         gameteToAlleleMap: Map<String, Allele>
     ): VariantContext {
-        val genotypeList = buildNewGenotypes(rangeMaps, vc, gameteToAlleleMap)
+        val pos = Position(vc.contig, vc.start)
+        val genotypeList = buildNewGenotypes(rangeMaps, pos, gameteToAlleleMap)
 
         //Build a new variant context with the new genotype
         val newVc = VariantContextBuilder(vc)
@@ -121,14 +123,13 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
 
     fun buildNewGenotypes(
         rangeMaps: Map<String, RangeMap<Position, Pair<String, String>>>,
-        vc: VariantContext,
+        pos: Position,
         gameteToAlleleMap: Map<String, Allele>
     ): MutableList<Genotype> {
         val genotypeList = mutableListOf<Genotype>()
 
         for (sampleName in rangeMaps.keys) {
             val rangeMap = rangeMaps[sampleName]!!
-            val pos = Position(vc.contig, vc.start)
             val genotypePair = rangeMap.get(pos)
             if (genotypePair != null) {
                 val gamete1 = genotypePair.first
