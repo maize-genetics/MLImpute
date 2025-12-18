@@ -71,6 +71,10 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         val rangeMap = TreeRangeMap.create<Position, Pair<String, String>>()
         //Loop through the BED file
         bedFile.forEachLine { line ->
+            if(line.startsWith("chrom\tstart\tend\tparent1")) {
+                //Skip header lines
+                return@forEachLine
+            }
             val parts = line.split("\t")
             if (parts.size >= 4) {
                 val chrom = parts[0]

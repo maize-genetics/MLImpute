@@ -1,3 +1,4 @@
+chrom	start	end	parent1
 chr1	50	200	sample1
 chr1	200	400	sample1
 chr1	400	600	sample2

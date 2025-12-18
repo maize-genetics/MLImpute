@@ -53,7 +53,7 @@ class BedToVCFTest {
         val rangeMaps = bedToVcf.buildRangeMaps(bedDir)
 
         //Check that we have the expected number of range maps
-        assertEquals("Expected 2 range maps, found ${rangeMaps.size}",2,rangeMaps.size)
+        assertEquals("Expected 3 range maps, found ${rangeMaps.size}",3,rangeMaps.size)
         assertTrue("Range map for haploid_1 not found", rangeMaps.containsKey("haploid_1"))
         assertTrue("Range map for diploid_1 not found" ,rangeMaps.containsKey("diploid_1"))
 
@@ -79,6 +79,21 @@ class BedToVCFTest {
         //check these ranges
         checkRangeEntries(truthDiploidMapOfRanges, rangeMaps["diploid_1"]!!)
 
+        //chr1	50	200	sample1
+        //chr1	200	400	sample1
+        //chr1	400	450	sample2
+        //chr1	550	600	sample2
+        //chr1	600	700	sample2
+        //chr1	700	900	sample1
+        val truthHaploid2MapOfRanges = mapOf(
+            Range.closed(Position("chr1", 51), Position("chr1", 200)) to Pair("sample1", "sample1"),
+            Range.closed(Position("chr1", 201), Position("chr1", 400)) to Pair("sample1", "sample1"),
+            Range.closed(Position("chr1", 401), Position("chr1", 450)) to Pair("sample2", "sample2"),
+            Range.closed(Position("chr1", 551), Position("chr1", 600)) to Pair("sample2", "sample2"),
+            Range.closed(Position("chr1", 601), Position("chr1", 700)) to Pair("sample2", "sample2"),
+            Range.closed(Position("chr1", 701), Position("chr1", 900)) to Pair("sample1", "sample1")
+        )
+        checkRangeEntries(truthHaploid2MapOfRanges, rangeMaps["haploid_2"]!!)
     }
 
     @Test
@@ -146,61 +161,82 @@ class BedToVCFTest {
 
     private fun checkFullVairantList(variants: List<VariantContext>) {
         //Should match the following:
-//        chr1	100	.	A	T	.	.	.	GT	0/0	./.
-//        chr1	250	.	A	T	.	.	.	GT	0/0	./.
-//        chr1	251	.	A	T	.	.	.	GT	0/0	0/0
-//        chr1	500	.	A	T	.	.	.	GT	1/1	0/1
-//        chr1	850	.	A	T	.	.	.	GT	0/0	1/1
-//        chr1	950	.	A	T	.	.	.	GT	./.	1/0
+//        chr1	100	.	A	T	.	.	.	GT	0/0	./.	0/0
+//        chr1	250	.	A	T	.	.	.	GT	0/0	./.	0/0
+//        chr1	251	.	A	T	.	.	.	GT	0/0	0/0	0/0
+//        chr1	500	.	A	T	.	.	.	GT	1/1	0/1	./.
+//        chr1	850	.	A	T	.	.	.	GT	0/0	1/1	0/0
+//        chr1	950	.	A	T	.	.	.	GT	./.	1/0	./.
 
         val vc1 = variants[0]
         assertEquals(100, vc1.start)
         val gts1 = vc1.genotypes
-        assertEquals(2, gts1.size)
+        assertEquals(3, gts1.size)
         assertEquals("haploid_1", gts1[0].sampleName)
         assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts1[0].alleles)
         assertEquals("diploid_1", gts1[1].sampleName)
         assertEquals(listOf(Allele.NO_CALL, Allele.NO_CALL), gts1[1].alleles)
+        assertEquals("haploid_2", gts1[2].sampleName)
+        assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts1[2].alleles)
         val vc2 = variants[1]
         assertEquals(250, vc2.start)
         val gts2 = vc2.genotypes
-        assertEquals(2, gts2.size)
+        assertEquals(3, gts2.size)
         assertEquals("haploid_1", gts2[0].sampleName)
         assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts2[0].alleles)
         assertEquals("diploid_1", gts2[1].sampleName)
         assertEquals(listOf(Allele.NO_CALL, Allele.NO_CALL), gts2[1].alleles)
+        assertEquals("haploid_2", gts2[2].sampleName)
+        assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts2[2].alleles)
+
         val vc3 = variants[2]
         assertEquals(251, vc3.start)
         val gts3 = vc3.genotypes
-        assertEquals(2, gts3.size)
+        assertEquals(3, gts3.size)
         assertEquals("haploid_1", gts3[0].sampleName)
         assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts3[0].alleles)
         assertEquals("diploid_1", gts3[1].sampleName)
         assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts3[1].alleles)
+        assertEquals("haploid_2", gts3[2].sampleName)
+        assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts3[2].alleles)
+
+
         val vc4 = variants[3]
         assertEquals(500, vc4.start)
         val gts4 = vc4.genotypes
-        assertEquals(2, gts4.size)
+        assertEquals(3, gts4.size)
         assertEquals("haploid_1", gts4[0].sampleName)
         assertEquals(listOf(Allele.create("T", false), Allele.create("T", false)), gts4[0].alleles)
         assertEquals("diploid_1", gts4[1].sampleName)
         assertEquals(listOf(Allele.create("A", true), Allele.create("T", false)), gts4[1].alleles)
+        assertEquals("haploid_2", gts4[2].sampleName)
+        assertEquals(listOf(Allele.NO_CALL, Allele.NO_CALL), gts4[2].alleles)
+
+
         val vc5 = variants[4]
         assertEquals(850, vc5.start)
         val gts5 = vc5.genotypes
-        assertEquals(2, gts5.size)
+        assertEquals(3, gts5.size)
         assertEquals("haploid_1", gts5[0].sampleName)
         assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts5[0].alleles)
         assertEquals("diploid_1", gts5[1].sampleName)
         assertEquals(listOf(Allele.create("T", false), Allele.create("T", false)), gts5[1].alleles)
+        assertEquals("haploid_2", gts5[2].sampleName)
+        assertEquals(listOf(Allele.create("A", true), Allele.create("A", true)), gts5[0].alleles)
+
+
         val vc6 = variants[5]
         assertEquals(950, vc6.start)
         val gts6 = vc6.genotypes
-        assertEquals(2, gts6.size)
+        assertEquals(3, gts6.size)
         assertEquals("haploid_1", gts6[0].sampleName)
         assertEquals(listOf(Allele.NO_CALL, Allele.NO_CALL), gts6[0].alleles)
         assertEquals("diploid_1", gts6[1].sampleName)
         assertEquals(listOf(Allele.create("T", false), Allele.create("A", true)), gts6[1].alleles)
+        assertEquals("haploid_2", gts6[2].sampleName)
+        assertEquals(listOf(Allele.NO_CALL, Allele.NO_CALL), gts6[2].alleles)
+
+
     }
 
     @Test
