@@ -34,12 +34,21 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         processBedFiles(bedDir, referencePanelVcf, outFile)
     }
 
+    /**
+     * Function to run the full bedToVCF process
+     */
     fun processBedFiles(bedDir: String, referencePanelVcf: String, outFile: String) {
         val rangeMaps = buildRangeMaps(bedDir)
 
         buildNewVcf(referencePanelVcf, rangeMaps, outFile)
     }
 
+    /**
+     * Function to build a set of range maps from a directory of bed files
+     * Each bed file is assumed to be named <sampleId>.bed
+     * The range map will map Position ranges to genotype(sampleId) pairs
+     * If only one genotype is present in the bed file, it will be used for both genotypes in the pair
+     */
     fun buildRangeMaps(bedDir: String): Map<String, RangeMap<Position,Pair<String,String>>> {
         val ranges = mutableMapOf<String, RangeMap<Position,Pair<String,String>>>()
         //Loop through each bed file in the directory
@@ -51,6 +60,12 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         return ranges
     }
 
+    /**
+     * Function to create a RangeMap from a BED file
+     * The RangeMap will map Position ranges to genotype(sampleId) pairs
+     * If only one genotype is present in the bed file, it will be used for both
+     * genotypes in the pair
+     */
     fun createRangeMapFromBedFile(bedFile: File): RangeMap<Position, Pair<String, String>> {
         // Implement logic to read BED file and create RangeMap
         val rangeMap = TreeRangeMap.create<Position, Pair<String, String>>()
@@ -72,6 +87,13 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         return rangeMap
     }
 
+    /**
+     * Function to build a new VCF file from a reference panel VCF and a set of RangeMaps
+     * The RangeMaps map Position ranges to genotype(sampleId) pairs
+     * The new VCF will contain genotypes for each imputed sample based on the RangeMaps
+     * and the alleles present in the reference panel VCF
+     *
+     */
     fun buildNewVcf(referencePanelVcf: String, rangeMaps: Map<String, RangeMap<Position,Pair<String,String>>>, outFile: String) {
         // Implement logic to read reference VCF and write new VCF using rangeMaps
         // This is a placeholder for the actual implementation
@@ -106,6 +128,12 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
             }
     }
 
+    /**
+     * Function to build a new VariantContext from a reference VariantContext and a set of RangeMaps
+     * The RangeMaps map Position ranges to genotype(sampleId) pairs
+     * The new VariantContext will contain genotypes for each imputed sample based on the RangeMaps
+     * and the alleles present in the reference VariantContext
+     */
     fun buildNewVariantContext(
         rangeMaps: Map<String, RangeMap<Position, Pair<String, String>>>,
         vc: VariantContext,
@@ -121,6 +149,12 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         return newVc
     }
 
+    /**
+     * Function to build a list of new Genotypes from a set of RangeMaps and a Position
+     * This will lookup the postion in each RangeMap to get the genotype(sampleId) pair
+     * and then use the gameteToAlleleMap to get the corresponding Alleles
+     * to build a new Genotype list.
+     */
     fun buildNewGenotypes(
         rangeMaps: Map<String, RangeMap<Position, Pair<String, String>>>,
         pos: Position,
@@ -148,12 +182,19 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         return genotypeList
     }
 
+    /**
+     * Function to create a generic VCF header with standard lines and additional lines
+     * This is needed by the VCF writer
+     */
     fun createGenericHeader(taxaNames: List<String>, altLines:Set<VCFHeaderLine>): VCFHeader {
         val headerLines = createGenericHeaderLineSet() as MutableSet<VCFHeaderLine>
         headerLines.addAll(altLines)
         return VCFHeader(headerLines, taxaNames)
     }
 
+    /**
+     * Function to create a generic set of VCF header lines
+     */
     fun createGenericHeaderLineSet(): Set<VCFHeaderLine> {
         val headerLines: MutableSet<VCFHeaderLine> = HashSet()
         headerLines.add(VCFFormatHeaderLine("AD", 3, VCFHeaderLineType.Integer, "Allelic depths for the ref and alt alleles in the order listed"))
@@ -178,6 +219,11 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
         return headerLines
     }
 
+    /**
+     * Function to build a map of gamete names to Alleles from a VariantContext
+     * This assumes that the sample names in the VariantContext correspond to gamete names
+     * and that each sample has a single allele representing the gamete's allele at this position
+     */
     fun buildGameteToAlleleMap(vc: VariantContext): Map<String, Allele> {
         //Loop through each sample in the variant context
         return vc.genotypes.map { genotype ->
