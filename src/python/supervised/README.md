@@ -44,6 +44,15 @@
 
 ## Inference
 
+For inference only, matrices can be made with ps4g_to_matrix.py
+
+`python ps4g_to_matrix.py
+    --ps4g-dir (directory containing PS4G matrices)
+    --output-dir (output directory)
+    --collapse (flag to collapse ps4g by position)
+    --include-all-pos (flag to include empty positions, must collapse)
+    --ref-fasta (path to reference fasta (required for --include-all-pos to obtain chr lengths))`
+
 ### Haploid
 
 `seq2seq_inference.py
