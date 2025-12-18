@@ -1,28 +1,31 @@
+/* MD3 Impute Sidebar Styles */
 .impute-sidebar {
   width: 100%;
   height: 100vh;
-  background: #f8f9fa;
+  background: var(--md-sys-color-surface-container-low);
   overflow-y: auto;
   padding: 0;
   box-sizing: border-box;
 }
 
 .sidebar-header {
-  background: #343a40;
-  color: white;
-  padding: 1rem;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  padding: 1.25rem 1.5rem;
   margin: 0;
 }
 
 .sidebar-header h2 {
   margin: 0;
-  font-size: 1.2rem;
-  font-weight: 600;
+  font-family: var(--md-sys-typescale-title-large-font);
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 700;
+  line-height: var(--md-sys-typescale-title-large-line-height);
 }
 
 .form-section {
-  padding: 1rem;
-  border-bottom: 1px solid #dee2e6;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
 .form-section:last-of-type {
@@ -31,16 +34,18 @@
 
 .form-section h3 {
   margin: 0 0 0.75rem 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #495057;
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  color: var(--md-sys-color-on-surface);
 }
 
 .section-description {
   margin: 0 0 1rem 0;
-  font-size: 0.875rem;
-  color: #6c757d;
-  font-style: italic;
+  font-family: var(--md-sys-typescale-body-small-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .divider {
@@ -48,25 +53,29 @@
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: #e9ecef;
+  background: var(--md-sys-color-surface-container);
   margin: 0;
-  border-bottom: 1px solid #dee2e6;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
 .divider span {
-  background: #e9ecef;
+  background: var(--md-sys-color-surface-container);
   padding: 0 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #6c757d;
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
+/* MD3 Tertiary Button */
 .bed-button {
-  background: #17a2b8 !important;
+  background: var(--md-sys-color-tertiary) !important;
+  color: var(--md-sys-color-on-tertiary) !important;
 }
 
 .bed-button:hover:not(:disabled) {
-  background: #138496 !important;
+  background: var(--md-sys-color-tertiary) !important;
+  box-shadow: var(--md-sys-elevation-level2) !important;
 }
 
 .input-group {
@@ -79,27 +88,34 @@
 
 .input-group label {
   display: block;
-  margin-bottom: 0.25rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #495057;
+  margin-bottom: 0.5rem;
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .input-group input,
 .input-group select {
   width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #ced4da;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-small);
+  font-family: 'Roboto', sans-serif;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
   box-sizing: border-box;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
 }
 
 .input-group input:focus,
 .input-group select:focus {
   outline: none;
-  border-color: #80bdff;
-  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+  border-color: var(--md-sys-color-primary);
+  border-width: 2px;
+  padding: calc(0.875rem - 1px) calc(1rem - 1px);
 }
 
 .file-input {
@@ -112,22 +128,26 @@
 }
 
 .file-input button {
-  padding: 0.5rem 0.75rem;
-  background: #6c757d;
-  color: white;
+  padding: 0.875rem 1rem;
+  background: var(--md-sys-color-secondary);
+  color: var(--md-sys-color-on-secondary);
   border: none;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
+  border-radius: var(--md-sys-shape-corner-small);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
   cursor: pointer;
   white-space: nowrap;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
 }
 
 .file-input button:hover:not(:disabled) {
-  background: #5a6268;
+  box-shadow: var(--md-sys-elevation-level1);
 }
 
 .file-input button:disabled {
-  background: #adb5bd;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0.12;
   cursor: not-allowed;
 }
 
@@ -142,100 +162,140 @@
 .checkbox-group label {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
+  gap: 0.75rem;
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  color: var(--md-sys-color-on-surface);
   cursor: pointer;
 }
 
 .checkbox-group input[type="checkbox"] {
-  width: auto;
+  width: 18px;
+  height: 18px;
   margin: 0;
+  accent-color: var(--md-sys-color-primary);
 }
 
 .button-group {
-  padding: 1rem;
+  padding: 1.25rem 1.5rem;
   display: flex;
-  gap: 0.5rem;
-  border-top: 1px solid #dee2e6;
+  gap: 0.75rem;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
 }
 
+/* MD3 Filled Button */
 .run-button {
   flex: 1;
-  padding: 0.75rem 1rem;
-  background: #007bff;
-  color: white;
+  padding: 0.875rem 1.5rem;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
   border: none;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  border-radius: var(--md-sys-shape-corner-full);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  position: relative;
+  overflow: hidden;
+}
+
+.run-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-primary);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.run-button:hover:not(:disabled)::before {
+  opacity: var(--md-sys-state-hover-opacity);
 }
 
 .run-button:hover:not(:disabled) {
-  background: #0056b3;
+  box-shadow: var(--md-sys-elevation-level1);
 }
 
 .run-button:disabled {
-  background: #6c757d;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0.12;
+  color: var(--md-sys-color-on-surface);
   cursor: not-allowed;
 }
 
+/* MD3 Tonal Button */
 .reset-button {
-  padding: 0.75rem 1rem;
-  background: #6c757d;
-  color: white;
+  padding: 0.875rem 1.5rem;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
   border: none;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
+  border-radius: var(--md-sys-shape-corner-full);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  position: relative;
+  overflow: hidden;
 }
 
-.reset-button:hover:not(:disabled) {
-  background: #5a6268;
+.reset-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-secondary-container);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.reset-button:hover:not(:disabled)::before {
+  opacity: var(--md-sys-state-hover-opacity);
 }
 
 .reset-button:disabled {
-  background: #adb5bd;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0.12;
   cursor: not-allowed;
 }
 
 .result-section {
-  padding: 1rem;
-  border-top: 1px solid #dee2e6;
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
   margin-top: 0;
 }
 
 .result-section.success {
-  background: #d4edda;
-  border-color: #c3e6cb;
+  background: var(--md-sys-color-primary-container);
 }
 
 .result-section.error {
-  background: #f8d7da;
-  border-color: #f5c6cb;
+  background: var(--md-sys-color-error-container);
 }
 
 .result-section h4 {
   margin: 0 0 0.5rem 0;
-  font-size: 1rem;
-  color: #495057;
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  color: var(--md-sys-color-on-surface);
 }
 
 .result-section.success h4 {
-  color: #155724;
+  color: var(--md-sys-color-on-primary-container);
 }
 
 .result-section.error h4 {
-  color: #721c24;
+  color: var(--md-sys-color-on-error-container);
 }
 
 .execution-time {
   margin: 0 0 0.5rem 0;
-  font-size: 0.875rem;
-  font-style: italic;
-  color: #6c757d;
+  font-family: var(--md-sys-typescale-body-small-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .result-message {
@@ -243,23 +303,24 @@
 }
 
 .result-message pre {
-  font-size: 0.75rem;
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-body-small-size);
   white-space: pre-wrap;
   word-wrap: break-word;
   margin: 0;
   max-height: 200px;
   overflow-y: auto;
-  background: rgba(255, 255, 255, 0.5);
-  padding: 0.5rem;
-  border-radius: 0.25rem;
+  background: var(--md-sys-color-surface);
+  padding: 0.75rem;
+  border-radius: var(--md-sys-shape-corner-small);
 }
 
 .output-file {
-  font-size: 0.875rem;
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-small-size);
   word-break: break-all;
 }
 
 .output-file strong {
-  color: #495057;
+  color: var(--md-sys-color-on-surface);
 }
-

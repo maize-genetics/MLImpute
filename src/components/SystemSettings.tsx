@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { platform, arch } from '@tauri-apps/plugin-os';
+import Icon from '@mdi/react';
+import { mdiChevronDown } from '@mdi/js';
 import './SystemSettings.css';
 
 export type SystemInfo = {
@@ -77,7 +79,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ className, onGpuInfoCha
       <div className="system-settings-header" onClick={toggleExpanded}>
         <h4>
           System Settings
-          <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`}>▼</span>
+          <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`}><Icon path={mdiChevronDown} size={0.8} /></span>
         </h4>
       </div>
 

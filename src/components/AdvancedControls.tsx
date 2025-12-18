@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import Icon from '@mdi/react';
+import { mdiChevronRight, mdiRefresh } from '@mdi/js';
 import RangeSliders from './RangeSliders';
 import { Interval } from './types';
 import './AdvancedControls.css';
@@ -35,7 +37,7 @@ const AdvancedControls: React.FC<AdvancedControlsProps> = ({
           className={`dropdown-toggle ${isOpen ? 'open' : ''}`}
           onClick={() => setIsOpen(!isOpen)}
         >
-          <span className="dropdown-icon">▶</span>
+          <span className="dropdown-icon"><Icon path={mdiChevronRight} size={0.8} /></span>
           Navigation Controls
         </button>
         
@@ -45,7 +47,7 @@ const AdvancedControls: React.FC<AdvancedControlsProps> = ({
         </div>
         
         <button onClick={onResetView} className="reset-view-button">
-          <span className="reset-icon">↻</span>
+          <span className="reset-icon"><Icon path={mdiRefresh} size={0.7} /></span>
           Reset View
         </button>
       </div>
