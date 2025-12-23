@@ -19,6 +19,9 @@ dependencies {
     implementation("com.github.ajalt.clikt:clikt:4.2.0")
     implementation("com.github.samtools:htsjdk:4.0.1")
     implementation("org.biokotlin:biokotlin:1.0.0")
+    implementation("com.google.guava:guava:33.1.0-jre")
+
+
 }
 
 tasks.test {

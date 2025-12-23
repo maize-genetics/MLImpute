@@ -214,8 +214,10 @@ src/kotlin/bin/
 # =========================================
 # Misc
 # =========================================
+
+src/python/cross/*.txt
+src/python/cross/*.json
+src/python/cross/*.fa
+src/python/cross/*.pth
+src/python/cross/*.maf
 data/local/
-*.bed
-
-
-
