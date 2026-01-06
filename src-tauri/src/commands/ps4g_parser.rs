@@ -341,3 +341,245 @@ fn natural_sort(a: &str, b: &str) -> std::cmp::Ordering {
         _ => a.cmp(b),
     }
 }
+
+/// Result structure for chromosome-specific matrix data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChromosomeMatrixResult {
+    pub success: bool,
+    pub chromosome: String,
+    /// Matrix data: rows = gametes (sorted by index), columns = positions (sorted)
+    /// Values are read counts (0 = no reads, >0 = has reads)
+    pub matrix: Vec<Vec<u32>>,
+    /// Binned position values for x-axis labels (sorted)
+    pub positions: Vec<u64>,
+    /// Gamete names for y-axis labels (sorted by gamete_index)
+    pub gamete_names: Vec<String>,
+    /// Number of gametes (rows)
+    pub num_gametes: usize,
+    /// Number of positions (columns)
+    pub num_positions: usize,
+    /// Position range (min, max)
+    pub position_range: (u64, u64),
+    /// Error message if unsuccessful
+    pub error: Option<String>,
+}
+
+/// Progress update for chromosome matrix loading
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChromosomeMatrixProgress {
+    pub rows_processed: usize,
+    pub chromosome: String,
+    pub percent: f64,
+}
+
+const MATRIX_PROGRESS_UPDATE_INTERVAL: usize = 50_000;
+
+/// Load chromosome-specific matrix data for heatmap visualization
+/// Efficiently streams through the file, only collecting data for the target chromosome
+#[tauri::command]
+pub async fn get_chromosome_matrix(
+    file_path: String,
+    chromosome: String,
+    window: tauri::Window,
+) -> Result<ChromosomeMatrixResult, String> {
+    let path = Path::new(&file_path);
+
+    if !path.exists() {
+        return Ok(ChromosomeMatrixResult {
+            success: false,
+            chromosome: chromosome.clone(),
+            matrix: vec![],
+            positions: vec![],
+            gamete_names: vec![],
+            num_gametes: 0,
+            num_positions: 0,
+            position_range: (0, 0),
+            error: Some(format!("File not found: {}", file_path)),
+        });
+    }
+
+    // Get file size for progress reporting
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let mut reader = BufReader::with_capacity(1024 * 1024, file); // 1MB buffer
+
+    // First pass: collect metadata and build position set for the target chromosome
+    let mut gametes: Vec<GameteInfo> = Vec::new();
+    let mut position_set: HashSet<u64> = HashSet::new();
+    let mut position_data: HashMap<u64, HashMap<u32, u32>> = HashMap::new(); // pos -> (gamete_idx -> count)
+    
+    let mut in_header = true;
+    let mut bytes_processed: u64 = 0;
+    let mut rows_processed: usize = 0;
+    let mut line_buf = String::with_capacity(256);
+    let mut total_unique_counts: Option<u64> = None;
+
+    loop {
+        line_buf.clear();
+        let bytes_read = reader
+            .read_line(&mut line_buf)
+            .map_err(|e| format!("Failed to read line: {}", e))?;
+
+        if bytes_read == 0 {
+            break; // EOF
+        }
+
+        bytes_processed += bytes_read as u64;
+        let line = line_buf.trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        // Parse header lines to get gamete info
+        if line.starts_with('#') {
+            if let Some(count_str) = line.strip_prefix("#TotalUniqueCounts:") {
+                total_unique_counts = count_str.trim().parse::<u64>().ok();
+            } else if line.starts_with('#') && line.contains(':') && line.contains('\t') && !line.starts_with("#gamete\t") {
+                // Gamete data line
+                let content = line.trim_start_matches('#');
+                let parts: Vec<&str> = content.split('\t').collect();
+                if parts.len() >= 3 {
+                    let gamete_full = parts[0];
+                    let gamete_name = gamete_full.split(':').next().unwrap_or(gamete_full);
+                    
+                    if let (Ok(idx), Ok(count)) = (parts[1].parse::<u32>(), parts[2].parse::<u64>()) {
+                        let total = total_unique_counts.unwrap_or(1);
+                        let weight = count as f64 / total as f64;
+                        gametes.push(GameteInfo {
+                            gamete: gamete_name.to_string(),
+                            gamete_index: idx,
+                            read_count: count,
+                            weight,
+                        });
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Skip the column header line
+        if in_header && line.starts_with("gameteSet") {
+            in_header = false;
+            continue;
+        }
+
+        // Parse data row - only collect for target chromosome
+        if let Some((gamete_set, ref_contig, ref_pos_binned, count)) = parse_data_row(line) {
+            if ref_contig == chromosome {
+                position_set.insert(ref_pos_binned);
+                
+                // Store count data for each gamete at this position
+                let pos_entry = position_data.entry(ref_pos_binned).or_insert_with(HashMap::new);
+                for gamete_idx in gamete_set {
+                    *pos_entry.entry(gamete_idx).or_insert(0) += count;
+                }
+            }
+            
+            rows_processed += 1;
+            
+            // Emit progress update
+            if rows_processed % MATRIX_PROGRESS_UPDATE_INTERVAL == 0 {
+                let percent = if file_size > 0 {
+                    (bytes_processed as f64 / file_size as f64) * 100.0
+                } else {
+                    0.0
+                };
+                
+                let _ = window.emit(
+                    "chromosome-matrix-progress",
+                    ChromosomeMatrixProgress {
+                        rows_processed,
+                        chromosome: chromosome.clone(),
+                        percent,
+                    },
+                );
+            }
+        }
+    }
+
+    // Check if we found any data for this chromosome
+    if position_set.is_empty() {
+        return Ok(ChromosomeMatrixResult {
+            success: false,
+            chromosome: chromosome.clone(),
+            matrix: vec![],
+            positions: vec![],
+            gamete_names: vec![],
+            num_gametes: 0,
+            num_positions: 0,
+            position_range: (0, 0),
+            error: Some(format!("No data found for chromosome: {}", chromosome)),
+        });
+    }
+
+    // Sort gametes by index
+    gametes.sort_by_key(|g| g.gamete_index);
+    
+    // Build gamete index to row mapping
+    let gamete_idx_to_row: HashMap<u32, usize> = gametes
+        .iter()
+        .enumerate()
+        .map(|(row, g)| (g.gamete_index, row))
+        .collect();
+    
+    // Sort positions
+    let mut positions: Vec<u64> = position_set.into_iter().collect();
+    positions.sort();
+    
+    // Build position to column mapping
+    let pos_to_col: HashMap<u64, usize> = positions
+        .iter()
+        .enumerate()
+        .map(|(col, &pos)| (pos, col))
+        .collect();
+
+    let num_gametes = gametes.len();
+    let num_positions = positions.len();
+    
+    // Build matrix (gametes x positions)
+    let mut matrix: Vec<Vec<u32>> = vec![vec![0; num_positions]; num_gametes];
+    
+    for (pos, gamete_counts) in position_data {
+        if let Some(&col) = pos_to_col.get(&pos) {
+            for (gamete_idx, count) in gamete_counts {
+                if let Some(&row) = gamete_idx_to_row.get(&gamete_idx) {
+                    matrix[row][col] = count;
+                }
+            }
+        }
+    }
+
+    // Get position range
+    let position_range = if !positions.is_empty() {
+        (*positions.first().unwrap(), *positions.last().unwrap())
+    } else {
+        (0, 0)
+    };
+
+    // Extract gamete names
+    let gamete_names: Vec<String> = gametes.iter().map(|g| g.gamete.clone()).collect();
+
+    // Emit final progress
+    let _ = window.emit(
+        "chromosome-matrix-progress",
+        ChromosomeMatrixProgress {
+            rows_processed,
+            chromosome: chromosome.clone(),
+            percent: 100.0,
+        },
+    );
+
+    Ok(ChromosomeMatrixResult {
+        success: true,
+        chromosome,
+        matrix,
+        positions,
+        gamete_names,
+        num_gametes,
+        num_positions,
+        position_range,
+        error: None,
+    })
+}

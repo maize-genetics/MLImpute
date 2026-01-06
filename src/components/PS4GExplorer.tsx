@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline, mdiChartAreaspline } from '@mdi/js';
+import HeatmapViewer from './HeatmapViewer';
 import './PS4GExplorer.css';
 
 interface PS4GProgress {
@@ -63,7 +64,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [parseResult, setParseResult] = useState<PS4GParseResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'gametes' | 'preview'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'gametes' | 'preview' | 'heatmap'>('summary');
   const [progress, setProgress] = useState<PS4GProgress | null>(null);
   const [gameteSortKey, setGameteSortKey] = useState<GameteSortKey>('index');
   const [gameteSortDir, setGameteSortDir] = useState<SortDirection>('asc');
@@ -233,6 +234,13 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
               onClick={() => setActiveTab('preview')}
             >
               Data Preview
+            </button>
+            <button
+              className={`tab-button ${activeTab === 'heatmap' ? 'active' : ''}`}
+              onClick={() => setActiveTab('heatmap')}
+            >
+              <Icon path={mdiChartAreaspline} size={0.7} style={{ marginRight: '0.375rem' }} />
+              Heatmap
             </button>
           </div>
 
@@ -441,6 +449,16 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'heatmap' && (
+              <div className="heatmap-panel">
+                <HeatmapViewer
+                  filePath={filePath}
+                  metadata={parseResult.metadata}
+                  summary={parseResult.summary}
+                />
               </div>
             )}
           </div>

@@ -19,6 +19,7 @@ pub fn run() {
       commands::python_bootstrap::run_python_command,
       commands::python_bootstrap::reset_python_environment,
       commands::ps4g_parser::parse_ps4g_file,
+      commands::ps4g_parser::get_chromosome_matrix,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

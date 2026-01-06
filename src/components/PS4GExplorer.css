@@ -752,6 +752,19 @@
   max-width: 400px;
 }
 
+/* Heatmap Panel */
+.heatmap-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 500px;
+}
+
+/* Heatmap tab button icon alignment */
+.tab-button svg {
+  vertical-align: middle;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .stats-grid {
