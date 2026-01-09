@@ -1,11 +1,50 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartBoxOutline, mdiAlertCircle, mdiChevronDown } from '@mdi/js';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown } from '@mdi/js';
 import HeatmapCanvas from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
+
+/**
+ * Natural sort comparison function for strings.
+ * Handles numeric substrings so that "2" < "10" (unlike lexicographic sort).
+ * For purely numeric IDs (e.g., "21", "0"), performs numeric comparison.
+ */
+function naturalSortCompare(a: string, b: string): number {
+  // Split strings into chunks of digits and non-digits
+  const splitRegex = /(\d+)/g;
+  const aParts = a.split(splitRegex).filter(Boolean);
+  const bParts = b.split(splitRegex).filter(Boolean);
+  
+  const maxLen = Math.max(aParts.length, bParts.length);
+  
+  for (let i = 0; i < maxLen; i++) {
+    const aPart = aParts[i] || '';
+    const bPart = bParts[i] || '';
+    
+    const aIsNum = /^\d+$/.test(aPart);
+    const bIsNum = /^\d+$/.test(bPart);
+    
+    if (aIsNum && bIsNum) {
+      // Compare as numbers
+      const diff = parseInt(aPart, 10) - parseInt(bPart, 10);
+      if (diff !== 0) return diff;
+    } else if (aIsNum) {
+      // Numbers come before letters
+      return -1;
+    } else if (bIsNum) {
+      return 1;
+    } else {
+      // Compare as strings (case-insensitive)
+      const cmp = aPart.toLowerCase().localeCompare(bPart.toLowerCase());
+      if (cmp !== 0) return cmp;
+    }
+  }
+  
+  return 0;
+}
 
 interface GameteInfo {
   gamete: string;
@@ -72,6 +111,11 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [cellWidthMultiplier, setCellWidthMultiplier] = useState<number>(1);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
   const [colorScheme, setColorScheme] = useState<'binary' | 'intensity'>('binary');
+  
+  // Auto-scroll state
+  const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
+  const [autoScrollSpeed, setAutoScrollSpeed] = useState<number>(0.5);
+  const autoScrollRef = useRef<number | null>(null);
   
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -150,6 +194,52 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     }
   }, [selectedChromosome, loadChromosomeData]);
 
+  // Auto-scroll effect
+  useEffect(() => {
+    if (isAutoScrolling) {
+      const scrollStep = 0.0005 * autoScrollSpeed; // Base step adjusted by speed
+      
+      autoScrollRef.current = window.setInterval(() => {
+        setScrollOffset(prev => {
+          const next = prev + scrollStep;
+          // Stop at the end and pause
+          if (next >= 1) {
+            setIsAutoScrolling(false);
+            return 1;
+          }
+          return next;
+        });
+      }, 50); // Update every 50ms for smooth scrolling
+    } else {
+      if (autoScrollRef.current) {
+        clearInterval(autoScrollRef.current);
+        autoScrollRef.current = null;
+      }
+    }
+    
+    return () => {
+      if (autoScrollRef.current) {
+        clearInterval(autoScrollRef.current);
+        autoScrollRef.current = null;
+      }
+    };
+  }, [isAutoScrolling, autoScrollSpeed]);
+
+  // Spacebar keyboard shortcut for play/pause auto-scroll
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if spacebar is pressed and not in an input/textarea/select
+      if (e.code === 'Space' && 
+          !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+        e.preventDefault();
+        setIsAutoScrolling(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Handle chromosome selection
   const handleChromosomeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedChromosome(e.target.value);
@@ -162,6 +252,8 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setCellWidthMultiplier(1);
     setShowGridLines(true);
     setColorScheme('binary');
+    setIsAutoScrolling(false);
+    setAutoScrollSpeed(0.5);
   }, []);
 
   // Calculate viewport width percentage
@@ -175,6 +267,28 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     const viewportWidth = Math.max(containerWidth - labelMargin - padding, 100);
     return Math.min(1, viewportWidth / totalWidth);
   }, [matrixData, zoomLevel, cellWidthMultiplier, containerWidth]);
+
+  // Sort gamete names alphabetically (with natural sort for numeric IDs) and reorder matrix rows
+  const sortedData = useMemo(() => {
+    if (!matrixData) return null;
+    
+    const { gamete_names, matrix } = matrixData;
+    
+    // Create array of indices and sort by gamete name using natural sort
+    const sortedIndices = gamete_names
+      .map((name, index) => ({ name, index }))
+      .sort((a, b) => naturalSortCompare(a.name, b.name))
+      .map(item => item.index);
+    
+    // Reorder gamete names and matrix rows based on sorted indices
+    const sortedGameteNames = sortedIndices.map(i => gamete_names[i]);
+    const sortedMatrix = sortedIndices.map(i => matrix[i]);
+    
+    return {
+      gameteNames: sortedGameteNames,
+      matrix: sortedMatrix,
+    };
+  }, [matrixData]);
 
   // Format count
   const formatNumber = (num: number): string => num.toLocaleString();
@@ -262,13 +376,17 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             colorScheme={colorScheme}
             onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
             onResetView={handleResetView}
+            isAutoScrolling={isAutoScrolling}
+            onToggleAutoScroll={() => setIsAutoScrolling(prev => !prev)}
+            autoScrollSpeed={autoScrollSpeed}
+            onAutoScrollSpeedChange={setAutoScrollSpeed}
           />
           
           <div className="heatmap-canvas-wrapper">
             <HeatmapCanvas
-              matrix={matrixData.matrix}
+              matrix={sortedData?.matrix ?? matrixData.matrix}
               positions={matrixData.positions}
-              gameteNames={matrixData.gamete_names}
+              gameteNames={sortedData?.gameteNames ?? matrixData.gamete_names}
               zoomLevel={zoomLevel}
               scrollOffset={scrollOffset}
               onScrollChange={setScrollOffset}
@@ -280,6 +398,13 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           </div>
 
           <div className="heatmap-bottom-bar">
+            {/* Position scale above the slider */}
+            <div className="position-scale">
+              <span className="position-label">{formatNumber(matrixData.position_range[0])} bp</span>
+              <span className="position-label">{formatNumber(Math.round((matrixData.position_range[0] + matrixData.position_range[1]) / 2))} bp</span>
+              <span className="position-label">{formatNumber(matrixData.position_range[1])} bp</span>
+            </div>
+            
             <div className="bottom-position-slider">
               <div 
                 className="bottom-slider-track"
@@ -322,12 +447,20 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                 <span className="legend-color legend-no-data"></span>
                 <span className="legend-label">No data</span>
               </div>
-              <div className="legend-item">
-                <span className="legend-color legend-has-data"></span>
-                <span className="legend-label">Has reads</span>
-              </div>
+              {colorScheme === 'binary' ? (
+                <div className="legend-item">
+                  <span className="legend-color legend-has-data"></span>
+                  <span className="legend-label">Has reads</span>
+                </div>
+              ) : (
+                <div className="legend-item legend-gradient-item">
+                  <span className="legend-label">Low</span>
+                  <span className="legend-gradient"></span>
+                  <span className="legend-label">High</span>
+                </div>
+              )}
               <div className="legend-hint">
-                Scroll: vertical | Shift+scroll: horizontal | Ctrl+scroll: zoom
+                Scroll: vertical | Shift+scroll: horizontal | Ctrl+scroll: zoom | Space: play/pause
               </div>
             </div>
           </div>
@@ -337,7 +470,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       {/* Empty state */}
       {!matrixData && !isLoading && !error && (
         <div className="heatmap-empty">
-          <Icon path={mdiChartBoxOutline} size={3} />
+          <Icon path={mdiChartTimeline} size={3} />
           <h3>Select a Chromosome</h3>
           <p>Choose a chromosome from the dropdown to visualize its heatmap</p>
         </div>

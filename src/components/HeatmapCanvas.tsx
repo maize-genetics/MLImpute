@@ -49,7 +49,7 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
 
   // Layout constants
   const LABEL_MARGIN_LEFT = 100; // Space for gamete labels
-  const LABEL_MARGIN_TOP = 60;   // Space for position labels
+  const LABEL_MARGIN_TOP = 10;   // Minimal top margin (no position labels)
   const PADDING = 10;
 
   // Calculate dimensions - separate width and height for cells
@@ -88,6 +88,46 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
     return () => observer.disconnect();
   }, [totalMatrixHeight]);
 
+  // Color stops for the plasma-style gradient: black → purple → red → orange → yellow
+  const colorStops = React.useMemo(() => [
+    { pos: 0.0,  r: 0,   g: 0,   b: 0   },   // black
+    { pos: 0.2,  r: 63,  g: 0,   b: 92  },   // dark purple
+    { pos: 0.4,  r: 148, g: 23,  b: 81  },   // magenta-purple
+    { pos: 0.55, r: 199, g: 52,  b: 44  },   // red
+    { pos: 0.7,  r: 237, g: 117, b: 15  },   // orange
+    { pos: 0.85, r: 251, g: 191, b: 36  },   // light orange
+    { pos: 1.0,  r: 252, g: 253, b: 141 },   // yellow
+  ], []);
+
+  // Interpolate between color stops
+  const interpolateColor = useCallback((t: number): string => {
+    // Clamp t to [0, 1]
+    t = Math.max(0, Math.min(1, t));
+    
+    // Find the two color stops to interpolate between
+    let lower = colorStops[0];
+    let upper = colorStops[colorStops.length - 1];
+    
+    for (let i = 0; i < colorStops.length - 1; i++) {
+      if (t >= colorStops[i].pos && t <= colorStops[i + 1].pos) {
+        lower = colorStops[i];
+        upper = colorStops[i + 1];
+        break;
+      }
+    }
+    
+    // Calculate interpolation factor
+    const range = upper.pos - lower.pos;
+    const factor = range > 0 ? (t - lower.pos) / range : 0;
+    
+    // Interpolate RGB values
+    const r = Math.round(lower.r + (upper.r - lower.r) * factor);
+    const g = Math.round(lower.g + (upper.g - lower.g) * factor);
+    const b = Math.round(lower.b + (upper.b - lower.b) * factor);
+    
+    return `rgb(${r}, ${g}, ${b})`;
+  }, [colorStops]);
+
   // Get color for cell value - primaryColor is passed in since CSS vars don't work in Canvas
   const getCellColor = useCallback((value: number, maxValue: number, primaryColor: string): string => {
     if (value === 0) {
@@ -98,14 +138,15 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
       return primaryColor;
     }
     
-    // Intensity-based coloring - parse primary color for gradient
-    // Default to purple if parsing fails
-    const intensity = Math.min(value / maxValue, 1);
-    const r = Math.round(103 + (255 - 103) * (1 - intensity));
-    const g = Math.round(80 + (255 - 80) * (1 - intensity));
-    const b = Math.round(164 + (255 - 164) * (1 - intensity));
-    return `rgb(${r}, ${g}, ${b})`;
-  }, [colorScheme]);
+    // Intensity-based coloring with logarithmic normalization
+    // Log normalization prevents large values from dwarfing smaller ones
+    // Using log1p (log(1 + x)) to handle values smoothly including small values
+    const logValue = Math.log1p(value);
+    const logMax = Math.log1p(maxValue);
+    const intensity = logMax > 0 ? logValue / logMax : 0;
+    
+    return interpolateColor(intensity);
+  }, [colorScheme, interpolateColor]);
 
   // Get max value for intensity scaling
   const maxValue = React.useMemo(() => {
@@ -155,24 +196,6 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
         const label = gameteNames[row] || `Gamete ${row}`;
         const truncatedLabel = label.length > 12 ? label.substring(0, 10) + '...' : label;
         ctx.fillText(truncatedLabel, LABEL_MARGIN_LEFT - 8, y);
-      }
-    }
-
-    // Draw position labels (x-axis) - sparse labels for readability
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.font = `${Math.min(10, cellWidth * 0.7)}px "Roboto Mono", monospace`;
-    
-    const labelInterval = Math.max(1, Math.floor(50 / cellWidth)); // Show label every ~50px
-    for (let col = startCol; col < endCol; col += labelInterval) {
-      const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth + cellWidth / 2;
-      if (x < containerSize.width - PADDING) {
-        ctx.save();
-        ctx.translate(x, LABEL_MARGIN_TOP - 8);
-        ctx.rotate(-Math.PI / 4);
-        const posLabel = formatPosition(positions[col]);
-        ctx.fillText(posLabel, 0, 0);
-        ctx.restore();
       }
     }
 
@@ -234,16 +257,6 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
 
   }, [matrix, positions, gameteNames, containerSize, cellWidth, cellHeight, startCol, endCol, numRows, numCols, 
       totalMatrixHeight, viewportWidth, showGridLines, getCellColor, maxValue, hoveredCell]);
-
-  // Format position for display
-  const formatPosition = (pos: number): string => {
-    if (pos >= 1000000) {
-      return `${(pos / 1000000).toFixed(1)}M`;
-    } else if (pos >= 1000) {
-      return `${(pos / 1000).toFixed(1)}K`;
-    }
-    return pos.toString();
-  };
 
   // Handle mouse down for drag scrolling
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

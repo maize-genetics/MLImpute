@@ -11,20 +11,20 @@
 .sidebar-header {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
-  padding: 1.25rem 1.5rem;
+  padding: 0.75rem 1rem;
   margin: 0;
 }
 
 .sidebar-header h2 {
   margin: 0;
-  font-family: var(--md-sys-typescale-title-large-font);
-  font-size: var(--md-sys-typescale-title-large-size);
-  font-weight: 700;
-  line-height: var(--md-sys-typescale-title-large-line-height);
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: 600;
+  line-height: var(--md-sys-typescale-title-small-line-height);
 }
 
 .form-section {
-  padding: 1.25rem 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
@@ -33,11 +33,11 @@
 }
 
 .form-section h3 {
-  margin: 0 0 0.75rem 0;
-  font-family: var(--md-sys-typescale-title-small-font);
-  font-size: var(--md-sys-typescale-title-small-size);
-  font-weight: var(--md-sys-typescale-title-small-weight);
-  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  margin: 0 0 0.5rem 0;
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
   color: var(--md-sys-color-on-surface);
 }
 

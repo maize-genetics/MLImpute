@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline, mdiChartAreaspline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline, mdiChartTimeline } from '@mdi/js';
 import HeatmapViewer from './HeatmapViewer';
 import './PS4GExplorer.css';
 
@@ -239,7 +239,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
               className={`tab-button ${activeTab === 'heatmap' ? 'active' : ''}`}
               onClick={() => setActiveTab('heatmap')}
             >
-              <Icon path={mdiChartAreaspline} size={0.7} style={{ marginRight: '0.375rem' }} />
+              <Icon path={mdiChartTimeline} size={0.7} style={{ marginRight: '0.375rem' }} />
               Heatmap
             </button>
           </div>
