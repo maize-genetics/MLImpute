@@ -69,6 +69,38 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
 
   return (
     <div className="heatmap-controls">
+      {/* Display Controls */}
+      <div className="controls-section view-section">
+        <span className="section-label">Display</span>
+        <button 
+          className={`control-button ${showGridLines ? 'active' : ''}`}
+          onClick={onToggleGridLines}
+          title={showGridLines ? 'Hide grid lines' : 'Show grid lines'}
+        >
+          <Icon path={showGridLines ? mdiViewGrid : mdiViewGridOutline} size={0.6} />
+        </button>
+        
+        <button 
+          className={`control-button color-scheme-toggle ${colorScheme === 'intensity' ? 'active' : ''}`}
+          onClick={onToggleColorScheme}
+          title={colorScheme === 'binary' ? 'Switch to intensity colors' : 'Switch to binary colors'}
+        >
+          <span className="color-indicator">
+            {colorScheme === 'binary' ? 'BIN' : 'INT'}
+          </span>
+        </button>
+        
+        <button 
+          className="control-button reset-button" 
+          onClick={onResetView}
+          title="Reset view"
+        >
+          <Icon path={mdiRefresh} size={0.6} />
+        </button>
+      </div>
+
+      <div className="controls-separator" />
+
       {/* Zoom Controls */}
       <div className="controls-section zoom-section">
         <span className="section-label">Zoom</span>
@@ -118,6 +150,8 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
         </div>
       </div>
 
+      <div className="controls-separator" />
+
       {/* Column Width Controls */}
       <div className="controls-section width-section">
         <span className="section-label">Col Width</span>
@@ -134,6 +168,8 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
           <span className="width-value">{cellWidthMultiplier.toFixed(2)}x</span>
         </div>
       </div>
+
+      <div className="controls-separator" />
 
       {/* Auto-scroll Controls */}
       <div className="controls-section autoscroll-section">
@@ -158,35 +194,6 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
           />
           <span className="speed-value">{autoScrollSpeed.toFixed(1)}x</span>
         </div>
-      </div>
-
-      {/* View Controls */}
-      <div className="controls-section view-section">
-        <button 
-          className={`control-button ${showGridLines ? 'active' : ''}`}
-          onClick={onToggleGridLines}
-          title={showGridLines ? 'Hide grid lines' : 'Show grid lines'}
-        >
-          <Icon path={showGridLines ? mdiViewGrid : mdiViewGridOutline} size={0.6} />
-        </button>
-        
-        <button 
-          className={`control-button color-scheme-toggle ${colorScheme === 'intensity' ? 'active' : ''}`}
-          onClick={onToggleColorScheme}
-          title={colorScheme === 'binary' ? 'Switch to intensity colors' : 'Switch to binary colors'}
-        >
-          <span className="color-indicator">
-            {colorScheme === 'binary' ? 'BIN' : 'INT'}
-          </span>
-        </button>
-        
-        <button 
-          className="control-button reset-button" 
-          onClick={onResetView}
-          title="Reset view"
-        >
-          <Icon path={mdiRefresh} size={0.6} />
-        </button>
       </div>
     </div>
   );

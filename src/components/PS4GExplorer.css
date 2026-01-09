@@ -77,11 +77,11 @@
 
 /* MD3 Filled Button */
 .browse-button {
-  padding: 0.875rem 1.5rem;
+  padding: 0.875rem 1rem;
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
   border: none;
-  border-radius: var(--md-sys-shape-corner-full);
+  border-radius: var(--md-sys-shape-corner-small);
   font-family: var(--md-sys-typescale-label-large-font);
   font-size: var(--md-sys-typescale-label-large-size);
   font-weight: var(--md-sys-typescale-label-large-weight);

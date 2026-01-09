@@ -262,6 +262,13 @@
   gap: 0.75rem;
 }
 
+.controls-separator {
+  width: 1px;
+  height: 24px;
+  background: var(--md-sys-color-outline-variant);
+  margin: 0 0.25rem;
+}
+
 .section-label {
   font-family: var(--md-sys-typescale-label-small-font);
   font-size: 9px;
