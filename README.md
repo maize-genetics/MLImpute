@@ -56,6 +56,10 @@ pixi run -- python impute.py --input <input_file> --output <output_file> --model
 ## Run Tauri dev container
 
 ```bash
+# First, install all npm dependencies
+npm install
+
+# Then you can run Tauri dev
 npm run tauri dev
 ```
 
