@@ -55,13 +55,25 @@ pixi run -- python impute.py --input <input_file> --output <output_file> --model
 
 ## Run Tauri dev container
 
+If running this for the first time:
+
 ```bash
-# First, install all npm dependencies
+# First install pixi
+# Next, run the pixi install script
+pixi install
+
+# Initialize npm environment
 npm install
 
-# Then you can run Tauri dev
+# Set up wheelhouse
+npm run download-python
+npm run build-wheelhouse
+
+# Run the dev container of the Tauri app
 npm run tauri dev
 ```
+
+For subsequent runs, just use `npm run tauri dev`
 
 # Testing
 
