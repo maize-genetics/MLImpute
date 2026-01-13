@@ -525,6 +525,34 @@
   flex-shrink: 0;
 }
 
+/* Visible range indicator */
+.visible-range-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  margin-bottom: 0.25rem;
+  background: var(--md-sys-color-primary-container);
+  border-radius: var(--md-sys-shape-corner-small);
+  align-self: center;
+}
+
+.visible-range-label {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 500;
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.visible-range-value {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-sys-color-on-primary-container);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Position scale above slider */
 .position-scale {
   display: flex;

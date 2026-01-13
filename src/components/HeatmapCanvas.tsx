@@ -1,4 +1,12 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+
+/** Visible range information reported by the canvas */
+export interface VisibleRange {
+  startPos: number;
+  endPos: number;
+  startCol: number;
+  endCol: number;
+}
 
 interface HeatmapCanvasProps {
   /** Matrix data: rows = gametes, columns = positions. Values are counts (0 = no data) */
@@ -15,6 +23,8 @@ interface HeatmapCanvasProps {
   onScrollChange: (offset: number) => void;
   /** Callback when zoom changes via wheel */
   onZoomChange?: (zoom: number) => void;
+  /** Callback when visible range changes */
+  onVisibleRangeChange?: (range: VisibleRange) => void;
   /** Cell height at zoom level 1 */
   baseCellSize?: number;
   /** Cell width multiplier (relative to baseCellSize, default 1) */
@@ -25,6 +35,92 @@ interface HeatmapCanvasProps {
   colorScheme?: 'binary' | 'intensity';
 }
 
+// Tooltip component with smart positioning to avoid overflow
+interface TooltipContentProps {
+  mousePos: { x: number; y: number };
+  containerSize: { width: number; height: number };
+  gameteNames: string[];
+  positions: number[];
+  hoveredCell: { row: number; col: number; value: number };
+}
+
+const TooltipContent: React.FC<TooltipContentProps> = ({
+  mousePos,
+  containerSize,
+  gameteNames,
+  positions,
+  hoveredCell,
+}) => {
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
+
+  // Measure tooltip size after render
+  useEffect(() => {
+    if (tooltipRef.current) {
+      const rect = tooltipRef.current.getBoundingClientRect();
+      setTooltipSize({ width: rect.width, height: rect.height });
+    }
+  }, [hoveredCell]);
+
+  // Calculate position with edge detection
+  const tooltipPosition = useMemo(() => {
+    const offset = 15;
+    const padding = 8; // Minimum distance from container edge
+    
+    // Default: position to the right and slightly above cursor
+    let left = mousePos.x + offset;
+    let top = mousePos.y - 10;
+    
+    // Check right edge overflow - flip to left side of cursor
+    if (tooltipSize.width > 0 && left + tooltipSize.width + padding > containerSize.width) {
+      left = mousePos.x - tooltipSize.width - offset;
+    }
+    
+    // Check bottom edge overflow - flip to above cursor
+    if (tooltipSize.height > 0 && top + tooltipSize.height + padding > containerSize.height) {
+      top = mousePos.y - tooltipSize.height - offset;
+    }
+    
+    // Ensure tooltip doesn't go off the left edge
+    if (left < padding) {
+      left = padding;
+    }
+    
+    // Ensure tooltip doesn't go off the top edge
+    if (top < padding) {
+      top = padding;
+    }
+    
+    return { left, top };
+  }, [mousePos, tooltipSize, containerSize]);
+
+  return (
+    <div
+      ref={tooltipRef}
+      className="heatmap-tooltip"
+      style={{
+        position: 'absolute',
+        left: tooltipPosition.left,
+        top: tooltipPosition.top,
+        background: 'var(--md-sys-color-inverse-surface, #322f35)',
+        color: 'var(--md-sys-color-inverse-on-surface, #f5eff7)',
+        padding: '6px 10px',
+        borderRadius: '4px',
+        fontSize: '12px',
+        fontFamily: '"Roboto", sans-serif',
+        pointerEvents: 'none',
+        zIndex: 100,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <div><strong>{gameteNames[hoveredCell.row]}</strong></div>
+      <div>Position: {positions[hoveredCell.col]?.toLocaleString()}</div>
+      <div>Count: {hoveredCell.value}</div>
+    </div>
+  );
+};
+
 const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
   matrix,
   positions,
@@ -33,6 +129,7 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
   scrollOffset,
   onScrollChange,
   onZoomChange,
+  onVisibleRangeChange,
   baseCellSize = 12,
   cellWidthMultiplier = 1,
   showGridLines = true,
@@ -87,6 +184,35 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
     }
     return () => observer.disconnect();
   }, [totalMatrixHeight]);
+
+  // Report visible range changes to parent
+  useEffect(() => {
+    if (onVisibleRangeChange && positions.length > 0) {
+      // When all data fits in the viewport, report the full range
+      const allDataVisible = maxScrollOffset === 0;
+      
+      if (allDataVisible) {
+        onVisibleRangeChange({
+          startPos: positions[0],
+          endPos: positions[positions.length - 1],
+          startCol: 0,
+          endCol: positions.length - 1,
+        });
+      } else {
+        // "end" column + padding cuts off last actual column (-1) hence why we subtract 2 here:
+        const lastVisibleCol = Math.min(endCol - 2, numCols - 2);
+        const startPos = positions[startCol] ?? positions[0];
+        const endPos = positions[lastVisibleCol] ?? positions[positions.length - 2];
+        
+        onVisibleRangeChange({
+          startPos,
+          endPos,
+          startCol,
+          endCol: lastVisibleCol,
+        });
+      }
+    }
+  }, [onVisibleRangeChange, startCol, endCol, numCols, positions, maxScrollOffset]);
 
   // Color stops for the plasma-style gradient: black → purple → red → orange → yellow
   const colorStops = React.useMemo(() => [
@@ -380,28 +506,13 @@ const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({
       
       {/* Tooltip */}
       {hoveredCell && (
-        <div
-          className="heatmap-tooltip"
-          style={{
-            position: 'absolute',
-            left: mousePos.x + 15,
-            top: mousePos.y - 10,
-            background: 'var(--md-sys-color-inverse-surface, #322f35)',
-            color: 'var(--md-sys-color-inverse-on-surface, #f5eff7)',
-            padding: '6px 10px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            fontFamily: '"Roboto", sans-serif',
-            pointerEvents: 'none',
-            zIndex: 100,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <div><strong>{gameteNames[hoveredCell.row]}</strong></div>
-          <div>Position: {positions[hoveredCell.col]?.toLocaleString()}</div>
-          <div>Count: {hoveredCell.value}</div>
-        </div>
+        <TooltipContent
+          mousePos={mousePos}
+          containerSize={containerSize}
+          gameteNames={gameteNames}
+          positions={positions}
+          hoveredCell={hoveredCell}
+        />
       )}
     </div>
   );

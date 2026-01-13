@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
 import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown } from '@mdi/js';
-import HeatmapCanvas from './HeatmapCanvas';
+import HeatmapCanvas, { VisibleRange } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
 
@@ -120,6 +120,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
+  const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
 
   // Set up progress event listener
   useEffect(() => {
@@ -268,6 +269,11 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     return Math.min(1, viewportWidth / totalWidth);
   }, [matrixData, zoomLevel, cellWidthMultiplier, containerWidth]);
 
+  // Handle visible range updates from the canvas
+  const handleVisibleRangeChange = useCallback((range: VisibleRange) => {
+    setVisibleRange(range);
+  }, []);
+
   // Sort gamete names alphabetically (with natural sort for numeric IDs) and reorder matrix rows
   const sortedData = useMemo(() => {
     if (!matrixData) return null;
@@ -308,7 +314,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             >
               {summary.chromosomes.map(chr => (
                 <option key={chr} value={chr}>
-                  {chr} ({formatNumber(summary.chromosome_counts[chr] || 0)} positions)
+                  {chr} ({formatNumber(summary.chromosome_counts[chr] || 0)} observations)
                 </option>
               ))}
             </select>
@@ -391,6 +397,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               scrollOffset={scrollOffset}
               onScrollChange={setScrollOffset}
               onZoomChange={setZoomLevel}
+              onVisibleRangeChange={handleVisibleRangeChange}
               cellWidthMultiplier={cellWidthMultiplier}
               showGridLines={showGridLines}
               colorScheme={colorScheme}
@@ -398,6 +405,16 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           </div>
 
           <div className="heatmap-bottom-bar">
+            {/* Visible range indicator */}
+            {visibleRange && (
+              <div className="visible-range-indicator">
+                <span className="visible-range-label">Viewing:</span>
+                <span className="visible-range-value">
+                  {formatNumber(visibleRange.startPos)} - {formatNumber(visibleRange.endPos)} bp
+                </span>
+              </div>
+            )}
+            
             {/* Position scale above the slider */}
             <div className="position-scale">
               <span className="position-label">{formatNumber(matrixData.position_range[0])} bp</span>
