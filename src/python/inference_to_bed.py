@@ -93,20 +93,16 @@ def process_single_sample(prediction_files, ps4g_file, sample, save_dir):
         .apply(lambda x: sorted(set(x)))
         .to_dict()
     )
-    contig_data = {}
+
     for contig, positions in contig_positions.items():
         if contig not in prediction_files:
             continue  # or warn
 
-        process_contig(contig, contig_data, index_array, positions, prediction_files, sample, save_dir)
+        process_contig(contig, index_array, positions, prediction_files, sample, save_dir)
 
 
-def process_contig(contig, contig_data, index_array, positions, prediction_files, sample, save_dir):
+def process_contig(contig, index_array, positions, prediction_files, sample, save_dir):
     final_predictions = np.load(prediction_files[contig], mmap_mode="r").flatten()
-    contig_data[contig] = {
-        "positions": positions,
-        "matrix": final_predictions,
-    }
     write_bed_for_single_contig(
         output_bed=os.path.join(save_dir, f"{sample}_{contig}_imputed.bed"),
         contig=contig,
