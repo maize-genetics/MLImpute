@@ -93,7 +93,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
         title: 'Select PS4G File',
         multiple: false,
         filters: [
-          { name: 'PS4G Files', extensions: ['ps4g'] },
+          { name: 'PS4G Files (*.ps4g, *.ps4g.txt, *_ps4g.txt)', extensions: ['ps4g', 'txt'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       });
