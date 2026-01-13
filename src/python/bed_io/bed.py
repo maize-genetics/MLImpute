@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-
 from src.python.ps4g_io.ps4g import decode_position, build_index_lookup
 
 
@@ -49,8 +48,6 @@ def output_predictions_deprecated(ps4g_file, output_bed, final_predictions, coll
     output_bed_file_deprecated(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions)
 
 
-
-
 def output_bed_file(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions=True):
     '''
     output_bed: name of the desired output bed of imputed path
@@ -64,7 +61,8 @@ def output_bed_file(output_bed, chroms, final_predictions, index_array, position
     '''
     bed_df = pd.DataFrame({
         "chrom": chroms[:len(final_predictions)],
-        "pos": positions[:len(final_predictions)],
+        "start": positions[:len(final_predictions)],
+        "end": positions[:len(final_predictions)] + 1,
         "parent1": np.array(index_array)[final_predictions[:, 0]],
         "parent2": np.array(index_array)[final_predictions[:, 1]],
     })
@@ -91,7 +89,7 @@ def output_collapse_bed(bed_df, output_bed):
     # Collapse into ranges
     ranges_df = bed_df.groupby(group_id).agg({
         "chrom": "first",
-        "pos": ["min", "max"],
+        "start": ["min", "max"],
         "parent1": "first",
         "parent2": "first"
     }).reset_index(drop=True)
