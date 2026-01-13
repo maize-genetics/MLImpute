@@ -5,6 +5,7 @@ import "./App.css";
 import ImputeSidebar from "./components/ImputeSidebar";
 import PS4GExplorer from "./components/PS4GExplorer";
 import InteractiveMatrix from "./components/InteractiveMatrix";
+import ThemeSwitch from "./components/ThemeSwitch";
 import { convertVisualizationToMatrix, validateVisualizationData } from "./utils/arrayUtils";
 
 type PageType = 'imputation' | 'ps4g';
@@ -152,6 +153,7 @@ function App() {
           </button>
         </div>
         <div className="nav-spacer"></div>
+        <ThemeSwitch />
       </nav>
 
       {/* Page Content */}

@@ -172,9 +172,66 @@
   -webkit-text-size-adjust: 100%;
 }
 
-/* Dark theme */
+/* Dark theme - manual override */
+:root[data-theme="dark"] {
+  --md-sys-color-primary: #88d5b9;
+  --md-sys-color-on-primary: #003828;
+  --md-sys-color-primary-container: #00513c;
+  --md-sys-color-on-primary-container: #a4f2d4;
+
+  --md-sys-color-secondary: #b2cdc0;
+  --md-sys-color-on-secondary: #1e352b;
+  --md-sys-color-secondary-container: #354b41;
+  --md-sys-color-on-secondary-container: #cee9db;
+
+  --md-sys-color-tertiary: #a6ccdf;
+  --md-sys-color-on-tertiary: #093544;
+  --md-sys-color-tertiary-container: #254b5b;
+  --md-sys-color-on-tertiary-container: #c1e8fc;
+
+  --md-sys-color-error: #ffb4ab;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000a;
+  --md-sys-color-on-error-container: #ffdad6;
+
+  --md-sys-color-background: #191c1a;
+  --md-sys-color-on-background: #e1e3df;
+  --md-sys-color-surface: #191c1a;
+  --md-sys-color-on-surface: #e1e3df;
+
+  --md-sys-color-surface-variant: #404943;
+  --md-sys-color-on-surface-variant: #c0c9c2;
+  --md-sys-color-outline: #8a938d;
+  --md-sys-color-outline-variant: #404943;
+
+  --md-sys-color-surface-container-lowest: #0d100e;
+  --md-sys-color-surface-container-low: #191c1a;
+  --md-sys-color-surface-container: #1d201e;
+  --md-sys-color-surface-container-high: #282b28;
+  --md-sys-color-surface-container-highest: #323533;
+
+  --md-sys-color-inverse-surface: #e1e3df;
+  --md-sys-color-inverse-on-surface: #2e312e;
+  --md-sys-color-inverse-primary: #1a6b52;
+}
+
+:root[data-theme="dark"] a:hover {
+  color: var(--md-sys-color-primary);
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] button {
+  color: var(--md-sys-color-on-surface);
+  background-color: var(--md-sys-color-surface-container);
+}
+
+:root[data-theme="dark"] button:active {
+  background-color: var(--md-sys-color-surface-container-high);
+}
+
+/* Dark theme - system preference (when no manual override) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --md-sys-color-primary: #88d5b9;
     --md-sys-color-on-primary: #003828;
     --md-sys-color-primary-container: #00513c;
@@ -216,17 +273,17 @@
     --md-sys-color-inverse-primary: #1a6b52;
   }
 
-  a:hover {
+  :root:not([data-theme]) a:hover {
     color: var(--md-sys-color-primary);
   }
 
-  input,
-  button {
+  :root:not([data-theme]) input,
+  :root:not([data-theme]) button {
     color: var(--md-sys-color-on-surface);
     background-color: var(--md-sys-color-surface-container);
   }
 
-  button:active {
+  :root:not([data-theme]) button:active {
     background-color: var(--md-sys-color-surface-container-high);
   }
 }
