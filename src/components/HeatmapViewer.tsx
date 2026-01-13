@@ -110,7 +110,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [scrollOffset, setScrollOffset] = useState<number>(0);
   const [cellWidthMultiplier, setCellWidthMultiplier] = useState<number>(1);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
-  const [colorScheme, setColorScheme] = useState<'binary' | 'intensity'>('binary');
+  const [colorScheme, setColorScheme] = useState<'binary' | 'intensity'>('intensity');
   
   // Auto-scroll state
   const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
@@ -251,7 +251,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setScrollOffset(0);
     setCellWidthMultiplier(1);
     setShowGridLines(true);
-    setColorScheme('binary');
+    setColorScheme('intensity');
     setIsAutoScrolling(false);
     setAutoScrollSpeed(0.5);
   }, []);
