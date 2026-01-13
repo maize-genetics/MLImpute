@@ -7,7 +7,7 @@ import numpy as np
 from seq2seq import Seq2Seq, Encoder, Decoder
 import math
 
-def inference(model, iterator):
+def inference(model, iterator, force_predictions=False):
     device=model.device
     predictions = []
     model.eval()
@@ -15,7 +15,10 @@ def inference(model, iterator):
         for batch in tqdm(iterator, desc="Evaluating..."):
             input_embeds = batch["input_embeds"].to(device)
             batch_predictions = model(input_embeds)
-            pred_y = torch.argmax(batch_predictions, dim=-1).detach().cpu().to(torch.int64)
+            if force_predictions:
+                pred_y = torch.argmax(batch_predictions[:, :, :-1], dim=-1).detach().cpu().to(torch.int64)
+            else:
+                pred_y = torch.argmax(batch_predictions, dim=-1).detach().cpu().to(torch.int64)
             predictions.append(pred_y)
     # concat batches along batch dimension -> [N, T]
     preds = torch.cat(predictions, dim=0)  # shape consistent even if last batch smaller
@@ -103,6 +106,7 @@ def parse_args():
     parser.add_argument("--step-size", "-s", type=int, default=128, help="distance between the start points of each training window")
     parser.add_argument("--embedding-dim", type=int, default=12, help="embedding dimension")
     parser.add_argument("--hidden-dim", type=int, default=24, help="hidden dimension")
+    parser.add_argument("--force-preds", type=bool, default=False, help="forces predictions / disables unknown option")
     args = parser.parse_args()
     return args
 
@@ -127,7 +131,7 @@ def main():
     for file in filenames:
         dataset = LabeledDatasetInference(args.data_path, [file], args.max_seq_length, args.num_parents, args.step_size)
         dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
-        predictions = inference(model, dataloader).flatten()
+        predictions = inference(model, dataloader, args.force_preds).flatten()
         pred_file = file.split("_matrix")[0]
         ps4g_len = len(np.load(f"{args.data_path}/{file}", allow_pickle=True))
         assert(len(predictions) >= ps4g_len)
