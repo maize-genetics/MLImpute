@@ -7,6 +7,8 @@ import pandas as pd
 import os
 from ps4g_io.ps4g import build_index_lookup
 from bed_io.bed import output_bed_file
+import logging
+
 
 def write_bed_for_single_contig(
     output_bed,
@@ -76,7 +78,7 @@ def process_files(inference_dir, ps4g_dir, save_dir):
         prediction_files = info["matrices"]
 
         if ps4g_file is None or not prediction_files:
-            print(f"Skipping incomplete sample {sample}")
+            logging.info(f"Skipping incomplete sample {sample}")
             continue
 
         process_single_sample(prediction_files, ps4g_file, sample, save_dir)
@@ -115,9 +117,9 @@ def process_contig(contig, index_array, positions, prediction_files, sample, sav
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--inference-dir", type=str, required=True, help="path to the inferred numpy data")
-    parser.add_argument("--ps4g-dir", type=str, required=True, help="path to the input PS4G data")
-    parser.add_argument("--save-dir", type=str, required=True, help="path to the output bed files")
+    parser.add_argument("--inference-dir","-i", type=str, required=True, help="path to the inferred numpy data")
+    parser.add_argument("--ps4g-dir", "-p", type=str, required=True, help="path to the input PS4G data")
+    parser.add_argument("--save-dir","-s", type=str, required=True, help="path to the output bed files")
     args = parser.parse_args()
     return args
 
