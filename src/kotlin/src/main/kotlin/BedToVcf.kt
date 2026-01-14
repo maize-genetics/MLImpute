@@ -45,18 +45,37 @@ class BedToVcf : CliktCommand(help = "Convert a set of imputed BED files to a si
 
     /**
      * Function to build a set of range maps from a directory of bed files
-     * Each bed file is assumed to be named <sampleId>.bed
+     * Each bed file is assumed to be named <sampleId>.bed or <sampleId>_chrX_imputed.bed
      * The range map will map Position ranges to genotype(sampleId) pairs
      * If only one genotype is present in the bed file, it will be used for both genotypes in the pair
      */
     fun buildRangeMaps(bedDir: String): Map<String, RangeMap<Position,Pair<String,String>>> {
         val ranges = mutableMapOf<String, RangeMap<Position,Pair<String,String>>>()
-        //Loop through each bed file in the directory
-        File(bedDir).listFiles { file -> file.extension == "bed" }?.forEach { bedFile ->
-            val sampleId = bedFile.nameWithoutExtension
-            val rangeMap = createRangeMapFromBedFile(bedFile)
-            ranges[sampleId] = rangeMap
-        }
+
+        val bedPattern = Regex(
+            """^(.+?)(?:_chr([A-Za-z0-9]+)_imputed)?$"""
+        )
+
+        File(bedDir)
+            .listFiles { file ->
+                file.extension == "bed" &&
+                        bedPattern.matches(file.nameWithoutExtension)
+            }
+            ?.forEach { bedFile ->
+                val match = bedPattern.matchEntire(bedFile.nameWithoutExtension)!!
+
+                val sampleId = match.groupValues[1]
+
+                // do work here
+                val currentBedRangeMap = createRangeMapFromBedFile(bedFile)
+                //check to see if we already have a range map for this sample
+                if(ranges.containsKey(sampleId)) {
+                    ranges[sampleId]!!.putAll(currentBedRangeMap)
+                }
+                else {
+                    ranges[sampleId] = currentBedRangeMap
+                }
+            }
         return ranges
     }
 
