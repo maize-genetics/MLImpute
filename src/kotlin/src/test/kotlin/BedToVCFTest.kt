@@ -98,6 +98,34 @@ class BedToVCFTest {
     }
 
     @Test
+    fun testBuildRangeMapsMergeSamples() {
+        val bedToVcf = BedToVcf()
+        val bedDir = "data/bedToVCF/chrNameBedTest/"
+        val rangeMaps = bedToVcf.buildRangeMaps(bedDir)
+        //We should have 2 keys one for haploid1 and one for haploid_1 with haploid_1 having chromosome 2 ranges but not in haploid1
+        assertEquals("Expected 2 range maps, found ${rangeMaps.size}",2,rangeMaps.size)
+        assertTrue("Range map for haploid_1 not found", rangeMaps.containsKey("haploid_1"))
+        assertTrue("Range map for haploid1 not found" ,rangeMaps.containsKey("haploid1"))
+        val haploid_1Map = rangeMaps["haploid_1"]!!
+        val haploid_1MapOfRanges = haploid_1Map.asMapOfRanges()
+        //should have 10 entries in total
+        assertEquals("Expected 10 ranges in haploid_1 map, found ${haploid_1MapOfRanges.size}",10,haploid_1MapOfRanges.size)
+        //5 in chr1 and 5 in chr2
+        val chr1Ranges = haploid_1MapOfRanges.filter { entry -> entry.key.lowerEndpoint().contig == "chr1" }
+        val chr2Ranges = haploid_1MapOfRanges.filter { entry -> entry.key.lowerEndpoint().contig == "chr2" }
+        assertEquals("Expected 5 ranges in chr1 for haploid_1, found ${chr1Ranges.size}",5,chr1Ranges.size)
+        assertEquals("Expected 5 ranges in chr2 for haploid_1, found ${chr2Ranges.size}",5,chr2Ranges.size)
+
+        val haploid1Map = rangeMaps["haploid1"]!!
+        val haploid1MapOfRanges = haploid1Map.asMapOfRanges()
+        //should have 5 entries in total all on chr1
+        assertEquals("Expected 5 ranges in haploid1 map, found ${haploid1MapOfRanges.size}",5,haploid1MapOfRanges.size)
+        val haploid1Chr1Ranges = haploid1MapOfRanges.filter { entry -> entry.key.lowerEndpoint().contig == "chr1" }
+        assertEquals("Expected 5 ranges in chr1 for haploid1, found ${haploid1Chr1Ranges.size}",5,haploid1Chr1Ranges.size)
+
+    }
+
+    @Test
     fun testCreateRangeMapFromBedFile() {
         val bedToVcf = BedToVcf()
 
