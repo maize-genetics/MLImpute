@@ -5,9 +5,7 @@ import {
   mdiMagnifyMinus, 
   mdiRefresh,
   mdiViewGrid,
-  mdiViewGridOutline,
-  mdiPlay,
-  mdiPause
+  mdiViewGridOutline
 } from '@mdi/js';
 
 interface HeatmapControlsProps {
@@ -29,14 +27,6 @@ interface HeatmapControlsProps {
   onToggleColorScheme: () => void;
   /** Reset view to defaults */
   onResetView: () => void;
-  /** Whether auto-scroll is active */
-  isAutoScrolling: boolean;
-  /** Toggle auto-scroll */
-  onToggleAutoScroll: () => void;
-  /** Auto-scroll speed (0.1 - 2) */
-  autoScrollSpeed: number;
-  /** Callback when auto-scroll speed changes */
-  onAutoScrollSpeedChange: (speed: number) => void;
 }
 
 const ZOOM_PRESETS = [0.5, 1, 2, 4];
@@ -51,10 +41,6 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
   colorScheme,
   onToggleColorScheme,
   onResetView,
-  isAutoScrolling,
-  onToggleAutoScroll,
-  autoScrollSpeed,
-  onAutoScrollSpeedChange,
 }) => {
   // Handle zoom in/out buttons
   const handleZoomIn = useCallback(() => {
@@ -166,33 +152,6 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
             className="width-slider"
           />
           <span className="width-value">{cellWidthMultiplier.toFixed(2)}x</span>
-        </div>
-      </div>
-
-      <div className="controls-separator" />
-
-      {/* Auto-scroll Controls */}
-      <div className="controls-section autoscroll-section">
-        <span className="section-label">Auto-scroll</span>
-        <button 
-          className={`control-button play-button ${isAutoScrolling ? 'active' : ''}`}
-          onClick={onToggleAutoScroll}
-          title={isAutoScrolling ? 'Pause auto-scroll' : 'Start auto-scroll'}
-        >
-          <Icon path={isAutoScrolling ? mdiPause : mdiPlay} size={0.6} />
-        </button>
-        <div className="speed-slider-container">
-          <input
-            type="range"
-            min="0.1"
-            max="2"
-            step="0.1"
-            value={autoScrollSpeed}
-            onChange={(e) => onAutoScrollSpeedChange(parseFloat(e.target.value))}
-            className="speed-slider"
-            title="Scroll speed"
-          />
-          <span className="speed-value">{autoScrollSpeed.toFixed(1)}x</span>
         </div>
       </div>
     </div>

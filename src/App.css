@@ -229,6 +229,32 @@
   background-color: var(--md-sys-color-surface-container-high);
 }
 
+/* Dark theme scrollbar styles */
+:root[data-theme="dark"] {
+  scrollbar-color: #555555 #2a2a2a; /* Firefox */
+  scrollbar-width: thin;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #2a2a2a;
+  border-radius: 5px;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #555555;
+  border-radius: 5px;
+  border: 2px solid #2a2a2a;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #666666;
+}
+
 /* Dark theme - system preference (when no manual override) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
@@ -285,6 +311,32 @@
 
   :root:not([data-theme]) button:active {
     background-color: var(--md-sys-color-surface-container-high);
+  }
+
+  /* Dark theme scrollbar styles (system preference) */
+  :root:not([data-theme]) {
+    scrollbar-color: #555555 #2a2a2a; /* Firefox */
+    scrollbar-width: thin;
+  }
+
+  :root:not([data-theme]) ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  :root:not([data-theme]) ::-webkit-scrollbar-track {
+    background: #2a2a2a;
+    border-radius: 5px;
+  }
+
+  :root:not([data-theme]) ::-webkit-scrollbar-thumb {
+    background: #555555;
+    border-radius: 5px;
+    border: 2px solid #2a2a2a;
+  }
+
+  :root:not([data-theme]) ::-webkit-scrollbar-thumb:hover {
+    background: #666666;
   }
 }
 

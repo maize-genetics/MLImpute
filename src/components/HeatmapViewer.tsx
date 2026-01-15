@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown } from '@mdi/js';
-import HeatmapCanvas, { VisibleRange } from './HeatmapCanvas';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause } from '@mdi/js';
+import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
 
@@ -119,6 +119,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HeatmapCanvasHandle>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
 
@@ -274,6 +275,28 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setVisibleRange(range);
   }, []);
 
+  // Extract filename from file path
+  const getFileName = useCallback((path: string): string => {
+    return path.split(/[/\\]/).pop() || path;
+  }, []);
+
+  // Handle PNG export
+  const handleExportPng = useCallback(async () => {
+    console.log('Export PNG clicked', { canvasRef: canvasRef.current, selectedChromosome });
+    if (canvasRef.current && selectedChromosome) {
+      try {
+        await canvasRef.current.exportToPng({
+          fileId: getFileName(filePath),
+          chromosome: selectedChromosome,
+        });
+      } catch (error) {
+        console.error('Export failed:', error);
+      }
+    } else {
+      console.warn('Cannot export: canvasRef or selectedChromosome not available');
+    }
+  }, [filePath, selectedChromosome, getFileName]);
+
   // Sort gamete names alphabetically (with natural sort for numeric IDs) and reorder matrix rows
   const sortedData = useMemo(() => {
     if (!matrixData) return null;
@@ -332,7 +355,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               <strong>{formatNumber(matrixData.num_positions)}</strong> positions
             </span>
             <span className="info-item position-range">
-              ({formatNumber(matrixData.position_range[0])} - {formatNumber(matrixData.position_range[1])} bp)
+              ({formatNumber(matrixData.position_range[0])} - {formatNumber(matrixData.position_range[1])} rpb)
             </span>
           </div>
         )}
@@ -382,14 +405,11 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             colorScheme={colorScheme}
             onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
             onResetView={handleResetView}
-            isAutoScrolling={isAutoScrolling}
-            onToggleAutoScroll={() => setIsAutoScrolling(prev => !prev)}
-            autoScrollSpeed={autoScrollSpeed}
-            onAutoScrollSpeedChange={setAutoScrollSpeed}
           />
           
           <div className="heatmap-canvas-wrapper">
             <HeatmapCanvas
+              ref={canvasRef}
               matrix={sortedData?.matrix ?? matrixData.matrix}
               positions={matrixData.positions}
               gameteNames={sortedData?.gameteNames ?? matrixData.gamete_names}
@@ -405,21 +425,70 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           </div>
 
           <div className="heatmap-bottom-bar">
-            {/* Visible range indicator */}
-            {visibleRange && (
-              <div className="visible-range-indicator">
-                <span className="visible-range-label">Viewing:</span>
-                <span className="visible-range-value">
-                  {formatNumber(visibleRange.startPos)} - {formatNumber(visibleRange.endPos)} bp
-                </span>
+            {/* Top row: Auto-scroll (left), Viewing (center), Export (right) */}
+            <div className="bottom-bar-top-row">
+              <div className="bottom-bar-section">
+                <span className="section-label">Auto-scroll</span>
+                <button 
+                  className={`section-button ${isAutoScrolling ? 'active' : ''}`}
+                  onClick={() => setIsAutoScrolling(prev => !prev)}
+                  title={isAutoScrolling ? 'Pause auto-scroll' : 'Start auto-scroll'}
+                >
+                  <Icon path={isAutoScrolling ? mdiPause : mdiPlay} size={0.8} />
+                </button>
+                <div className="speed-slider-container">
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2"
+                    step="0.1"
+                    value={autoScrollSpeed}
+                    onChange={(e) => setAutoScrollSpeed(parseFloat(e.target.value))}
+                    className="speed-slider"
+                    title="Scroll speed"
+                  />
+                  <span className="speed-value">{autoScrollSpeed.toFixed(1)}x</span>
+                </div>
               </div>
-            )}
+              
+              {visibleRange && (
+                <div className="visible-range-indicator">
+                  <span className="visible-range-label">Viewing:</span>
+                  <span className="visible-range-value">
+                    {formatNumber(visibleRange.startPos)} - {formatNumber(visibleRange.endPos)} rpb
+                  </span>
+                </div>
+              )}
+              
+              <div className="bottom-bar-section">
+                <span className="section-label">Export</span>
+                <button
+                  className="section-button with-label"
+                  onClick={handleExportPng}
+                  title="Export current view as PNG"
+                >
+                  <Icon path={mdiDownload} size={0.7} />
+                  <span>PNG</span>
+                </button>
+              </div>
+            </div>
             
             {/* Position scale above the slider */}
             <div className="position-scale">
-              <span className="position-label">{formatNumber(matrixData.position_range[0])} bp</span>
-              <span className="position-label">{formatNumber(Math.round((matrixData.position_range[0] + matrixData.position_range[1]) / 2))} bp</span>
-              <span className="position-label">{formatNumber(matrixData.position_range[1])} bp</span>
+              <span className="position-label">{formatNumber(matrixData.position_range[0])} rpb</span>
+              <span className="position-label">{formatNumber(Math.round((matrixData.position_range[0] + matrixData.position_range[1]) / 2))} rpb</span>
+              <span className="position-label">{formatNumber(matrixData.position_range[1])} rpb</span>
+            </div>
+            
+            {/* Tickmarks between position labels and slider */}
+            <div className="slider-tickmarks">
+              {[0, 25, 50, 75, 100].map((percent) => (
+                <div 
+                  key={percent} 
+                  className={`slider-tick ${percent === 0 || percent === 50 || percent === 100 ? 'major' : 'minor'}`}
+                  style={{ left: `${percent}%` }} 
+                />
+              ))}
             </div>
             
             <div className="bottom-position-slider">
