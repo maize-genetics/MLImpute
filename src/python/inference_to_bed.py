@@ -102,7 +102,7 @@ def process_single_sample(prediction_files, ps4g_file, sample, save_dir):
 
 
 def process_contig(contig, contig_data, index_array, positions, prediction_files, sample, save_dir):
-    final_predictions = np.load(prediction_files[contig], mmap_mode="r").flatten()
+    final_predictions = np.load(prediction_files[contig], mmap_mode="r")
     contig_data[contig] = {
         "positions": positions,
         "matrix": final_predictions,
