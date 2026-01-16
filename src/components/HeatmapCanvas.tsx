@@ -45,6 +45,8 @@ interface HeatmapCanvasProps {
   baseCellSize?: number;
   /** Cell width multiplier (relative to baseCellSize, default 1) */
   cellWidthMultiplier?: number;
+  /** Cell height multiplier (relative to baseCellSize, default 1) */
+  cellHeightMultiplier?: number;
   /** Whether to show grid lines */
   showGridLines?: boolean;
   /** Color scheme: 'binary' (gray/white) or 'intensity' (color gradient) */
@@ -148,6 +150,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
   onVisibleRangeChange,
   baseCellSize = 12,
   cellWidthMultiplier = 1,
+  cellHeightMultiplier = 1,
   showGridLines = true,
   colorScheme = 'binary',
 }, ref) => {
@@ -166,7 +169,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
   const PADDING = 10;
 
   // Calculate dimensions - separate width and height for cells
-  const cellHeight = baseCellSize * zoomLevel;
+  const cellHeight = baseCellSize * zoomLevel * cellHeightMultiplier;
   const cellWidth = baseCellSize * zoomLevel * cellWidthMultiplier;
   const numRows = matrix.length;
   const numCols = positions.length;

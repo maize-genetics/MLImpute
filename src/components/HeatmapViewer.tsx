@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause } from '@mdi/js';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify } from '@mdi/js';
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
@@ -109,6 +109,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [scrollOffset, setScrollOffset] = useState<number>(0);
   const [cellWidthMultiplier, setCellWidthMultiplier] = useState<number>(1);
+  const [cellHeightMultiplier, setCellHeightMultiplier] = useState<number>(1);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
   const [colorScheme, setColorScheme] = useState<'binary' | 'intensity'>('intensity');
   
@@ -122,6 +123,9 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const canvasRef = useRef<HeatmapCanvasHandle>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
+  
+  // Position search state
+  const [searchPosition, setSearchPosition] = useState<string>('');
 
   // Set up progress event listener
   useEffect(() => {
@@ -252,6 +256,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setZoomLevel(1);
     setScrollOffset(0);
     setCellWidthMultiplier(1);
+    setCellHeightMultiplier(1);
     setShowGridLines(true);
     setColorScheme('intensity');
     setIsAutoScrolling(false);
@@ -274,6 +279,67 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const handleVisibleRangeChange = useCallback((range: VisibleRange) => {
     setVisibleRange(range);
   }, []);
+
+  // Search for a position and scroll to it
+  const handlePositionSearch = useCallback(() => {
+    if (!matrixData || !searchPosition.trim()) return;
+    
+    const targetPos = parseInt(searchPosition.replace(/,/g, ''), 10);
+    if (isNaN(targetPos)) return;
+    
+    const positions = matrixData.positions;
+    if (positions.length === 0) return;
+    
+    // Find the nearest position using binary search
+    let left = 0;
+    let right = positions.length - 1;
+    
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2);
+      if (positions[mid] < targetPos) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+    
+    // Check if the previous position is closer
+    let nearestIdx = left;
+    if (left > 0) {
+      const diffLeft = Math.abs(positions[left - 1] - targetPos);
+      const diffRight = Math.abs(positions[left] - targetPos);
+      if (diffLeft < diffRight) {
+        nearestIdx = left - 1;
+      }
+    }
+    
+    // Calculate scroll offset to center the position in the viewport
+    const baseCellSize = 12;
+    const cellWidth = baseCellSize * zoomLevel * cellWidthMultiplier;
+    const totalWidth = matrixData.num_positions * cellWidth;
+    const labelMargin = 100;
+    const padding = 20;
+    const viewportWidth = Math.max(containerWidth - labelMargin - padding, 100);
+    const maxScrollOffset = Math.max(0, totalWidth - viewportWidth);
+    
+    if (maxScrollOffset === 0) {
+      // All data fits in viewport, no need to scroll
+      return;
+    }
+    
+    // Calculate pixel position of the target column, then offset to center it
+    const targetPixelPos = nearestIdx * cellWidth - viewportWidth / 2 + cellWidth / 2;
+    const newOffset = Math.max(0, Math.min(1, targetPixelPos / maxScrollOffset));
+    
+    setScrollOffset(newOffset);
+  }, [matrixData, searchPosition, zoomLevel, cellWidthMultiplier, containerWidth]);
+
+  // Handle search input key press (Enter to search)
+  const handleSearchKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handlePositionSearch();
+    }
+  }, [handlePositionSearch]);
 
   // Extract filename from file path
   const getFileName = useCallback((path: string): string => {
@@ -346,6 +412,29 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
         </div>
 
         {matrixData && !isLoading && (
+          <div className="position-search">
+            <label htmlFor="position-search-input">Go to position:</label>
+            <div className="search-input-wrapper">
+              <input
+                id="position-search-input"
+                type="text"
+                placeholder={`e.g. ${formatNumber(Math.round((matrixData.position_range[0] + matrixData.position_range[1]) / 2))}`}
+                value={searchPosition}
+                onChange={(e) => setSearchPosition(e.target.value)}
+                onKeyDown={handleSearchKeyPress}
+              />
+              <button 
+                className="search-button"
+                onClick={handlePositionSearch}
+                title="Go to position"
+              >
+                <Icon path={mdiMagnify} size={0.7} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {matrixData && !isLoading && (
           <div className="matrix-info">
             <span className="info-item">
               <strong>{matrixData.num_gametes}</strong> gametes
@@ -400,6 +489,8 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             onZoomChange={setZoomLevel}
             cellWidthMultiplier={cellWidthMultiplier}
             onCellWidthChange={setCellWidthMultiplier}
+            cellHeightMultiplier={cellHeightMultiplier}
+            onCellHeightChange={setCellHeightMultiplier}
             showGridLines={showGridLines}
             onToggleGridLines={() => setShowGridLines(prev => !prev)}
             colorScheme={colorScheme}
@@ -419,6 +510,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               onZoomChange={setZoomLevel}
               onVisibleRangeChange={handleVisibleRangeChange}
               cellWidthMultiplier={cellWidthMultiplier}
+              cellHeightMultiplier={cellHeightMultiplier}
               showGridLines={showGridLines}
               colorScheme={colorScheme}
             />

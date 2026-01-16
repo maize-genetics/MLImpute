@@ -77,6 +77,78 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* Position Search */
+.position-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.position-search label {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+  white-space: nowrap;
+}
+
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.search-input-wrapper input {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--md-sys-color-outline);
+  border-right: none;
+  border-radius: var(--md-sys-shape-corner-small) 0 0 var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface);
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-body-small-size);
+  width: 120px;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.search-input-wrapper input::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.6;
+}
+
+.search-input-wrapper input:hover {
+  border-color: var(--md-sys-color-on-surface);
+}
+
+.search-input-wrapper input:focus {
+  outline: none;
+  border-color: var(--md-sys-color-primary);
+  border-width: 2px;
+  padding: calc(0.375rem - 1px) calc(0.75rem - 1px);
+}
+
+.search-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.5rem;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border: 1px solid var(--md-sys-color-primary);
+  border-radius: 0 var(--md-sys-shape-corner-small) var(--md-sys-shape-corner-small) 0;
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.search-button:hover {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.search-button:active {
+  transform: scale(0.95);
+}
+
 .heatmap-header .matrix-info {
   display: flex;
   flex-direction: row;
@@ -422,6 +494,49 @@
 }
 
 .width-value {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  color: var(--md-sys-color-on-surface-variant);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Row Height section */
+.height-section {
+  flex: 0 0 auto;
+}
+
+.height-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.height-slider {
+  width: 60px;
+  height: 3px;
+  appearance: none;
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-sys-shape-corner-full);
+  cursor: pointer;
+}
+
+.height-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--md-sys-color-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.height-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.height-value {
   font-family: 'Roboto Mono', monospace;
   font-size: 10px;
   color: var(--md-sys-color-on-surface-variant);

@@ -17,6 +17,10 @@ interface HeatmapControlsProps {
   cellWidthMultiplier: number;
   /** Callback when cell width multiplier changes */
   onCellWidthChange: (width: number) => void;
+  /** Cell height multiplier (0.25 - 4) */
+  cellHeightMultiplier: number;
+  /** Callback when cell height multiplier changes */
+  onCellHeightChange: (height: number) => void;
   /** Whether grid lines are shown */
   showGridLines: boolean;
   /** Toggle grid lines */
@@ -36,6 +40,8 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
   onZoomChange,
   cellWidthMultiplier,
   onCellWidthChange,
+  cellHeightMultiplier,
+  onCellHeightChange,
   showGridLines,
   onToggleGridLines,
   colorScheme,
@@ -152,6 +158,23 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
             className="width-slider"
           />
           <span className="width-value">{cellWidthMultiplier.toFixed(2)}x</span>
+        </div>
+      </div>
+
+      {/* Row Height Controls */}
+      <div className="controls-section height-section">
+        <span className="section-label">Row Height</span>
+        <div className="height-slider-container">
+          <input
+            type="range"
+            min="0.05"
+            max="4"
+            step="0.05"
+            value={cellHeightMultiplier}
+            onChange={(e) => onCellHeightChange(parseFloat(e.target.value))}
+            className="height-slider"
+          />
+          <span className="height-value">{cellHeightMultiplier.toFixed(2)}x</span>
         </div>
       </div>
     </div>
