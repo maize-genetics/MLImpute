@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify } from '@mdi/js';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify, mdiHelpCircleOutline } from '@mdi/js';
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
@@ -567,7 +567,13 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             
             {/* Position scale above the slider */}
             <div className="position-scale">
-              <span className="position-label">{formatNumber(matrixData.position_range[0])} rpb</span>
+              <span className="position-label">
+                {formatNumber(matrixData.position_range[0])} rpb
+                <span className="rpb-help-icon">
+                  <Icon path={mdiHelpCircleOutline} size={0.5} />
+                  <span className="rpb-tooltip">"rpb" represents the number found in the <code>refPosBinned</code> column of the PS4G file.</span>
+                </span>
+              </span>
               <span className="position-label">{formatNumber(Math.round((matrixData.position_range[0] + matrixData.position_range[1]) / 2))} rpb</span>
               <span className="position-label">{formatNumber(matrixData.position_range[1])} rpb</span>
             </div>

@@ -747,6 +747,59 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* RPB help icon with tooltip */
+.rpb-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.25rem;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: help;
+  position: relative;
+  vertical-align: middle;
+  opacity: 0.7;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.rpb-help-icon:hover {
+  opacity: 1;
+  color: var(--md-sys-color-primary);
+}
+
+.rpb-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  font-family: var(--md-sys-typescale-body-small-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+  font-variant-numeric: normal;
+  white-space: nowrap;
+  border-radius: var(--md-sys-shape-corner-small);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+              visibility var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  pointer-events: none;
+  z-index: 1000;
+  margin-bottom: 0.25rem;
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+.rpb-tooltip code {
+  font-family: 'Roboto Mono', monospace;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.1rem 0.25rem;
+  border-radius: 2px;
+}
+
+.rpb-help-icon:hover .rpb-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 .position-scale .position-label:first-child {
   text-align: left;
 }
