@@ -316,7 +316,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
         const endPos = positions[lastVisibleCol] ?? positions[positions.length - 1];
       
       // Create title text
-      const title = `${fileId} | ${chromosome} | ${startPos.toLocaleString()} - ${endPos.toLocaleString()} bp`;
+      const title = `${fileId} | ${chromosome} | ${startPos.toLocaleString()} - ${endPos.toLocaleString()} rbp`;
       
       // Calculate dimensions for export canvas
       const TITLE_HEIGHT = 50;
