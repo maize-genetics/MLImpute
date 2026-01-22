@@ -288,7 +288,7 @@ const ImputeSidebar: React.FC<ImputeSidebarProps> = ({ onResults }) => {
             />
             <button
               onClick={() => selectFile(setInputPath, 'Select PS4G Input File', [
-                { name: 'PS4G Files', extensions: ['ps4g'] },
+                { name: 'PS4G Files (*.ps4g, *.ps4g.txt, *_ps4g.txt)', extensions: ['ps4g', 'txt'] },
                 { name: 'All Files', extensions: ['*'] }
               ])}
               disabled={isRunning}
