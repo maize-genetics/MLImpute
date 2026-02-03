@@ -7,6 +7,8 @@ import pandas as pd
 import os
 from ps4g_io.ps4g import build_index_lookup
 from bed_io.bed import output_bed_file
+from bed_io.make_bed_contiguous import parse_bed, read_fai_lengths, make_contiguous, write_bed
+import glob
 
 def write_bed_for_single_contig(
     output_bed,
@@ -122,12 +124,25 @@ def parse_args():
     parser.add_argument("--inference-dir", type=str, required=True, help="path to the inferred numpy data")
     parser.add_argument("--ps4g-dir", type=str, required=True, help="path to the input PS4G data")
     parser.add_argument("--save-dir", type=str, required=True, help="path to the output bed files")
+    parser.add_argument("--contiguous", action="store_true", help="Optional flag to make prediction path contiguous")
+    parser.add_argument("--fai", default=None, help="Optional reference .fai to force chromosome end coordinates (if contiguous True)")
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_args()
     process_files(args.inference_dir, args.ps4g_dir, args.save_dir)
+
+    if args.contiguous:
+        bed_files = glob.glob(os.path.join(args.save_dir, "*.bed"))
+        for file in bed_files:
+            rows = parse_bed(file)
+            chr_lengths = read_fai_lengths(args.fai) if args.fai else None
+            out = make_contiguous(rows, chr_lengths=chr_lengths)
+            new_file = file.replace(".bed", ".contiguous.bed")
+            write_bed(out, new_file)
+
+            # TODO: option to save all chr together
 
 if __name__ == "__main__":
     main()
