@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify, mdiHelpCircleOutline } from '@mdi/js';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify, mdiHelpCircleOutline, mdiEye, mdiEyeOff } from '@mdi/js';
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
@@ -145,6 +145,9 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   
   // Position search state
   const [searchPosition, setSearchPosition] = useState<string>('');
+
+  // Top-level controls visibility (hide to maximize heatmap viewspace)
+  const [topControlsVisible, setTopControlsVisible] = useState<boolean>(true);
 
   // Set up progress event listener
   useEffect(() => {
@@ -407,67 +410,71 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   // Format count
   const formatNumber = (num: number): string => num.toLocaleString();
 
+  const showTopControls = topControlsVisible || !matrixData || isLoading || !!error;
+
   return (
     <div className="heatmap-viewer" ref={containerRef}>
-      {/* Header with chromosome selector */}
-      <div className="heatmap-header">
-        <div className="chromosome-selector">
-          <label htmlFor="chromosome-select">Chromosome:</label>
-          <div className="select-wrapper">
-            <select
-              id="chromosome-select"
-              value={selectedChromosome}
-              onChange={handleChromosomeChange}
-              disabled={isLoading}
-            >
-              {summary.chromosomes.map(chr => (
-                <option key={chr} value={chr}>
-                  {chr} ({formatNumber(summary.chromosome_counts[chr] || 0)} observations)
-                </option>
-              ))}
-            </select>
-            <Icon path={mdiChevronDown} size={0.8} className="select-icon" />
-          </div>
-        </div>
-
-        {matrixData && !isLoading && (
-          <div className="position-search">
-            <label htmlFor="position-search-input">Go to position:</label>
-            <div className="search-input-wrapper">
-              <input
-                id="position-search-input"
-                type="text"
-                placeholder={`e.g. 3.1K; 3141; 3,141`}
-                value={searchPosition}
-                onChange={(e) => setSearchPosition(e.target.value)}
-                onKeyDown={handleSearchKeyPress}
-              />
-              <button 
-                className="search-button"
-                onClick={handlePositionSearch}
-                title="Go to position"
+      {/* Header with chromosome selector - hidden when controls collapsed to maximize heatmap */}
+      {showTopControls && (
+        <div className="heatmap-header">
+          <div className="chromosome-selector">
+            <label htmlFor="chromosome-select">Chromosome:</label>
+            <div className="select-wrapper">
+              <select
+                id="chromosome-select"
+                value={selectedChromosome}
+                onChange={handleChromosomeChange}
+                disabled={isLoading}
               >
-                <Icon path={mdiMagnify} size={0.7} />
-              </button>
+                {summary.chromosomes.map(chr => (
+                  <option key={chr} value={chr}>
+                    {chr} ({formatNumber(summary.chromosome_counts[chr] || 0)} observations)
+                  </option>
+                ))}
+              </select>
+              <Icon path={mdiChevronDown} size={0.8} className="select-icon" />
             </div>
           </div>
-        )}
 
-        {matrixData && !isLoading && (
-          <div className="matrix-info">
-            <span className="info-item">
-              <strong>{matrixData.num_gametes}</strong> gametes
-            </span>
-            <span className="info-divider">×</span>
-            <span className="info-item">
-              <strong>{formatNumber(matrixData.num_positions)}</strong> positions
-            </span>
-            <span className="info-item position-range">
-              ({formatNumber(matrixData.position_range[0])} - {formatNumber(matrixData.position_range[1])} rpb)
-            </span>
-          </div>
-        )}
-      </div>
+          {matrixData && !isLoading && (
+            <div className="position-search">
+              <label htmlFor="position-search-input">Go to position:</label>
+              <div className="search-input-wrapper">
+                <input
+                  id="position-search-input"
+                  type="text"
+                  placeholder={`e.g. 3.1K; 3141; 3,141`}
+                  value={searchPosition}
+                  onChange={(e) => setSearchPosition(e.target.value)}
+                  onKeyDown={handleSearchKeyPress}
+                />
+                <button 
+                  className="search-button"
+                  onClick={handlePositionSearch}
+                  title="Go to position"
+                >
+                  <Icon path={mdiMagnify} size={0.7} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {matrixData && !isLoading && (
+            <div className="matrix-info">
+              <span className="info-item">
+                <strong>{matrixData.num_gametes}</strong> gametes
+              </span>
+              <span className="info-divider">×</span>
+              <span className="info-item">
+                <strong>{formatNumber(matrixData.num_positions)}</strong> positions
+              </span>
+              <span className="info-item position-range">
+                ({formatNumber(matrixData.position_range[0])} - {formatNumber(matrixData.position_range[1])} rpb)
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Loading state */}
       {isLoading && (
@@ -503,20 +510,22 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       {/* Heatmap content */}
       {matrixData && !isLoading && !error && (
         <>
-          <HeatmapControls
-            zoomLevel={zoomLevel}
-            onZoomChange={setZoomLevel}
-            cellWidthMultiplier={cellWidthMultiplier}
-            onCellWidthChange={setCellWidthMultiplier}
-            cellHeightMultiplier={cellHeightMultiplier}
-            onCellHeightChange={setCellHeightMultiplier}
-            showGridLines={showGridLines}
-            onToggleGridLines={() => setShowGridLines(prev => !prev)}
-            colorScheme={colorScheme}
-            onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
-            onResetView={handleResetView}
-          />
-          
+          {topControlsVisible && (
+            <HeatmapControls
+              zoomLevel={zoomLevel}
+              onZoomChange={setZoomLevel}
+              cellWidthMultiplier={cellWidthMultiplier}
+              onCellWidthChange={setCellWidthMultiplier}
+              cellHeightMultiplier={cellHeightMultiplier}
+              onCellHeightChange={setCellHeightMultiplier}
+              showGridLines={showGridLines}
+              onToggleGridLines={() => setShowGridLines(prev => !prev)}
+              colorScheme={colorScheme}
+              onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
+              onResetView={handleResetView}
+            />
+          )}
+
           <div className="heatmap-canvas-wrapper">
             <HeatmapCanvas
               ref={canvasRef}
@@ -571,15 +580,26 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                 </div>
               )}
               
-              <div className="bottom-bar-section">
-                <span className="section-label">Export</span>
+              <div className="bottom-bar-right-group">
+                <div className="bottom-bar-section">
+                  <span className="section-label">Export</span>
+                  <button
+                    className="section-button with-label"
+                    onClick={handleExportPng}
+                    title="Export current view as PNG"
+                  >
+                    <Icon path={mdiDownload} size={0.7} />
+                    <span>PNG</span>
+                  </button>
+                </div>
+
                 <button
-                  className="section-button with-label"
-                  onClick={handleExportPng}
-                  title="Export current view as PNG"
+                  type="button"
+                  className="heatmap-controls-toggle bottom-bar-toggle"
+                  onClick={() => setTopControlsVisible(prev => !prev)}
+                  title={topControlsVisible ? 'Hide header and tool bar to maximize heatmap view' : 'Show header and tool bar'}
                 >
-                  <Icon path={mdiDownload} size={0.7} />
-                  <span>PNG</span>
+                  <Icon path={topControlsVisible ? mdiEyeOff : mdiEye} size={0.85} />
                 </button>
               </div>
             </div>
