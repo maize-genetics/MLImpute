@@ -46,6 +46,25 @@ function naturalSortCompare(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Parse position input, supporting shorthand with units (K, M, B).
+ * Examples: "2.4M" → 2400000, "3K" → 3000, "3.14B" → 3140000000.
+ * Also accepts plain numbers with or without commas (e.g. "2,400,000").
+ * Returns the position as an integer, or null if the input is invalid.
+ */
+function parsePositionInput(input: string): number | null {
+  const trimmed = input.trim().replace(/,/g, '');
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([KMB])?$/i);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  if (isNaN(num)) return null;
+  const suffix = (match[2] || '').toUpperCase();
+  const multipliers: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9 };
+  const mult = multipliers[suffix] ?? 1;
+  return Math.round(num * mult);
+}
+
 interface GameteInfo {
   gamete: string;
   gamete_index: number;
@@ -280,12 +299,12 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setVisibleRange(range);
   }, []);
 
-  // Search for a position and scroll to it
+  // Search for a position and scroll to it (supports shorthand: 2.4M, 3K, 3.14B)
   const handlePositionSearch = useCallback(() => {
     if (!matrixData || !searchPosition.trim()) return;
     
-    const targetPos = parseInt(searchPosition.replace(/,/g, ''), 10);
-    if (isNaN(targetPos)) return;
+    const targetPos = parsePositionInput(searchPosition);
+    if (targetPos === null) return;
     
     const positions = matrixData.positions;
     if (positions.length === 0) return;
@@ -418,7 +437,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               <input
                 id="position-search-input"
                 type="text"
-                placeholder={`e.g. ${formatNumber(Math.round((matrixData.position_range[0] + matrixData.position_range[1]) / 2))}`}
+                placeholder={`e.g. 3.1K; 3141; 3,141`}
                 value={searchPosition}
                 onChange={(e) => setSearchPosition(e.target.value)}
                 onKeyDown={handleSearchKeyPress}

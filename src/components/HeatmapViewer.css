@@ -107,7 +107,7 @@
   color: var(--md-sys-color-on-surface);
   font-family: 'Roboto Mono', monospace;
   font-size: var(--md-sys-typescale-body-small-size);
-  width: 120px;
+  width: 175px;
   transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
 }
 
