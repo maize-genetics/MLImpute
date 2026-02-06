@@ -332,7 +332,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       }
     }
     
-    // Calculate scroll offset to center the position in the viewport
+    // Calculate scroll offset so the target position is at the left edge of the viewport
     const baseCellSize = 12;
     const cellWidth = baseCellSize * zoomLevel * cellWidthMultiplier;
     const totalWidth = matrixData.num_positions * cellWidth;
@@ -346,8 +346,8 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       return;
     }
     
-    // Calculate pixel position of the target column, then offset to center it
-    const targetPixelPos = nearestIdx * cellWidth - viewportWidth / 2 + cellWidth / 2;
+    // Place the target column at the left edge of the viewport
+    const targetPixelPos = nearestIdx * cellWidth;
     const newOffset = Math.max(0, Math.min(1, targetPixelPos / maxScrollOffset));
     
     setScrollOffset(newOffset);
