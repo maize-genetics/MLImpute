@@ -443,7 +443,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                 <input
                   id="position-search-input"
                   type="text"
-                  placeholder={`e.g. 3.1K; 3141; 3,141`}
+                  placeholder={`e.g. 3.1K; 3100; 3,100`}
                   value={searchPosition}
                   onChange={(e) => setSearchPosition(e.target.value)}
                   onKeyDown={handleSearchKeyPress}
