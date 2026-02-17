@@ -5,7 +5,7 @@ from tqdm import tqdm
 from transformers import ViTForImageClassification, VisionEncoderDecoderModel
 import torch
 import argparse
-from src.python.supervised.deprecated import dataset_labeled, models_labeled
+from python.supervised.deprecated import dataset_labeled, models_labeled
 import sys
 from torch.utils.data import DataLoader
 import pandas as pd
