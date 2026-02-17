@@ -4,9 +4,10 @@ import { mdiMapMarkerPath, mdiChartBoxOutline } from '@mdi/js';
 import "./App.css";
 import ImputePage from "./components/ImputePage";
 import PS4GExplorer from "./components/PS4GExplorer";
+import BEDExplorer from "./components/BEDExplorer";
 import ThemeSwitch from "./components/ThemeSwitch";
 
-type PageType = 'imputation' | 'ps4g';
+type PageType = 'imputation' | 'ps4g' | 'bed';
 
 function App() {
   const [activePage, setActivePage] = useState<PageType>('imputation');
@@ -33,6 +34,13 @@ function App() {
             <span className="nav-tab-icon"><Icon path={mdiChartBoxOutline} size={0.9} /></span>
             PS4G Explorer
           </button>
+          <button 
+            className={`nav-tab ${activePage === 'bed' ? 'active' : ''}`}
+            onClick={() => setActivePage('bed')}
+          >
+            <span className="nav-tab-icon"><Icon path={mdiChartBoxOutline} size={0.9} /></span>
+            BED Explorer
+          </button>
         </div>
         <div className="nav-spacer"></div>
         <ThemeSwitch />
@@ -48,6 +56,11 @@ function App() {
         {/* PS4G Explorer Page - Full Width */}
         <div className="ps4g-page" style={{ display: activePage === 'ps4g' ? 'block' : 'none' }}>
           <PS4GExplorer />
+        </div>
+
+        {/* BED Explorer Page - Full Width */}
+        <div className="bed-page" style={{ display: activePage === 'bed' ? 'block' : 'none' }}>
+          <BEDExplorer />
         </div>
       </div>
     </div>

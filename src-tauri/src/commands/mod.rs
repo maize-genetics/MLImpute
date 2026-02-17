@@ -1,3 +1,4 @@
+pub mod bed_parser;
 pub mod gpu;
 pub mod python_impute;
 pub mod python_bootstrap;

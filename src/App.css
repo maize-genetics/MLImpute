@@ -509,6 +509,21 @@ html, body {
 }
 
 /* =========================================
+   BED Explorer Full Page
+   ========================================= */
+.bed-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.bed-page .bed-explorer {
+  height: 100%;
+}
+
+/* =========================================
    Legacy/Utility Styles
    ========================================= */
 .container {
