@@ -60,6 +60,41 @@ pub struct BEDParseResult {
     pub error: Option<String>,
 }
 
+/// A genomic region (start, end) used as a column label in the matrix
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BEDRegion {
+    pub start: u64,
+    pub end: u64,
+}
+
+/// Progress update sent during matrix construction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BEDMatrixProgress {
+    pub rows_processed: usize,
+    pub chromosome: String,
+    pub percent: f64,
+}
+
+/// Result of building a chromosome matrix from BED data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BEDChromosomeMatrixResult {
+    pub success: bool,
+    pub chromosome: String,
+    /// Cell values: 0 = empty, 1 = parent1, 2 = parent2, 3 = both
+    pub matrix: Vec<Vec<u8>>,
+    /// Row labels: naturally sorted unique parent IDs
+    pub parent_names: Vec<String>,
+    /// Column labels: genomic regions (start, end)
+    pub regions: Vec<BEDRegion>,
+    pub num_parents: usize,
+    pub num_regions: usize,
+    /// For each column, the row index where parent1 is assigned
+    pub parent1_path: Vec<usize>,
+    /// For each column, the row index where parent2 is assigned
+    pub parent2_path: Vec<usize>,
+    pub error: Option<String>,
+}
+
 const PREVIEW_ROW_LIMIT: usize = 100;
 const PROGRESS_UPDATE_INTERVAL: usize = 10_000;
 
@@ -299,6 +334,191 @@ pub async fn parse_bed_file(
         success: true,
         summary,
         data_preview,
+        error: None,
+    })
+}
+
+/// Build a heatmap matrix for a single chromosome from a BED file.
+/// Rows = unique parent IDs (naturally sorted), columns = regions sorted by start position.
+/// Cell values: 0 = empty, 1 = parent1, 2 = parent2, 3 = both parents the same.
+#[tauri::command]
+pub async fn get_bed_chromosome_matrix(
+    file_path: String,
+    chromosome: String,
+    window: tauri::Window,
+) -> Result<BEDChromosomeMatrixResult, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    let file_metadata =
+        std::fs::metadata(path).map_err(|e| format!("Failed to get file metadata: {}", e))?;
+    let file_size = file_metadata.len();
+
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let mut reader = BufReader::with_capacity(1024 * 1024, file);
+
+    // First pass: collect all rows for the target chromosome
+    let mut chrom_rows: Vec<(u64, u64, String, String)> = Vec::new();
+    let mut unique_parents: HashSet<String> = HashSet::new();
+    let mut bytes_processed: u64 = 0;
+    let mut lines_read: usize = 0;
+    let mut line_buf = String::with_capacity(256);
+
+    loop {
+        line_buf.clear();
+        let bytes_read = reader
+            .read_line(&mut line_buf)
+            .map_err(|e| format!("Failed to read line: {}", e))?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        bytes_processed += bytes_read as u64;
+        let line = line_buf.trim();
+        if line.is_empty() || line.starts_with("chrom") || line.starts_with('#') {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 5 {
+            continue;
+        }
+
+        lines_read += 1;
+
+        if parts[0] != chromosome {
+            // Emit progress even for non-matching rows
+            if lines_read % PROGRESS_UPDATE_INTERVAL == 0 {
+                let percent = if file_size > 0 {
+                    (bytes_processed as f64 / file_size as f64) * 100.0
+                } else {
+                    0.0
+                };
+                let _ = window.emit(
+                    "bed-matrix-progress",
+                    BEDMatrixProgress {
+                        rows_processed: chrom_rows.len(),
+                        chromosome: chromosome.clone(),
+                        percent,
+                    },
+                );
+            }
+            continue;
+        }
+
+        let start = match parts[1].parse::<u64>() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let end = match parts[2].parse::<u64>() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let parent1 = parts[3].to_string();
+        let parent2 = parts[4].to_string();
+
+        unique_parents.insert(parent1.clone());
+        unique_parents.insert(parent2.clone());
+        chrom_rows.push((start, end, parent1, parent2));
+
+        if lines_read % PROGRESS_UPDATE_INTERVAL == 0 {
+            let percent = if file_size > 0 {
+                (bytes_processed as f64 / file_size as f64) * 100.0
+            } else {
+                0.0
+            };
+            let _ = window.emit(
+                "bed-matrix-progress",
+                BEDMatrixProgress {
+                    rows_processed: chrom_rows.len(),
+                    chromosome: chromosome.clone(),
+                    percent,
+                },
+            );
+        }
+    }
+
+    if chrom_rows.is_empty() {
+        return Ok(BEDChromosomeMatrixResult {
+            success: true,
+            chromosome,
+            matrix: vec![],
+            parent_names: vec![],
+            regions: vec![],
+            num_parents: 0,
+            num_regions: 0,
+            parent1_path: vec![],
+            parent2_path: vec![],
+            error: None,
+        });
+    }
+
+    // Sort rows by start position
+    chrom_rows.sort_by_key(|r| r.0);
+
+    // Sort parent names naturally
+    let mut parent_names: Vec<String> = unique_parents.into_iter().collect();
+    parent_names.sort_by(|a, b| natural_sort(a, b));
+
+    // Build parent name -> row index lookup
+    let parent_index: HashMap<String, usize> = parent_names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.clone(), i))
+        .collect();
+
+    let num_parents = parent_names.len();
+    let num_regions = chrom_rows.len();
+
+    // Build matrix and path arrays
+    let mut matrix: Vec<Vec<u8>> = vec![vec![0u8; num_regions]; num_parents];
+    let mut parent1_path: Vec<usize> = Vec::with_capacity(num_regions);
+    let mut parent2_path: Vec<usize> = Vec::with_capacity(num_regions);
+    let mut regions: Vec<BEDRegion> = Vec::with_capacity(num_regions);
+
+    for (col, (start, end, p1, p2)) in chrom_rows.iter().enumerate() {
+        regions.push(BEDRegion {
+            start: *start,
+            end: *end,
+        });
+
+        let p1_idx = parent_index[p1];
+        let p2_idx = parent_index[p2];
+
+        if p1_idx == p2_idx {
+            // Both parents are the same
+            matrix[p1_idx][col] = 3;
+        } else {
+            matrix[p1_idx][col] = 1;
+            matrix[p2_idx][col] = 2;
+        }
+
+        parent1_path.push(p1_idx);
+        parent2_path.push(p2_idx);
+    }
+
+    // Emit final progress
+    let _ = window.emit(
+        "bed-matrix-progress",
+        BEDMatrixProgress {
+            rows_processed: num_regions,
+            chromosome: chromosome.clone(),
+            percent: 100.0,
+        },
+    );
+
+    Ok(BEDChromosomeMatrixResult {
+        success: true,
+        chromosome,
+        matrix,
+        parent_names,
+        regions,
+        num_parents,
+        num_regions,
+        parent1_path,
+        parent2_path,
         error: None,
     })
 }

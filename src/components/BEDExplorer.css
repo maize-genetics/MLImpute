@@ -754,6 +754,13 @@
   max-width: 400px;
 }
 
+/* Visualizer panel */
+.bed-explorer .visualizer-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .bed-explorer .stats-grid {

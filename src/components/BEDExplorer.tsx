@@ -4,6 +4,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
 import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline } from '@mdi/js';
+import BEDHeatmapViewer from './BEDHeatmapViewer';
 import './BEDExplorer.css';
 
 interface BEDProgress {
@@ -56,7 +57,7 @@ const BEDExplorer: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [parseResult, setParseResult] = useState<BEDParseResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'gametes' | 'preview'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'gametes' | 'preview' | 'visualizer'>('summary');
   const [progress, setProgress] = useState<BEDProgress | null>(null);
   const [gameteSortKey, setGameteSortKey] = useState<'parent_id' | 'total_regions' | 'as_parent1' | 'as_parent2' | 'total_coverage' | 'chromosomes' | 'proportion'>('total_regions');
   const [gameteSortDir, setGameteSortDir] = useState<'asc' | 'desc'>('desc');
@@ -231,6 +232,12 @@ const BEDExplorer: React.FC = () => {
               onClick={() => setActiveTab('preview')}
             >
               Data Preview
+            </button>
+            <button
+              className={`tab-button ${activeTab === 'visualizer' ? 'active' : ''}`}
+              onClick={() => setActiveTab('visualizer')}
+            >
+              Visualizer
             </button>
           </div>
 
@@ -508,6 +515,15 @@ const BEDExplorer: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'visualizer' && (
+              <div className="visualizer-panel">
+                <BEDHeatmapViewer
+                  filePath={filePath}
+                  summary={parseResult.summary}
+                />
               </div>
             )}
           </div>

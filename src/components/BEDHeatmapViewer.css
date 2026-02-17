@@ -1,0 +1,51 @@
+/* BED Heatmap Viewer - specific styles extending HeatmapViewer.css */
+
+/* Controls row with path toggle alongside HeatmapControls */
+.bed-heatmap-controls-row {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.bed-heatmap-controls-row .heatmap-controls {
+  flex: 1;
+}
+
+/* Path toggle button */
+.bed-path-toggle {
+  display: flex;
+  align-items: center;
+  padding: 0 1rem 0 0;
+  background: var(--md-sys-color-surface-container-low);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.path-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.path-toggle-label {
+  font-family: var(--md-sys-typescale-label-small-font);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+/* BED-specific legend colors */
+.bed-legend-parent1 {
+  background: #FF6B35;
+}
+
+.bed-legend-parent2 {
+  background: #2E86AB;
+}
+
+.bed-legend-both {
+  background: #9D4EDD;
+}
+
+.bed-legend-empty {
+  background: #E8E8E8;
+}

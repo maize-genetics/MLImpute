@@ -26,6 +26,7 @@ pub fn run() {
       commands::ps4g_parser::get_chromosome_matrix,
       commands::ps4g_parser::get_chromosome_matrix_binary,
       commands::bed_parser::parse_bed_file,
+      commands::bed_parser::get_bed_chromosome_matrix,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
