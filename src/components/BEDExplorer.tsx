@@ -534,7 +534,7 @@ const BEDExplorer: React.FC = () => {
         <div className="empty-state">
           <div className="empty-icon"><Icon path={mdiChartBoxOutline} size={3} /></div>
           <h3>No File Loaded</h3>
-          <p>Select a BED file to view imputation results and summary statistics</p>
+          <p>Select a BED file to view its contents and statistics</p>
         </div>
       )}
     </div>
