@@ -31,7 +31,7 @@
       "signingIdentity": "-"
     }
   },
-  "productName": "ml-impute",
+  "productName": "MLImpute",
   "mainBinaryName": "ml-impute",
   "version": "0.1.0",
   "identifier": "net.maizegenetics.mlimpute",
@@ -42,9 +42,9 @@
     },
     "windows": [
       {
-        "title": "ML Impute",
-        "width": 1000,
-        "height": 800,
+        "title": "MLImpute",
+        "width": 1200,
+        "height": 900,
         "useHttpsScheme": true
       }
     ]
