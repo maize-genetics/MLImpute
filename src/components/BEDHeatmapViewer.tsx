@@ -11,8 +11,6 @@ import {
   mdiPause,
   mdiEye,
   mdiEyeOff,
-  mdiVectorPolyline,
-  mdiVectorPolylineEdit,
 } from '@mdi/js';
 import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle, BEDRegion } from './BEDHeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
@@ -68,9 +66,8 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
   const [cellWidthMultiplier, setCellWidthMultiplier] = useState<number>(1);
   const [cellHeightMultiplier, setCellHeightMultiplier] = useState<number>(1);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
-  const [showPaths, setShowPaths] = useState<boolean>(true);
-  // BED heatmap uses categorical coloring only; store a dummy for HeatmapControls
-  const [colorScheme, setColorScheme] = useState<'binary' | 'intensity'>('binary');
+  const [showParent1Path, setShowParent1Path] = useState<boolean>(true);
+  const [showParent2Path, setShowParent2Path] = useState<boolean>(true);
 
   // Auto-scroll
   const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
@@ -182,7 +179,8 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
     setCellWidthMultiplier(1);
     setCellHeightMultiplier(1);
     setShowGridLines(true);
-    setShowPaths(true);
+    setShowParent1Path(true);
+    setShowParent2Path(true);
     setIsAutoScrolling(false);
     setAutoScrollSpeed(0.5);
   }, []);
@@ -313,19 +311,28 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
                 onCellHeightChange={setCellHeightMultiplier}
                 showGridLines={showGridLines}
                 onToggleGridLines={() => setShowGridLines(prev => !prev)}
-                colorScheme={colorScheme}
-                onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
                 onResetView={handleResetView}
               />
               <div className="bed-path-toggle">
-                <button
-                  className={`control-button path-toggle-button ${showPaths ? 'active' : ''}`}
-                  onClick={() => setShowPaths(prev => !prev)}
-                  title={showPaths ? 'Hide parent paths' : 'Show parent paths'}
-                >
-                  <Icon path={showPaths ? mdiVectorPolyline : mdiVectorPolylineEdit} size={0.6} />
-                  <span className="path-toggle-label">Paths</span>
-                </button>
+                <span className="path-toggle-group-label">Paths</span>
+                <div className="path-toggle-group">
+                  <button
+                    className={`control-button path-toggle-button ${showParent1Path ? 'active parent1' : ''}`}
+                    onClick={() => setShowParent1Path(prev => !prev)}
+                    title={showParent1Path ? 'Hide Parent 1 path' : 'Show Parent 1 path'}
+                  >
+                    <Icon path={showParent1Path ? mdiEye : mdiEyeOff} size={0.5} />
+                    <span className="button-label">P1</span>
+                  </button>
+                  <button
+                    className={`control-button path-toggle-button ${showParent2Path ? 'active parent2' : ''}`}
+                    onClick={() => setShowParent2Path(prev => !prev)}
+                    title={showParent2Path ? 'Hide Parent 2 path' : 'Show Parent 2 path'}
+                  >
+                    <Icon path={showParent2Path ? mdiEye : mdiEyeOff} size={0.5} />
+                    <span className="button-label">P2</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -338,7 +345,8 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
               parentNames={matrixData.parent_names}
               parent1Path={matrixData.parent1_path}
               parent2Path={matrixData.parent2_path}
-              showPaths={showPaths}
+              showParent1Path={showParent1Path}
+              showParent2Path={showParent2Path}
               zoomLevel={zoomLevel}
               scrollOffset={scrollOffset}
               onScrollChange={setScrollOffset}

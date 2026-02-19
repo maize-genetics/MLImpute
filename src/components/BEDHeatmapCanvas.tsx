@@ -38,8 +38,10 @@ interface BEDHeatmapCanvasProps {
   parent1Path: number[];
   /** For each column, the row index of parent2 */
   parent2Path: number[];
-  /** Whether to show path lines */
-  showPaths: boolean;
+  /** Whether to show the parent 1 path line */
+  showParent1Path: boolean;
+  /** Whether to show the parent 2 path line */
+  showParent2Path: boolean;
   /** Current zoom level (1 = 100%) */
   zoomLevel: number;
   /** Horizontal scroll offset (0-1) */
@@ -53,11 +55,15 @@ interface BEDHeatmapCanvasProps {
   showGridLines?: boolean;
 }
 
-// Color constants matching FocusChart.ts
-const COLOR_PARENT1 = '#FF6B35'; // Orange
-const COLOR_PARENT2 = '#2E86AB'; // Blue
-const COLOR_BOTH = '#9D4EDD';    // Purple
-const COLOR_EMPTY = '#E8E8E8';   // Light grey
+// Cell fill colors — pale variants for softer heatmap background
+const COLOR_PARENT1 = '#FFAB91'; // Pale orange
+const COLOR_PARENT2 = '#81D4FA'; // Pale blue
+const COLOR_BOTH = '#CE93D8';    // Pale purple
+const COLOR_EMPTY = '#F0F0F0';   // Light grey
+
+// Path line colors — darker/contrasting variants so paths are distinct from cell fills
+const PATH_COLOR_PARENT1 = '#B81D00'; // Deep red-orange
+const PATH_COLOR_PARENT2 = '#0B4F6C'; // Dark teal
 
 interface TooltipContentProps {
   mousePos: { x: number; y: number };
@@ -142,7 +148,8 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
   parentNames,
   parent1Path,
   parent2Path,
-  showPaths,
+  showParent1Path,
+  showParent2Path,
   zoomLevel,
   scrollOffset,
   onScrollChange,
@@ -250,30 +257,55 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
 
     if (points.length < 2) return;
 
-    // Draw connecting line
+    // Decimate: keep only transition boundary points to reduce noise when zoomed out
+    const visibleCount = endCol - startCol;
+    let drawPoints = points;
+    if (visibleCount > 2) {
+      const decimated: { x: number; y: number }[] = [points[0]];
+      for (let i = 1; i < points.length - 1; i++) {
+        const prevRow = pathData[startCol + i - 1];
+        const currRow = pathData[startCol + i];
+        const nextRow = pathData[startCol + i + 1];
+        if (currRow !== prevRow || currRow !== nextRow) {
+          decimated.push(points[i]);
+        }
+      }
+      decimated.push(points[points.length - 1]);
+      drawPoints = decimated;
+    }
+
+    // Adaptive sizing based on cell dimensions
+    const adaptiveLineWidth = Math.max(1, Math.min(2.5, cellWidth * 0.4));
+    const dashScale = Math.max(0.3, Math.min(1, cellWidth / 8));
+    const scaledDash = dashPattern.map(d => d * dashScale);
+
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-    ctx.setLineDash(dashPattern);
+    ctx.lineWidth = adaptiveLineWidth;
+    ctx.setLineDash(scaledDash);
     ctx.globalAlpha = 0.85;
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
+    ctx.moveTo(drawPoints[0].x, drawPoints[0].y);
+    for (let i = 1; i < drawPoints.length; i++) {
+      ctx.lineTo(drawPoints[i].x, drawPoints[i].y);
     }
     ctx.stroke();
 
-    // Draw circles at each node
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 0.9;
-    for (const pt of points) {
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    // Draw circles at transition nodes only when cells are large enough to be useful
+    if (cellWidth >= 8) {
+      const circleRadius = Math.max(2, Math.min(3.5, cellWidth * 0.3));
+      const strokeWidth = Math.max(0.5, Math.min(1.5, cellWidth * 0.15));
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.9;
+      for (const pt of drawPoints) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, circleRadius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = strokeWidth;
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }, [startCol, endCol, cellWidth, cellHeight, LABEL_MARGIN_LEFT, LABEL_MARGIN_TOP, PADDING]);
@@ -375,9 +407,11 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         }
 
         // Paths
-        if (showPaths) {
-          drawParentPath(ctx, parent1Path, COLOR_PARENT1, [8, 4]);
-          drawParentPath(ctx, parent2Path, COLOR_PARENT2, [4, 8]);
+        if (showParent1Path) {
+          drawParentPath(ctx, parent1Path, PATH_COLOR_PARENT1, [8, 4]);
+        }
+        if (showParent2Path) {
+          drawParentPath(ctx, parent2Path, PATH_COLOR_PARENT2, [4, 8]);
         }
 
         ctx.restore();
@@ -440,7 +474,7 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
       }
     }
   }), [
-    matrix, regions, parentNames, parent1Path, parent2Path, showPaths,
+    matrix, regions, parentNames, parent1Path, parent2Path, showParent1Path, showParent2Path,
     containerSize, cellWidth, cellHeight, startCol, endCol, numRows, numCols,
     totalMatrixHeight, viewportWidth, showGridLines, getCellColor, drawParentPath,
   ]);
@@ -522,9 +556,11 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
     }
 
     // Draw parent paths
-    if (showPaths) {
-      drawParentPath(ctx, parent1Path, COLOR_PARENT1, [8, 4]);
-      drawParentPath(ctx, parent2Path, COLOR_PARENT2, [4, 8]);
+    if (showParent1Path) {
+      drawParentPath(ctx, parent1Path, PATH_COLOR_PARENT1, [8, 4]);
+    }
+    if (showParent2Path) {
+      drawParentPath(ctx, parent2Path, PATH_COLOR_PARENT2, [4, 8]);
     }
 
     // Hover highlight
@@ -539,7 +575,7 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         ctx.strokeRect(x, y, cellWidth, cellHeight);
       }
     }
-  }, [matrix, regions, parentNames, parent1Path, parent2Path, showPaths,
+  }, [matrix, regions, parentNames, parent1Path, parent2Path, showParent1Path, showParent2Path,
       containerSize, cellWidth, cellHeight, startCol, endCol, numRows, numCols,
       totalMatrixHeight, viewportWidth, showGridLines, getCellColor, hoveredCell, drawParentPath]);
 
@@ -601,7 +637,26 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         e.preventDefault();
         if (onZoomChange) {
           const delta = e.deltaY > 0 ? -0.1 : 0.1;
-          onZoomChange(Math.max(0.25, Math.min(4, zoomLevel + delta)));
+          const newZoom = Math.max(0.25, Math.min(4, zoomLevel + delta));
+          if (newZoom === zoomLevel) return;
+
+          // Zoom toward cursor: keep the data position under the mouse fixed
+          const rect = canvas.getBoundingClientRect();
+          const cursorX = e.clientX - rect.left - LABEL_MARGIN_LEFT - PADDING;
+          const dataX = scrollX + cursorX;
+
+          const ratio = newZoom / zoomLevel;
+          const newDataX = dataX * ratio;
+          const newCellWidth = baseCellSize * newZoom * cellWidthMultiplier;
+          const newTotalWidth = numCols * newCellWidth;
+          const newMaxScroll = Math.max(0, newTotalWidth - viewportWidth);
+          const newScrollX = newDataX - cursorX;
+          const newOffset = newMaxScroll > 0
+            ? Math.max(0, Math.min(1, newScrollX / newMaxScroll))
+            : 0;
+
+          onZoomChange(newZoom);
+          onScrollChange(newOffset);
         }
       } else if (e.shiftKey) {
         e.preventDefault();
@@ -613,7 +668,9 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
     };
     canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', handleNativeWheel);
-  }, [scrollOffset, maxScrollOffset, zoomLevel, onScrollChange, onZoomChange]);
+  }, [scrollOffset, scrollX, maxScrollOffset, zoomLevel, baseCellSize, cellWidthMultiplier,
+      numCols, viewportWidth, onScrollChange, onZoomChange,
+      LABEL_MARGIN_LEFT, PADDING]);
 
   const requiredHeight = totalMatrixHeight + LABEL_MARGIN_TOP + PADDING * 2;
 
@@ -623,7 +680,6 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
       className="heatmap-canvas-container"
       style={{
         width: '100%',
-        minHeight: Math.max(300, requiredHeight),
         height: requiredHeight,
         position: 'relative',
         cursor: isDragging ? 'grabbing' : 'grab',

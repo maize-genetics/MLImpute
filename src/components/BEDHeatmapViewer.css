@@ -1,5 +1,11 @@
 /* BED Heatmap Viewer - specific styles extending HeatmapViewer.css */
 
+/* Canvas wrapper scrolls vertically when zoomed in; horizontally handled by canvas */
+.bed-heatmap-viewer .heatmap-canvas-wrapper {
+  overflow-y: auto;
+  min-height: 0;
+}
+
 /* Controls row with path toggle alongside HeatmapControls */
 .bed-heatmap-controls-row {
   display: flex;
@@ -11,41 +17,54 @@
   flex: 1;
 }
 
-/* Path toggle button */
+/* Path toggle group — matches .heatmap-controls bar dimensions */
 .bed-path-toggle {
   display: flex;
   align-items: center;
-  padding: 0 1rem 0 0;
+  align-self: stretch;
+  gap: 0.5rem;
+  padding: 0 1rem;
   background: var(--md-sys-color-surface-container-low);
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 
-.path-toggle-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
-}
-
-.path-toggle-label {
+.path-toggle-group-label {
   font-family: var(--md-sys-typescale-label-small-font);
   font-size: 10px;
   font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
-/* BED-specific legend colors */
+.path-toggle-group {
+  display: flex;
+  gap: 4px;
+}
+
+.path-toggle-button.active.parent1 {
+  background: color-mix(in srgb, #B81D00 20%, transparent);
+  color: #B81D00;
+  border-color: #B81D00;
+}
+
+.path-toggle-button.active.parent2 {
+  background: color-mix(in srgb, #0B4F6C 20%, transparent);
+  color: #0B4F6C;
+  border-color: #0B4F6C;
+}
+
+/* BED-specific legend colors — match pale cell fills */
 .bed-legend-parent1 {
-  background: #FF6B35;
+  background: #FFAB91;
 }
 
 .bed-legend-parent2 {
-  background: #2E86AB;
+  background: #81D4FA;
 }
 
 .bed-legend-both {
-  background: #9D4EDD;
+  background: #CE93D8;
 }
 
 .bed-legend-empty {
-  background: #E8E8E8;
+  background: #F0F0F0;
 }
