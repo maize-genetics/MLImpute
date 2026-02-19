@@ -758,6 +758,7 @@
 .bed-explorer .visualizer-panel {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 500px;
 }
 
