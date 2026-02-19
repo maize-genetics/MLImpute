@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
 import { mdiContentCopy } from '@mdi/js';
 import SystemSettings, { type AdapterInfo } from './SystemSettings';
@@ -104,6 +104,25 @@ const ImputePage: React.FC = () => {
     } catch (error) {
       console.error('Error selecting file:', error);
       alert(`Error opening file dialog: ${error}`);
+    }
+  };
+
+  const selectOutputFile = async () => {
+    try {
+      const selected = await save({
+        title: 'Select Output Location',
+        defaultPath: outputPath || 'output_imputed.bed',
+        filters: [
+          { name: 'BED Files', extensions: ['bed'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (selected) {
+        setOutputPath(selected);
+      }
+    } catch (error) {
+      console.error('Error selecting output file:', error);
+      alert(`Error opening save dialog: ${error}`);
     }
   };
 
@@ -220,13 +239,21 @@ const ImputePage: React.FC = () => {
 
               <div className="input-group">
                 <label>Output BED File:</label>
-                <input
-                  type="text"
-                  value={outputPath}
-                  onChange={(e) => setOutputPath(e.target.value)}
-                  placeholder="output_imputed.bed"
-                  disabled={isRunning}
-                />
+                <div className="file-input">
+                  <input
+                    type="text"
+                    value={outputPath}
+                    onChange={(e) => setOutputPath(e.target.value)}
+                    placeholder="output_imputed.bed"
+                    disabled={isRunning}
+                  />
+                  <button
+                    onClick={selectOutputFile}
+                    disabled={isRunning}
+                  >
+                    Browse
+                  </button>
+                </div>
               </div>
             </div>
 
