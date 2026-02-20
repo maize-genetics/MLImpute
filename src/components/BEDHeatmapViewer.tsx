@@ -12,6 +12,7 @@ import {
   mdiEye,
   mdiEyeOff,
   mdiArrowExpandVertical,
+  mdiKeyboard,
 } from '@mdi/js';
 import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle, BEDRegion } from './BEDHeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
@@ -69,6 +70,7 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
   const [showParent1Path, setShowParent1Path] = useState<boolean>(true);
   const [showParent2Path, setShowParent2Path] = useState<boolean>(true);
+  const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
 
   // Auto-scroll
   const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
@@ -510,8 +512,29 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
                   </button>
                 </div>
               </div>
-              <div className="legend-hint">
-                Scroll: vertical | Shift+scroll: horizontal | Ctrl+scroll: zoom | Space: play/pause
+              <div className="shortcuts-trigger-wrapper">
+                <button
+                  className="control-button shortcuts-trigger"
+                  onClick={() => setShowShortcuts(prev => !prev)}
+                  title="Keyboard & mouse shortcuts"
+                >
+                  <Icon path={mdiKeyboard} size={0.65} />
+                </button>
+                {showShortcuts && (
+                  <div className="shortcuts-popup">
+                    <div className="shortcuts-popup-header">
+                      <span>Shortcuts</span>
+                      <button className="shortcuts-popup-close" onClick={() => setShowShortcuts(false)}>&times;</button>
+                    </div>
+                    <div className="shortcuts-popup-body">
+                      <div className="shortcut-row"><kbd>Scroll</kbd><span>Vertical pan</span></div>
+                      <div className="shortcut-row"><kbd>Shift + Scroll</kbd><span>Horizontal pan</span></div>
+                      <div className="shortcut-row"><kbd>Ctrl + Scroll</kbd><span>Zoom</span></div>
+                      <div className="shortcut-row"><kbd>Space</kbd><span>Play / Pause auto-scroll</span></div>
+                      <div className="shortcut-row"><kbd>Click + Drag</kbd><span>Pan horizontally</span></div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
