@@ -17,8 +17,8 @@
   flex: 1;
 }
 
-/* Path toggle group — matches .heatmap-controls bar dimensions */
-.bed-path-toggle {
+/* Auto-fit button — sits where path toggle used to be in controls row */
+.bed-auto-fit {
   display: flex;
   align-items: center;
   align-self: stretch;
@@ -26,6 +26,13 @@
   padding: 0 1rem;
   background: var(--md-sys-color-surface-container-low);
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* Path toggle inline in legend bar */
+.bed-path-toggle-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .path-toggle-group-label {
@@ -65,6 +72,3 @@
   background: #CE93D8;
 }
 
-.bed-legend-empty {
-  background: #F0F0F0;
-}

@@ -11,6 +11,7 @@ import {
   mdiPause,
   mdiEye,
   mdiEyeOff,
+  mdiArrowExpandVertical,
 } from '@mdi/js';
 import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle, BEDRegion } from './BEDHeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
@@ -77,6 +78,7 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<BEDHeatmapCanvasHandle>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [visibleRange, setVisibleRange] = useState<BEDVisibleRange | null>(null);
 
@@ -184,6 +186,21 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
     setIsAutoScrolling(false);
     setAutoScrollSpeed(0.5);
   }, []);
+
+  const handleAutoFitHeight = useCallback(() => {
+    if (!wrapperRef.current || !matrixData) return;
+    const availableHeight = wrapperRef.current.clientHeight;
+    const LABEL_MARGIN_TOP = 10;
+    const PADDING = 10;
+    const overhead = LABEL_MARGIN_TOP + PADDING * 2;
+    const targetMatrixHeight = availableHeight - overhead;
+    if (targetMatrixHeight <= 0) return;
+    const numRows = matrixData.matrix.length;
+    const baseCellSize = 12;
+    const targetCellHeight = Math.floor(targetMatrixHeight / numRows);
+    const newMultiplier = targetCellHeight / (baseCellSize * zoomLevel);
+    setCellHeightMultiplier(Math.max(0.1, newMultiplier));
+  }, [matrixData, zoomLevel]);
 
   const calculateViewportWidthPercent = useCallback((): number => {
     if (!matrixData) return 1;
@@ -313,31 +330,20 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
                 onToggleGridLines={() => setShowGridLines(prev => !prev)}
                 onResetView={handleResetView}
               />
-              <div className="bed-path-toggle">
-                <span className="path-toggle-group-label">Paths</span>
-                <div className="path-toggle-group">
-                  <button
-                    className={`control-button path-toggle-button ${showParent1Path ? 'active parent1' : ''}`}
-                    onClick={() => setShowParent1Path(prev => !prev)}
-                    title={showParent1Path ? 'Hide Parent 1 path' : 'Show Parent 1 path'}
-                  >
-                    <Icon path={showParent1Path ? mdiEye : mdiEyeOff} size={0.5} />
-                    <span className="button-label">P1</span>
-                  </button>
-                  <button
-                    className={`control-button path-toggle-button ${showParent2Path ? 'active parent2' : ''}`}
-                    onClick={() => setShowParent2Path(prev => !prev)}
-                    title={showParent2Path ? 'Hide Parent 2 path' : 'Show Parent 2 path'}
-                  >
-                    <Icon path={showParent2Path ? mdiEye : mdiEyeOff} size={0.5} />
-                    <span className="button-label">P2</span>
-                  </button>
-                </div>
+              <div className="bed-auto-fit">
+                <button
+                  className="control-button auto-fit-button"
+                  onClick={handleAutoFitHeight}
+                  title="Fit heatmap height to view"
+                >
+                  <Icon path={mdiArrowExpandVertical} size={0.5} />
+                  <span className="button-label">Fit Height</span>
+                </button>
               </div>
             </div>
           )}
 
-          <div className="heatmap-canvas-wrapper">
+          <div className="heatmap-canvas-wrapper" ref={wrapperRef}>
             <BEDHeatmapCanvas
               ref={canvasRef}
               matrix={matrixData.matrix}
@@ -483,9 +489,26 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
                 <span className="legend-color bed-legend-both"></span>
                 <span className="legend-label">Both</span>
               </div>
-              <div className="legend-item">
-                <span className="legend-color bed-legend-empty"></span>
-                <span className="legend-label">Empty</span>
+              <div className="bed-path-toggle-inline">
+                <span className="path-toggle-group-label">Paths</span>
+                <div className="path-toggle-group">
+                  <button
+                    className={`control-button path-toggle-button ${showParent1Path ? 'active parent1' : ''}`}
+                    onClick={() => setShowParent1Path(prev => !prev)}
+                    title={showParent1Path ? 'Hide Parent 1 path' : 'Show Parent 1 path'}
+                  >
+                    <Icon path={showParent1Path ? mdiEye : mdiEyeOff} size={0.5} />
+                    <span className="button-label">P1</span>
+                  </button>
+                  <button
+                    className={`control-button path-toggle-button ${showParent2Path ? 'active parent2' : ''}`}
+                    onClick={() => setShowParent2Path(prev => !prev)}
+                    title={showParent2Path ? 'Hide Parent 2 path' : 'Show Parent 2 path'}
+                  >
+                    <Icon path={showParent2Path ? mdiEye : mdiEyeOff} size={0.5} />
+                    <span className="button-label">P2</span>
+                  </button>
+                </div>
               </div>
               <div className="legend-hint">
                 Scroll: vertical | Shift+scroll: horizontal | Ctrl+scroll: zoom | Space: play/pause
