@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiContentCopy } from '@mdi/js';
+import { mdiContentCopy, mdiCog, mdiClose } from '@mdi/js';
 import SystemSettings, { type AdapterInfo } from './SystemSettings';
 import './ImputePage.css';
 
@@ -40,6 +40,7 @@ const ImputePage: React.FC = () => {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [result, setResult] = useState<ImputeResult | null>(null);
   const [gpuAdapters, setGpuAdapters] = useState<AdapterInfo[] | null>(null);
+  const [showSystemSettings, setShowSystemSettings] = useState<boolean>(false);
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -179,9 +180,37 @@ const ImputePage: React.FC = () => {
     <div className="impute-page">
       <div className="impute-page-inner">
         <div className="impute-page-header">
-          <h2>ML Imputation Tool</h2>
-          <p className="impute-page-subtitle">Configure and run haplotype imputation models</p>
+          <div>
+            <h2>ML Imputation Tool</h2>
+            <p className="impute-page-subtitle">Configure and run haplotype imputation models</p>
+          </div>
+          <button
+            className="settings-icon-button"
+            onClick={() => setShowSystemSettings(true)}
+            title="System Specs"
+          >
+            <Icon path={mdiCog} size={1} />
+          </button>
         </div>
+
+        {showSystemSettings && (
+          <div className="settings-modal-overlay" onClick={() => setShowSystemSettings(false)}>
+            <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="settings-modal-header">
+                <h3>System Specs</h3>
+                <button
+                  className="settings-modal-close"
+                  onClick={() => setShowSystemSettings(false)}
+                >
+                  <Icon path={mdiClose} size={0.9} />
+                </button>
+              </div>
+              <div className="settings-modal-body">
+                <SystemSettings onGpuInfoChange={handleGpuInfoChange} />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="impute-grid">
           {/* Left column: Input & Output */}
@@ -256,8 +285,6 @@ const ImputePage: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            <SystemSettings onGpuInfoChange={handleGpuInfoChange} />
           </div>
 
           {/* Right column: Model Settings & Options */}
