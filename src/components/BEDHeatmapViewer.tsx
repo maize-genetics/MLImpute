@@ -16,6 +16,8 @@ import {
 } from '@mdi/js';
 import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle, BEDRegion } from './BEDHeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
+import PositionSearch from './PositionSearch';
+import { findNearestColumnIndex, calculateScrollOffset } from '../utils/positionSearch';
 import './HeatmapViewer.css';
 import './BEDHeatmapViewer.css';
 
@@ -204,6 +206,14 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
     setCellHeightMultiplier(Math.max(0.1, newMultiplier));
   }, [matrixData, zoomLevel]);
 
+  const handlePositionSearch = useCallback((targetPos: number) => {
+    if (!matrixData || matrixData.regions.length === 0) return;
+    const idx = findNearestColumnIndex(targetPos, (i) => matrixData.regions[i].start, matrixData.regions.length);
+    if (idx < 0) return;
+    const offset = calculateScrollOffset(idx, matrixData.num_regions, zoomLevel, cellWidthMultiplier, containerWidth);
+    if (offset !== null) setScrollOffset(offset);
+  }, [matrixData, zoomLevel, cellWidthMultiplier, containerWidth]);
+
   const calculateViewportWidthPercent = useCallback((): number => {
     if (!matrixData) return 1;
     const baseCellSize = 12;
@@ -268,6 +278,13 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
               <Icon path={mdiChevronDown} size={0.8} className="select-icon" />
             </div>
           </div>
+
+          {matrixData && !isLoading && (
+            <PositionSearch
+              onSearch={handlePositionSearch}
+              inputId="bed-position-search-input"
+            />
+          )}
 
           {matrixData && !isLoading && (
             <div className="matrix-info">

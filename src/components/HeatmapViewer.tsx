@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify, mdiHelpCircleOutline, mdiEye, mdiEyeOff, mdiArrowExpandVertical, mdiKeyboard } from '@mdi/js';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiHelpCircleOutline, mdiEye, mdiEyeOff, mdiArrowExpandVertical, mdiKeyboard } from '@mdi/js';
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
+import PositionSearch from './PositionSearch';
+import { findNearestColumnIndex, calculateScrollOffset } from '../utils/positionSearch';
 import './HeatmapViewer.css';
 
 /**
@@ -44,25 +46,6 @@ function naturalSortCompare(a: string, b: string): number {
   }
   
   return 0;
-}
-
-/**
- * Parse position input, supporting shorthand with units (K, M, B).
- * Examples: "2.4M" → 2400000, "3K" → 3000, "3.14B" → 3140000000.
- * Also accepts plain numbers with or without commas (e.g. "2,400,000").
- * Returns the position as an integer, or null if the input is invalid.
- */
-function parsePositionInput(input: string): number | null {
-  const trimmed = input.trim().replace(/,/g, '');
-  if (!trimmed) return null;
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([KMB])?$/i);
-  if (!match) return null;
-  const num = parseFloat(match[1]);
-  if (isNaN(num)) return null;
-  const suffix = (match[2] || '').toUpperCase();
-  const multipliers: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9 };
-  const mult = multipliers[suffix] ?? 1;
-  return Math.round(num * mult);
 }
 
 interface GameteInfo {
@@ -145,9 +128,6 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
   
-  // Position search state
-  const [searchPosition, setSearchPosition] = useState<string>('');
-
   // Top-level controls visibility (hide to maximize heatmap viewspace)
   const [topControlsVisible, setTopControlsVisible] = useState<boolean>(true);
 
@@ -319,66 +299,13 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setVisibleRange(range);
   }, []);
 
-  // Search for a position and scroll to it (supports shorthand: 2.4M, 3K, 3.14B)
-  const handlePositionSearch = useCallback(() => {
-    if (!matrixData || !searchPosition.trim()) return;
-    
-    const targetPos = parsePositionInput(searchPosition);
-    if (targetPos === null) return;
-    
-    const positions = matrixData.positions;
-    if (positions.length === 0) return;
-    
-    // Find the nearest position using binary search
-    let left = 0;
-    let right = positions.length - 1;
-    
-    while (left < right) {
-      const mid = Math.floor((left + right) / 2);
-      if (positions[mid] < targetPos) {
-        left = mid + 1;
-      } else {
-        right = mid;
-      }
-    }
-    
-    // Check if the previous position is closer
-    let nearestIdx = left;
-    if (left > 0) {
-      const diffLeft = Math.abs(positions[left - 1] - targetPos);
-      const diffRight = Math.abs(positions[left] - targetPos);
-      if (diffLeft < diffRight) {
-        nearestIdx = left - 1;
-      }
-    }
-    
-    // Calculate scroll offset so the target position is at the left edge of the viewport
-    const baseCellSize = 12;
-    const cellWidth = baseCellSize * zoomLevel * cellWidthMultiplier;
-    const totalWidth = matrixData.num_positions * cellWidth;
-    const labelMargin = 100;
-    const padding = 20;
-    const viewportWidth = Math.max(containerWidth - labelMargin - padding, 100);
-    const maxScrollOffset = Math.max(0, totalWidth - viewportWidth);
-    
-    if (maxScrollOffset === 0) {
-      // All data fits in viewport, no need to scroll
-      return;
-    }
-    
-    // Place the target column at the left edge of the viewport
-    const targetPixelPos = nearestIdx * cellWidth;
-    const newOffset = Math.max(0, Math.min(1, targetPixelPos / maxScrollOffset));
-    
-    setScrollOffset(newOffset);
-  }, [matrixData, searchPosition, zoomLevel, cellWidthMultiplier, containerWidth]);
-
-  // Handle search input key press (Enter to search)
-  const handleSearchKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handlePositionSearch();
-    }
-  }, [handlePositionSearch]);
+  const handlePositionSearch = useCallback((targetPos: number) => {
+    if (!matrixData || matrixData.positions.length === 0) return;
+    const idx = findNearestColumnIndex(targetPos, (i) => matrixData.positions[i], matrixData.positions.length);
+    if (idx < 0) return;
+    const offset = calculateScrollOffset(idx, matrixData.num_positions, zoomLevel, cellWidthMultiplier, containerWidth);
+    if (offset !== null) setScrollOffset(offset);
+  }, [matrixData, zoomLevel, cellWidthMultiplier, containerWidth]);
 
   // Extract filename from file path
   const getFileName = useCallback((path: string): string => {
@@ -454,26 +381,10 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           </div>
 
           {matrixData && !isLoading && (
-            <div className="position-search">
-              <label htmlFor="position-search-input">Go to position:</label>
-              <div className="search-input-wrapper">
-                <input
-                  id="position-search-input"
-                  type="text"
-                  placeholder={`e.g. 3.1K; 3100; 3,100`}
-                  value={searchPosition}
-                  onChange={(e) => setSearchPosition(e.target.value)}
-                  onKeyDown={handleSearchKeyPress}
-                />
-                <button 
-                  className="search-button"
-                  onClick={handlePositionSearch}
-                  title="Go to position"
-                >
-                  <Icon path={mdiMagnify} size={0.7} />
-                </button>
-              </div>
-            </div>
+            <PositionSearch
+              onSearch={handlePositionSearch}
+              inputId="ps4g-position-search-input"
+            />
           )}
 
           {matrixData && !isLoading && (
