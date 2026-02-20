@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import Icon from '@mdi/react';
-import { mdiWeatherSunny, mdiWeatherNight, mdiMonitor } from '@mdi/js';
+import { mdiWeatherSunny, mdiWeatherNight } from '@mdi/js';
 import './ThemeSwitch.css';
 
-export type Theme = 'light' | 'dark' | 'system';
+export type Theme = 'light' | 'dark';
 
 interface ThemeSwitchProps {
   onChange?: (theme: Theme) => void;
@@ -12,59 +12,39 @@ interface ThemeSwitchProps {
 function ThemeSwitch({ onChange }: ThemeSwitchProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('theme') as Theme | null;
-    return saved || 'system';
+    if (saved === 'light' || saved === 'dark') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   useEffect(() => {
-    const root = document.documentElement;
-    
-    if (theme === 'system') {
-      root.removeAttribute('data-theme');
-    } else {
-      root.setAttribute('data-theme', theme);
-    }
-    
+    document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
     onChange?.(theme);
   }, [theme, onChange]);
 
-  const handleThemeChange = (newTheme: Theme) => {
-    setTheme(newTheme);
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
+  const isDark = theme === 'dark';
+
   return (
-    <div className="theme-switch" role="radiogroup" aria-label="Theme selection">
-      <button
-        className={`theme-switch-option ${theme === 'light' ? 'active' : ''}`}
-        onClick={() => handleThemeChange('light')}
-        role="radio"
-        aria-checked={theme === 'light'}
-        aria-label="Light theme"
-        title="Light theme"
-      >
-        <Icon path={mdiWeatherSunny} size={0.75} />
-      </button>
-      <button
-        className={`theme-switch-option ${theme === 'system' ? 'active' : ''}`}
-        onClick={() => handleThemeChange('system')}
-        role="radio"
-        aria-checked={theme === 'system'}
-        aria-label="System theme"
-        title="System theme"
-      >
-        <Icon path={mdiMonitor} size={0.75} />
-      </button>
-      <button
-        className={`theme-switch-option ${theme === 'dark' ? 'active' : ''}`}
-        onClick={() => handleThemeChange('dark')}
-        role="radio"
-        aria-checked={theme === 'dark'}
-        aria-label="Dark theme"
-        title="Dark theme"
-      >
-        <Icon path={mdiWeatherNight} size={0.75} />
-      </button>
-    </div>
+    <button
+      className={`theme-toggle ${isDark ? 'dark' : 'light'}`}
+      onClick={toggleTheme}
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+      title={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+    >
+      <span className="theme-toggle-track">
+        <span className="theme-toggle-icon sun">
+          <Icon path={mdiWeatherSunny} size={0.5} />
+        </span>
+        <span className="theme-toggle-icon moon">
+          <Icon path={mdiWeatherNight} size={0.5} />
+        </span>
+        <span className="theme-toggle-thumb" />
+      </span>
+    </button>
   );
 }
 

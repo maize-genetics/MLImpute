@@ -1,6 +1,5 @@
-pub mod gpu;
-pub mod visualization_data;
-pub mod python_impute;
 pub mod bed_parser;
+pub mod gpu;
+pub mod python_impute;
 pub mod python_bootstrap;
 pub mod ps4g_parser;

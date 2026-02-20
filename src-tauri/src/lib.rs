@@ -17,9 +17,7 @@ pub fn run() {
     // Commands
     .invoke_handler(tauri::generate_handler![
       commands::gpu::gpu_adapters,
-      commands::visualization_data::run_imputation_visualization,
       commands::python_impute::run_python_imputation,
-      commands::bed_parser::process_bed_file,
       commands::python_bootstrap::bootstrap_python,
       commands::python_bootstrap::get_python_status,
       commands::python_bootstrap::run_python_command,
@@ -27,6 +25,8 @@ pub fn run() {
       commands::ps4g_parser::parse_ps4g_file,
       commands::ps4g_parser::get_chromosome_matrix,
       commands::ps4g_parser::get_chromosome_matrix_binary,
+      commands::bed_parser::parse_bed_file,
+      commands::bed_parser::get_bed_chromosome_matrix,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

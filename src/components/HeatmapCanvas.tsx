@@ -45,6 +45,8 @@ interface HeatmapCanvasProps {
   baseCellSize?: number;
   /** Cell width multiplier (relative to baseCellSize, default 1) */
   cellWidthMultiplier?: number;
+  /** Callback when cell width multiplier changes via Ctrl+Shift+scroll */
+  onCellWidthChange?: (multiplier: number) => void;
   /** Cell height multiplier (relative to baseCellSize, default 1) */
   cellHeightMultiplier?: number;
   /** Whether to show grid lines */
@@ -147,6 +149,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
   scrollOffset,
   onScrollChange,
   onZoomChange,
+  onCellWidthChange,
   onVisibleRangeChange,
   baseCellSize = 12,
   cellWidthMultiplier = 1,
@@ -695,7 +698,15 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     if (!canvas) return;
 
     const handleNativeWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        // Column width with Ctrl/Cmd + Shift + scroll
+        e.preventDefault();
+        if (onCellWidthChange) {
+          const rawDelta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+          const delta = rawDelta > 0 ? -0.05 : 0.05;
+          onCellWidthChange(Math.max(0.05, Math.min(4, cellWidthMultiplier + delta)));
+        }
+      } else if (e.ctrlKey || e.metaKey) {
         // Zoom with Ctrl/Cmd + scroll
         e.preventDefault();
         if (onZoomChange) {
@@ -716,7 +727,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
 
     canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', handleNativeWheel);
-  }, [scrollOffset, maxScrollOffset, zoomLevel, onScrollChange, onZoomChange]);
+  }, [scrollOffset, maxScrollOffset, zoomLevel, cellWidthMultiplier, onScrollChange, onZoomChange, onCellWidthChange]);
 
   // Calculate the required height for the canvas
   const requiredHeight = totalMatrixHeight + LABEL_MARGIN_TOP + PADDING * 2;

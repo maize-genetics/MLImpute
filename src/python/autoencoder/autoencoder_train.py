@@ -6,7 +6,7 @@ import os
 import wandb
 from autoencoder_model import AutoEncoder
 
-from src.python.ps4g_io.torch_loaders import longest_consec
+from python.ps4g_io.torch_loaders import longest_consec
 
 with open("wandb_key.txt", 'r') as f:
     key = f.read().strip()

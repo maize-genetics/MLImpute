@@ -4,8 +4,8 @@ import argparse
 import torch
 from torch.utils.data import DataLoader
 import os
-from src.python.supervised.deprecated.models_labeled import LstmSegmentationEncDec
-from src.python.supervised.deprecated.dataset_labeled import BaseSegmentationDataset
+from python.supervised.deprecated.models_labeled import LstmSegmentationEncDec
+from python.supervised.deprecated.dataset_labeled import BaseSegmentationDataset
 import wandb
 from tqdm import tqdm
 import sys

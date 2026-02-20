@@ -25,10 +25,10 @@ interface HeatmapControlsProps {
   showGridLines: boolean;
   /** Toggle grid lines */
   onToggleGridLines: () => void;
-  /** Color scheme */
-  colorScheme: 'binary' | 'intensity';
+  /** Color scheme (omit to hide the toggle) */
+  colorScheme?: 'binary' | 'intensity';
   /** Toggle color scheme */
-  onToggleColorScheme: () => void;
+  onToggleColorScheme?: () => void;
   /** Reset view to defaults */
   onResetView: () => void;
 }
@@ -72,15 +72,17 @@ const HeatmapControls: React.FC<HeatmapControlsProps> = ({
           <Icon path={showGridLines ? mdiViewGrid : mdiViewGridOutline} size={0.6} />
         </button>
         
-        <button 
-          className={`control-button color-scheme-toggle ${colorScheme === 'intensity' ? 'active' : ''}`}
-          onClick={onToggleColorScheme}
-          title={colorScheme === 'binary' ? 'Switch to intensity colors' : 'Switch to binary colors'}
-        >
-          <span className="color-indicator">
-            {colorScheme === 'binary' ? 'BIN' : 'INT'}
-          </span>
-        </button>
+        {colorScheme && onToggleColorScheme && (
+          <button 
+            className={`control-button color-scheme-toggle ${colorScheme === 'intensity' ? 'active' : ''}`}
+            onClick={onToggleColorScheme}
+            title={colorScheme === 'binary' ? 'Switch to intensity colors' : 'Switch to binary colors'}
+          >
+            <span className="color-indicator">
+              {colorScheme === 'binary' ? 'BIN' : 'INT'}
+            </span>
+          </button>
+        )}
         
         <button 
           className="control-button reset-button" 
