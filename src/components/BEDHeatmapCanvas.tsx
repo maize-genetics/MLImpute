@@ -51,6 +51,8 @@ interface BEDHeatmapCanvasProps {
   onVisibleRangeChange?: (range: BEDVisibleRange) => void;
   baseCellSize?: number;
   cellWidthMultiplier?: number;
+  /** Callback when cell width multiplier changes via Ctrl+Shift+scroll */
+  onCellWidthChange?: (multiplier: number) => void;
   cellHeightMultiplier?: number;
   showGridLines?: boolean;
 }
@@ -154,6 +156,7 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
   scrollOffset,
   onScrollChange,
   onZoomChange,
+  onCellWidthChange,
   onVisibleRangeChange,
   baseCellSize = 12,
   cellWidthMultiplier = 1,
@@ -633,7 +636,15 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
     const canvas = canvasRef.current;
     if (!canvas) return;
     const handleNativeWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        // Column width with Ctrl/Cmd + Shift + scroll
+        e.preventDefault();
+        if (onCellWidthChange) {
+          const rawDelta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+          const delta = rawDelta > 0 ? -0.05 : 0.05;
+          onCellWidthChange(Math.max(0.05, Math.min(4, cellWidthMultiplier + delta)));
+        }
+      } else if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         if (onZoomChange) {
           const delta = e.deltaY > 0 ? -0.1 : 0.1;
@@ -669,7 +680,7 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
     canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', handleNativeWheel);
   }, [scrollOffset, scrollX, maxScrollOffset, zoomLevel, baseCellSize, cellWidthMultiplier,
-      numCols, viewportWidth, onScrollChange, onZoomChange,
+      numCols, viewportWidth, onScrollChange, onZoomChange, onCellWidthChange,
       LABEL_MARGIN_LEFT, PADDING]);
 
   const requiredHeight = totalMatrixHeight + LABEL_MARGIN_TOP + PADDING * 2;

@@ -567,6 +567,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               onZoomChange={setZoomLevel}
               onVisibleRangeChange={handleVisibleRangeChange}
               cellWidthMultiplier={cellWidthMultiplier}
+              onCellWidthChange={setCellWidthMultiplier}
               cellHeightMultiplier={cellHeightMultiplier}
               showGridLines={showGridLines}
               colorScheme={colorScheme}
@@ -729,6 +730,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                       <div className="shortcut-row"><kbd>Scroll</kbd><span>Vertical pan</span></div>
                       <div className="shortcut-row"><kbd>Shift + Scroll</kbd><span>Horizontal pan</span></div>
                       <div className="shortcut-row"><kbd>Ctrl + Scroll</kbd><span>Zoom</span></div>
+                      <div className="shortcut-row"><kbd>Ctrl + Shift + Scroll</kbd><span>Column width</span></div>
                       <div className="shortcut-row"><kbd>Space</kbd><span>Play / Pause auto-scroll</span></div>
                       <div className="shortcut-row"><kbd>Click + Drag</kbd><span>Pan horizontally</span></div>
                     </div>
