@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify, mdiHelpCircleOutline, mdiEye, mdiEyeOff } from '@mdi/js';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiMagnify, mdiHelpCircleOutline, mdiEye, mdiEyeOff, mdiArrowExpandVertical, mdiKeyboard } from '@mdi/js';
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import './HeatmapViewer.css';
@@ -131,6 +131,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [cellHeightMultiplier, setCellHeightMultiplier] = useState<number>(1);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
   const [colorScheme, setColorScheme] = useState<'binary' | 'intensity'>('intensity');
+  const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
   
   // Auto-scroll state
   const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
@@ -140,6 +141,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HeatmapCanvasHandle>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
   
@@ -284,6 +286,21 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setIsAutoScrolling(false);
     setAutoScrollSpeed(0.5);
   }, []);
+
+  const handleAutoFitHeight = useCallback(() => {
+    if (!wrapperRef.current || !matrixData) return;
+    const availableHeight = wrapperRef.current.clientHeight;
+    const LABEL_MARGIN_TOP = 10;
+    const PADDING = 10;
+    const overhead = LABEL_MARGIN_TOP + PADDING * 2;
+    const targetMatrixHeight = availableHeight - overhead;
+    if (targetMatrixHeight <= 0) return;
+    const numRows = matrixData.matrix.length;
+    const baseCellSize = 12;
+    const targetCellHeight = Math.floor(targetMatrixHeight / numRows);
+    const newMultiplier = targetCellHeight / (baseCellSize * zoomLevel);
+    setCellHeightMultiplier(Math.max(0.1, newMultiplier));
+  }, [matrixData, zoomLevel]);
 
   // Calculate viewport width percentage
   const calculateViewportWidthPercent = useCallback((): number => {
@@ -511,22 +528,34 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       {matrixData && !isLoading && !error && (
         <>
           {topControlsVisible && (
-            <HeatmapControls
-              zoomLevel={zoomLevel}
-              onZoomChange={setZoomLevel}
-              cellWidthMultiplier={cellWidthMultiplier}
-              onCellWidthChange={setCellWidthMultiplier}
-              cellHeightMultiplier={cellHeightMultiplier}
-              onCellHeightChange={setCellHeightMultiplier}
-              showGridLines={showGridLines}
-              onToggleGridLines={() => setShowGridLines(prev => !prev)}
-              colorScheme={colorScheme}
-              onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
-              onResetView={handleResetView}
-            />
+            <div className="ps4g-heatmap-controls-row">
+              <HeatmapControls
+                zoomLevel={zoomLevel}
+                onZoomChange={setZoomLevel}
+                cellWidthMultiplier={cellWidthMultiplier}
+                onCellWidthChange={setCellWidthMultiplier}
+                cellHeightMultiplier={cellHeightMultiplier}
+                onCellHeightChange={setCellHeightMultiplier}
+                showGridLines={showGridLines}
+                onToggleGridLines={() => setShowGridLines(prev => !prev)}
+                colorScheme={colorScheme}
+                onToggleColorScheme={() => setColorScheme(prev => prev === 'binary' ? 'intensity' : 'binary')}
+                onResetView={handleResetView}
+              />
+              <div className="ps4g-auto-fit">
+                <button
+                  className="control-button auto-fit-button"
+                  onClick={handleAutoFitHeight}
+                  title="Fit heatmap height to view"
+                >
+                  <Icon path={mdiArrowExpandVertical} size={0.5} />
+                  <span className="button-label">Fit Height</span>
+                </button>
+              </div>
+            </div>
           )}
 
-          <div className="heatmap-canvas-wrapper">
+          <div className="heatmap-canvas-wrapper" ref={wrapperRef}>
             <HeatmapCanvas
               ref={canvasRef}
               matrix={sortedData?.matrix ?? matrixData.matrix}
@@ -682,8 +711,29 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                   <span className="legend-label">High</span>
                 </div>
               )}
-              <div className="legend-hint">
-                Scroll: vertical | Shift+scroll: horizontal | Ctrl+scroll: zoom | Space: play/pause
+              <div className="shortcuts-trigger-wrapper">
+                <button
+                  className="control-button shortcuts-trigger"
+                  onClick={() => setShowShortcuts(prev => !prev)}
+                  title="Keyboard & mouse shortcuts"
+                >
+                  <Icon path={mdiKeyboard} size={0.65} />
+                </button>
+                {showShortcuts && (
+                  <div className="shortcuts-popup">
+                    <div className="shortcuts-popup-header">
+                      <span>Shortcuts</span>
+                      <button className="shortcuts-popup-close" onClick={() => setShowShortcuts(false)}>&times;</button>
+                    </div>
+                    <div className="shortcuts-popup-body">
+                      <div className="shortcut-row"><kbd>Scroll</kbd><span>Vertical pan</span></div>
+                      <div className="shortcut-row"><kbd>Shift + Scroll</kbd><span>Horizontal pan</span></div>
+                      <div className="shortcut-row"><kbd>Ctrl + Scroll</kbd><span>Zoom</span></div>
+                      <div className="shortcut-row"><kbd>Space</kbd><span>Play / Pause auto-scroll</span></div>
+                      <div className="shortcut-row"><kbd>Click + Drag</kbd><span>Pan horizontally</span></div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
