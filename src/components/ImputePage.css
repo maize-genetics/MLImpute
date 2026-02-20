@@ -209,9 +209,8 @@
 }
 
 .impute-actions .run-button:disabled {
-  background: var(--md-sys-color-on-surface);
-  opacity: 0.12;
-  color: var(--md-sys-color-on-surface);
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
   cursor: not-allowed;
 }
 
@@ -340,6 +339,11 @@
 :root[data-theme="dark"] .impute-actions .run-button {
   background: var(--md-sys-color-secondary);
   color: var(--md-sys-color-on-secondary);
+}
+
+:root[data-theme="dark"] .impute-actions .run-button:disabled {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
 }
 
 :root[data-theme="dark"] .impute-actions .run-button::before {
