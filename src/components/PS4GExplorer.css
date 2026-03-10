@@ -275,7 +275,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.375rem 1rem;
+  padding: 0.375rem 1rem 0;
   background: var(--md-sys-color-surface-container);
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
   flex-shrink: 0;
@@ -303,7 +303,6 @@
   display: inline-flex;
   align-items: center;
   gap: 0.125rem;
-  margin-left: auto;
   font-family: var(--md-sys-typescale-label-small-font);
   font-size: var(--md-sys-typescale-label-small-size);
   background: var(--md-sys-color-primary-container);
@@ -316,22 +315,30 @@
 /* MD3 Tabs */
 .results-tabs {
   display: flex;
-  background: var(--md-sys-color-surface);
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  padding: 0 1rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.file-info-items {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
   flex-shrink: 0;
 }
 
 .tab-button {
-  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  padding: 0.625rem 1rem;
   background: transparent;
   border: none;
-  border-bottom: 3px solid transparent;
+  border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  font-family: var(--md-sys-typescale-title-small-font);
-  font-size: var(--md-sys-typescale-title-small-size);
-  font-weight: var(--md-sys-typescale-title-small-weight);
-  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
   color: var(--md-sys-color-on-surface-variant);
   cursor: pointer;
   transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);

@@ -208,12 +208,7 @@ const BEDExplorer: React.FC = () => {
       {parseResult && (
         <div className="results-container">
           <div className="file-info-bar">
-            <span className="file-name">{getFileName(filePath)}</span>
-            <span className="file-version">BED</span>
-            <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
-          </div>
-
-          <div className="results-tabs">
+            <div className="results-tabs">
             <button
               className={`tab-button ${activeTab === 'summary' ? 'active' : ''}`}
               onClick={() => setActiveTab('summary')}
@@ -238,6 +233,12 @@ const BEDExplorer: React.FC = () => {
             >
               Visualizer
             </button>
+            </div>
+            <div className="file-info-items">
+              <span className="file-name">{getFileName(filePath)}</span>
+              <span className="file-version">BED</span>
+              <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
+            </div>
           </div>
 
           <div className="tab-content">

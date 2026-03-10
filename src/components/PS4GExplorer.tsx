@@ -208,14 +208,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
       {parseResult && (
         <div className="results-container">
           <div className="file-info-bar">
-            <span className="file-name">{getFileName(filePath)}</span>
-            {parseResult.metadata.version && (
-              <span className="file-version">v{parseResult.metadata.version}</span>
-            )}
-            <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
-          </div>
-
-          <div className="results-tabs">
+            <div className="results-tabs">
             <button
               className={`tab-button ${activeTab === 'summary' ? 'active' : ''}`}
               onClick={() => setActiveTab('summary')}
@@ -241,6 +234,14 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
               <Icon path={mdiChartTimeline} size={0.7} style={{ marginRight: '0.375rem' }} />
               Heatmap
             </button>
+            </div>
+            <div className="file-info-items">
+              <span className="file-name">{getFileName(filePath)}</span>
+              {parseResult.metadata.version && (
+                <span className="file-version">v{parseResult.metadata.version}</span>
+              )}
+              <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
+            </div>
           </div>
 
           <div className="tab-content">
