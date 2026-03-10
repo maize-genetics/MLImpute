@@ -564,7 +564,7 @@
   overflow-y: auto;
   background: var(--md-sys-color-surface);
   position: relative;
-  min-height: 300px;
+  min-height: 0;
 }
 
 .heatmap-canvas-container {
