@@ -145,37 +145,36 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   return (
     <div className="ps4g-explorer">
       <div className="explorer-header">
-        <h2>PS4G File Explorer</h2>
-        <p className="explorer-subtitle">Load and analyze PS4G haplotype files</p>
-      </div>
-
-      <div className="file-selector">
-        <div className="file-input-group">
-          <input
-            type="text"
-            value={filePath}
-            onChange={(e) => setFilePath(e.target.value)}
-            placeholder="Select a PS4G file..."
-            readOnly
-            className="file-path-input"
-          />
-          <button
-            onClick={selectFile}
-            disabled={isLoading}
-            className="browse-button"
-          >
-            {isLoading ? 'Loading...' : 'Browse'}
-          </button>
+        <h2>PS4G Explorer</h2>
+        <div className="file-selector">
+          <div className="file-input-group">
+            <input
+              type="text"
+              value={filePath}
+              onChange={(e) => setFilePath(e.target.value)}
+              placeholder="Select a PS4G file..."
+              readOnly
+              className="file-path-input"
+            />
+            <button
+              onClick={selectFile}
+              disabled={isLoading}
+              className="browse-button"
+            >
+              {isLoading ? 'Loading...' : 'Browse'}
+            </button>
+          </div>
+          {filePath && (
+            <button
+              onClick={() => loadPS4GFile(filePath)}
+              disabled={isLoading || !filePath}
+              className="reload-button"
+            >
+              <Icon path={mdiRefresh} size={0.7} /> Reload
+            </button>
+          )}
         </div>
-        {filePath && (
-          <button
-            onClick={() => loadPS4GFile(filePath)}
-            disabled={isLoading || !filePath}
-            className="reload-button"
-          >
-            <Icon path={mdiRefresh} size={0.7} /> Reload
-          </button>
-        )}
+        <p className="explorer-subtitle">Load and analyze PS4G haplotype files</p>
       </div>
 
       {error && (
