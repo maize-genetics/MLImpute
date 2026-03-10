@@ -167,6 +167,7 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+        if (!containerRef.current || containerRef.current.offsetParent === null) return;
         e.preventDefault();
         setIsAutoScrolling(prev => !prev);
       }

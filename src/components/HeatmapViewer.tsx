@@ -238,9 +238,9 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   // Spacebar keyboard shortcut for play/pause auto-scroll
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only trigger if spacebar is pressed and not in an input/textarea/select
       if (e.code === 'Space' && 
           !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+        if (!containerRef.current || containerRef.current.offsetParent === null) return;
         e.preventDefault();
         setIsAutoScrolling(prev => !prev);
       }
