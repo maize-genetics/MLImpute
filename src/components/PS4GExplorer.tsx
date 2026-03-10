@@ -212,7 +212,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
             {parseResult.metadata.version && (
               <span className="file-version">v{parseResult.metadata.version}</span>
             )}
-            <span className="success-badge"><Icon path={mdiCheck} size={0.6} /> Loaded</span>
+            <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
           </div>
 
           <div className="results-tabs">

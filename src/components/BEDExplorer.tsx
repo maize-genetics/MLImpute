@@ -210,7 +210,7 @@ const BEDExplorer: React.FC = () => {
           <div className="file-info-bar">
             <span className="file-name">{getFileName(filePath)}</span>
             <span className="file-version">BED</span>
-            <span className="success-badge"><Icon path={mdiCheck} size={0.6} /> Loaded</span>
+            <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
           </div>
 
           <div className="results-tabs">
