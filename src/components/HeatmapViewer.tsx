@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiHelpCircleOutline, mdiEye, mdiEyeOff, mdiArrowExpandVertical, mdiKeyboard } from '@mdi/js';
-import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle } from './HeatmapCanvas';
+import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiHelpCircleOutline, mdiEye, mdiEyeOff, mdiArrowExpandVertical, mdiKeyboard, mdiClose } from '@mdi/js';
+import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle, PathOverlay } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import PositionSearch from './PositionSearch';
 import { findNearestColumnIndex, calculateScrollOffset } from '../utils/positionSearch';
@@ -89,6 +90,31 @@ interface ChromosomeMatrixProgress {
   percent: number;
 }
 
+interface NpyOverlayResult {
+  success: boolean;
+  true_paths: number[][];
+  predicted_paths: number[][];
+  num_positions: number;
+  is_diploid_true: boolean;
+  is_diploid_predicted: boolean;
+  error: string | null;
+}
+
+// Colorblind-safe palette (Wong 2011) chosen to contrast with plasma heatmap
+const PATH_COLORS = {
+  true1: '#0072B2',   // blue
+  true2: '#56B4E9',   // sky blue
+  pred1: '#009E73',   // bluish green
+  pred2: '#CC79A7',   // reddish purple
+} as const;
+
+const PATH_DASHES = {
+  true1: [1, 0],      // solid
+  true2: [8, 5],      // dashed
+  pred1: [1, 0],      // solid
+  pred2: [8, 5],      // dashed
+} as const;
+
 interface HeatmapViewerProps {
   filePath: string;
   metadata: PS4GMetadata;
@@ -130,6 +156,17 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   
   // Top-level controls visibility (hide to maximize heatmap viewspace)
   const [topControlsVisible, setTopControlsVisible] = useState<boolean>(true);
+
+  // NumPy overlay state
+  const [matrixNpyPath, setMatrixNpyPath] = useState<string>('');
+  const [predictionsNpyPath, setPredictionsNpyPath] = useState<string>('');
+  const [overlayData, setOverlayData] = useState<NpyOverlayResult | null>(null);
+  const [overlayLoading, setOverlayLoading] = useState<boolean>(false);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
+  const [showTruePath1, setShowTruePath1] = useState<boolean>(true);
+  const [showTruePath2, setShowTruePath2] = useState<boolean>(true);
+  const [showPredPath1, setShowPredPath1] = useState<boolean>(true);
+  const [showPredPath2, setShowPredPath2] = useState<boolean>(true);
 
   // Set up progress event listener
   useEffect(() => {
@@ -180,9 +217,11 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
 
       if (result.success) {
         setMatrixData(result);
-        // Reset view when loading new chromosome
         setZoomLevel(1);
         setScrollOffset(0);
+        // Clear overlay since .npy files are per-chromosome
+        setOverlayData(null);
+        setOverlayError(null);
       } else {
         setError(result.error || 'Failed to load chromosome data');
         setMatrixData(null);
@@ -351,6 +390,139 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     };
   }, [matrixData]);
 
+  // Build inverse sort map: gameteIndex -> sorted row position.
+  // The Rust backend returns gametes sorted by gamete_index, so gamete_index IS the
+  // original row. sortedIndices[sortedRow] = originalRow. We need the inverse.
+  const gameteIndexToSortedRow = useMemo(() => {
+    if (!matrixData) return null;
+    const { gamete_names } = matrixData;
+
+    const sortedIndices = gamete_names
+      .map((name, index) => ({ name, index }))
+      .sort((a, b) => naturalSortCompare(a.name, b.name))
+      .map(item => item.index);
+
+    const inverse = new Array<number>(gamete_names.length);
+    for (let sortedRow = 0; sortedRow < sortedIndices.length; sortedRow++) {
+      inverse[sortedIndices[sortedRow]] = sortedRow;
+    }
+    return inverse;
+  }, [matrixData]);
+
+  // Remap a raw gamete-index path to sorted-row path
+  const remapPath = useCallback((rawPath: number[]): number[] => {
+    if (!gameteIndexToSortedRow) return rawPath;
+    return rawPath.map(idx => gameteIndexToSortedRow[idx] ?? idx);
+  }, [gameteIndexToSortedRow]);
+
+  // Build path overlays for HeatmapCanvas
+  const pathOverlays = useMemo((): PathOverlay[] | undefined => {
+    if (!overlayData) return undefined;
+    const overlays: PathOverlay[] = [];
+
+    if (overlayData.true_paths.length >= 1) {
+      overlays.push({
+        data: remapPath(overlayData.true_paths[0]),
+        color: PATH_COLORS.true1,
+        dashPattern: [...PATH_DASHES.true1],
+        label: 'True 1',
+        visible: showTruePath1,
+      });
+    }
+    if (overlayData.true_paths.length >= 2) {
+      overlays.push({
+        data: remapPath(overlayData.true_paths[1]),
+        color: PATH_COLORS.true2,
+        dashPattern: [...PATH_DASHES.true2],
+        label: 'True 2',
+        visible: showTruePath2,
+      });
+    }
+    if (overlayData.predicted_paths.length >= 1) {
+      overlays.push({
+        data: remapPath(overlayData.predicted_paths[0]),
+        color: PATH_COLORS.pred1,
+        dashPattern: [...PATH_DASHES.pred1],
+        label: 'Pred 1',
+        visible: showPredPath1,
+      });
+    }
+    if (overlayData.predicted_paths.length >= 2) {
+      overlays.push({
+        data: remapPath(overlayData.predicted_paths[1]),
+        color: PATH_COLORS.pred2,
+        dashPattern: [...PATH_DASHES.pred2],
+        label: 'Pred 2',
+        visible: showPredPath2,
+      });
+    }
+
+    return overlays.length > 0 ? overlays : undefined;
+  }, [overlayData, remapPath, showTruePath1, showTruePath2, showPredPath1, showPredPath2]);
+
+  // Select a .npy file via Tauri dialog
+  const selectNpyFile = useCallback(async (
+    setter: (path: string) => void,
+    title: string,
+  ) => {
+    try {
+      const selected = await open({
+        title,
+        multiple: false,
+        filters: [
+          { name: 'NumPy Files (*.npy)', extensions: ['npy'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (selected && typeof selected === 'string') {
+        setter(selected);
+      }
+    } catch (err) {
+      console.error('File selection error:', err);
+    }
+  }, []);
+
+  // Load overlay data from the selected .npy files
+  const loadOverlay = useCallback(async () => {
+    if (!matrixData) return;
+    if (!matrixNpyPath && !predictionsNpyPath) {
+      setOverlayError('Select at least one .npy file');
+      return;
+    }
+
+    setOverlayLoading(true);
+    setOverlayError(null);
+
+    try {
+      const result = await invoke<NpyOverlayResult>('load_npy_overlay', {
+        matrixPath: matrixNpyPath || null,
+        predictionsPath: predictionsNpyPath || null,
+        expectedNumPositions: matrixData.num_positions,
+        expectedNumGametes: matrixData.num_gametes,
+      });
+
+      if (result.success) {
+        setOverlayData(result);
+      } else {
+        setOverlayError(result.error || 'Failed to load overlay data');
+        setOverlayData(null);
+      }
+    } catch (err) {
+      console.error('Error loading overlay:', err);
+      setOverlayError(`Error: ${err}`);
+      setOverlayData(null);
+    } finally {
+      setOverlayLoading(false);
+    }
+  }, [matrixData, matrixNpyPath, predictionsNpyPath]);
+
+  const clearOverlay = useCallback(() => {
+    setOverlayData(null);
+    setOverlayError(null);
+    setMatrixNpyPath('');
+    setPredictionsNpyPath('');
+  }, []);
+
   // Format count
   const formatNumber = (num: number): string => num.toLocaleString();
 
@@ -438,7 +610,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       {/* Heatmap content */}
       {matrixData && !isLoading && !error && (
         <>
-          {topControlsVisible && (
+          {topControlsVisible && (<>
             <div className="ps4g-heatmap-controls-row">
               <HeatmapControls
                 zoomLevel={zoomLevel}
@@ -464,7 +636,71 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                 </button>
               </div>
             </div>
-          )}
+
+            {/* Overlay file loaders */}
+            <div className="overlay-controls-row">
+              <span className="overlay-section-label">Path Overlay</span>
+              <div className="overlay-file-input">
+                <span className="overlay-file-label">Matrix</span>
+                <input
+                  type="text"
+                  className="overlay-file-path"
+                  value={matrixNpyPath ? matrixNpyPath.split(/[/\\]/).pop() || '' : ''}
+                  readOnly
+                  placeholder="matrix.npy"
+                  title={matrixNpyPath || 'No file selected'}
+                />
+                <button
+                  className="control-button overlay-browse-button"
+                  onClick={() => selectNpyFile(setMatrixNpyPath, 'Select Matrix .npy File')}
+                  disabled={overlayLoading}
+                >
+                  Browse
+                </button>
+              </div>
+              <div className="overlay-file-input">
+                <span className="overlay-file-label">Predictions</span>
+                <input
+                  type="text"
+                  className="overlay-file-path"
+                  value={predictionsNpyPath ? predictionsNpyPath.split(/[/\\]/).pop() || '' : ''}
+                  readOnly
+                  placeholder="predictions.npy"
+                  title={predictionsNpyPath || 'No file selected'}
+                />
+                <button
+                  className="control-button overlay-browse-button"
+                  onClick={() => selectNpyFile(setPredictionsNpyPath, 'Select Predictions .npy File')}
+                  disabled={overlayLoading}
+                >
+                  Browse
+                </button>
+              </div>
+              <button
+                className="control-button overlay-load-button"
+                onClick={loadOverlay}
+                disabled={overlayLoading || (!matrixNpyPath && !predictionsNpyPath)}
+                title="Load overlay paths from selected .npy files"
+              >
+                {overlayLoading ? 'Loading...' : 'Load'}
+              </button>
+              {overlayData && (
+                <button
+                  className="control-button overlay-clear-button"
+                  onClick={clearOverlay}
+                  title="Clear overlay paths"
+                >
+                  <Icon path={mdiClose} size={0.5} />
+                </button>
+              )}
+              {overlayError && (
+                <span className="overlay-error" title={overlayError}>
+                  <Icon path={mdiAlertCircle} size={0.5} />
+                  {overlayError.length > 40 ? overlayError.substring(0, 40) + '...' : overlayError}
+                </span>
+              )}
+            </div>
+          </>)}
 
           <div className="heatmap-canvas-wrapper" ref={wrapperRef}>
             <HeatmapCanvas
@@ -482,6 +718,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               cellHeightMultiplier={cellHeightMultiplier}
               showGridLines={showGridLines}
               colorScheme={colorScheme}
+              pathOverlays={pathOverlays}
             />
           </div>
 
@@ -621,6 +858,57 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                   <span className="legend-label">Low</span>
                   <span className="legend-gradient"></span>
                   <span className="legend-label">High</span>
+                </div>
+              )}
+              {overlayData && (
+                <div className="ps4g-path-toggle-inline">
+                  <span className="path-toggle-group-label">Paths</span>
+                  <div className="path-toggle-group">
+                    {overlayData.true_paths.length >= 1 && (
+                      <button
+                        className={`control-button path-toggle-button ${showTruePath1 ? 'active' : ''}`}
+                        style={{ '--path-color': PATH_COLORS.true1 } as React.CSSProperties}
+                        onClick={() => setShowTruePath1(prev => !prev)}
+                        title={showTruePath1 ? 'Hide True 1 path' : 'Show True 1 path'}
+                      >
+                        <Icon path={showTruePath1 ? mdiEye : mdiEyeOff} size={0.5} />
+                        <span className="button-label">T1</span>
+                      </button>
+                    )}
+                    {overlayData.true_paths.length >= 2 && (
+                      <button
+                        className={`control-button path-toggle-button ${showTruePath2 ? 'active' : ''}`}
+                        style={{ '--path-color': PATH_COLORS.true2 } as React.CSSProperties}
+                        onClick={() => setShowTruePath2(prev => !prev)}
+                        title={showTruePath2 ? 'Hide True 2 path' : 'Show True 2 path'}
+                      >
+                        <Icon path={showTruePath2 ? mdiEye : mdiEyeOff} size={0.5} />
+                        <span className="button-label">T2</span>
+                      </button>
+                    )}
+                    {overlayData.predicted_paths.length >= 1 && (
+                      <button
+                        className={`control-button path-toggle-button ${showPredPath1 ? 'active' : ''}`}
+                        style={{ '--path-color': PATH_COLORS.pred1 } as React.CSSProperties}
+                        onClick={() => setShowPredPath1(prev => !prev)}
+                        title={showPredPath1 ? 'Hide Predicted 1 path' : 'Show Predicted 1 path'}
+                      >
+                        <Icon path={showPredPath1 ? mdiEye : mdiEyeOff} size={0.5} />
+                        <span className="button-label">P1</span>
+                      </button>
+                    )}
+                    {overlayData.predicted_paths.length >= 2 && (
+                      <button
+                        className={`control-button path-toggle-button ${showPredPath2 ? 'active' : ''}`}
+                        style={{ '--path-color': PATH_COLORS.pred2 } as React.CSSProperties}
+                        onClick={() => setShowPredPath2(prev => !prev)}
+                        title={showPredPath2 ? 'Hide Predicted 2 path' : 'Show Predicted 2 path'}
+                      >
+                        <Icon path={showPredPath2 ? mdiEye : mdiEyeOff} size={0.5} />
+                        <span className="button-label">P2</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
               <div className="shortcuts-trigger-wrapper">

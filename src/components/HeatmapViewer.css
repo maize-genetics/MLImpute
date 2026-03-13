@@ -993,6 +993,125 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* Path Overlay Controls */
+.overlay-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 1rem;
+  background: var(--md-sys-color-surface-container-low);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.overlay-section-label {
+  font-family: var(--md-sys-typescale-label-small-font);
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.overlay-file-input {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.overlay-file-label {
+  font-family: var(--md-sys-typescale-label-small-font);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: nowrap;
+}
+
+.overlay-file-path {
+  width: 110px;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  cursor: default;
+}
+
+.overlay-file-path::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.5;
+}
+
+.overlay-browse-button {
+  font-size: 10px !important;
+  padding: 0.2rem 0.4rem !important;
+}
+
+.overlay-load-button {
+  font-size: 10px !important;
+  padding: 0.2rem 0.6rem !important;
+  font-weight: 500;
+  background: var(--md-sys-color-primary) !important;
+  color: var(--md-sys-color-on-primary) !important;
+  border-color: var(--md-sys-color-primary) !important;
+}
+
+.overlay-load-button:hover:not(:disabled) {
+  background: var(--md-sys-color-primary-container) !important;
+  color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.overlay-load-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.overlay-clear-button {
+  padding: 0.15rem !important;
+}
+
+.overlay-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--md-sys-typescale-label-small-font);
+  font-size: 10px;
+  color: var(--md-sys-color-error);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Path toggle buttons in bottom bar */
+.ps4g-path-toggle-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ps4g-path-toggle-inline .path-toggle-group-label {
+  font-family: var(--md-sys-typescale-label-small-font);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.ps4g-path-toggle-inline .path-toggle-group {
+  display: flex;
+  gap: 4px;
+}
+
+.ps4g-path-toggle-inline .path-toggle-button.active {
+  background: color-mix(in srgb, var(--path-color) 20%, transparent);
+  color: var(--path-color);
+  border-color: var(--path-color);
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .heatmap-header {

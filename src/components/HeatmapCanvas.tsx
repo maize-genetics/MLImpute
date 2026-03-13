@@ -24,6 +24,20 @@ export interface HeatmapCanvasHandle {
   exportToPng: (options: ExportOptions) => Promise<void>;
 }
 
+/** A path overlay line drawn on top of the heatmap */
+export interface PathOverlay {
+  /** Row index per position (column) in the heatmap matrix */
+  data: number[];
+  /** Stroke color */
+  color: string;
+  /** Canvas dash pattern */
+  dashPattern: number[];
+  /** Display label */
+  label: string;
+  /** Whether this path is currently visible */
+  visible: boolean;
+}
+
 interface HeatmapCanvasProps {
   /** Matrix data: rows = gametes, columns = positions. Values are counts (0 = no data) */
   matrix: number[][];
@@ -53,6 +67,8 @@ interface HeatmapCanvasProps {
   showGridLines?: boolean;
   /** Color scheme: 'binary' (gray/white) or 'intensity' (color gradient) */
   colorScheme?: 'binary' | 'intensity';
+  /** Optional path overlays (true/predicted paths from NumPy data) */
+  pathOverlays?: PathOverlay[];
 }
 
 // Tooltip component with smart positioning to avoid overflow
@@ -156,6 +172,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
   cellHeightMultiplier = 1,
   showGridLines = true,
   colorScheme = 'binary',
+  pathOverlays,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -307,6 +324,73 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     return max;
   }, [matrix]);
 
+  // Draw a path overlay line on the canvas (adapted from BEDHeatmapCanvas)
+  const drawPath = useCallback((
+    ctx: CanvasRenderingContext2D,
+    pathData: number[],
+    color: string,
+    dashPattern: number[],
+  ) => {
+    if (pathData.length < 2) return;
+
+    const points: { x: number; y: number }[] = [];
+    for (let col = startCol; col < endCol && col < pathData.length; col++) {
+      const rowIdx = pathData[col];
+      if (rowIdx < 0 || rowIdx >= numRows) continue;
+      const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth + cellWidth / 2;
+      const y = LABEL_MARGIN_TOP + PADDING + rowIdx * cellHeight + cellHeight / 2;
+      points.push({ x, y });
+    }
+
+    if (points.length < 2) return;
+
+    // Decimate: keep only transition boundary points to reduce noise when zoomed out
+    const decimated: { x: number; y: number }[] = [points[0]];
+    for (let i = 1; i < points.length - 1; i++) {
+      const prevRow = pathData[startCol + i - 1];
+      const currRow = pathData[startCol + i];
+      const nextRow = pathData[startCol + i + 1];
+      if (currRow !== prevRow || currRow !== nextRow) {
+        decimated.push(points[i]);
+      }
+    }
+    decimated.push(points[points.length - 1]);
+
+    const adaptiveLineWidth = Math.max(1.5, Math.min(3, cellWidth * 0.45));
+    const dashScale = Math.max(0.5, Math.min(1.5, cellWidth / 6));
+    const scaledDash = dashPattern.map(d => d * dashScale);
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = adaptiveLineWidth;
+    ctx.setLineDash(scaledDash);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(decimated[0].x, decimated[0].y);
+    for (let i = 1; i < decimated.length; i++) {
+      ctx.lineTo(decimated[i].x, decimated[i].y);
+    }
+    ctx.stroke();
+
+    if (cellWidth >= 8) {
+      const circleRadius = Math.max(2.5, Math.min(4, cellWidth * 0.35));
+      const strokeWidth = Math.max(0.5, Math.min(1.5, cellWidth * 0.15));
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.9;
+      for (const pt of decimated) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, circleRadius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = strokeWidth;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }, [startCol, endCol, cellWidth, cellHeight, numRows, LABEL_MARGIN_LEFT, LABEL_MARGIN_TOP, PADDING]);
+
   // Export to PNG functionality
   useImperativeHandle(ref, () => ({
     exportToPng: async (options: ExportOptions) => {
@@ -425,6 +509,27 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
           }
         }
       }
+
+      // Desaturate cells when path overlays are visible
+      const hasVisiblePathsExport = pathOverlays?.some(o => o.visible);
+      if (hasVisiblePathsExport) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fillRect(
+          LABEL_MARGIN_LEFT + PADDING,
+          LABEL_MARGIN_TOP + PADDING,
+          viewportWidth,
+          totalMatrixHeight,
+        );
+      }
+
+      // Draw path overlays in export
+      if (pathOverlays) {
+        for (const overlay of pathOverlays) {
+          if (overlay.visible) {
+            drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern);
+          }
+        }
+      }
       
       ctx.restore();
       
@@ -517,7 +622,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
   }), [
     matrix, positions, gameteNames, containerSize, cellWidth, cellHeight, 
     startCol, endCol, numRows, numCols, totalMatrixHeight, viewportWidth, 
-    showGridLines, colorScheme, getCellColor, maxValue
+    showGridLines, colorScheme, getCellColor, maxValue, pathOverlays, drawPath
   ]);
 
   // Draw the heatmap
@@ -612,6 +717,30 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
       }
     }
 
+    // Desaturate cells when path overlays are visible so paths stand out
+    const hasVisiblePaths = pathOverlays?.some(o => o.visible);
+    if (hasVisiblePaths) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.fillRect(
+        LABEL_MARGIN_LEFT + PADDING,
+        LABEL_MARGIN_TOP + PADDING,
+        viewportWidth,
+        totalMatrixHeight,
+      );
+      ctx.restore();
+    }
+
+    // Draw path overlays
+    if (pathOverlays) {
+      for (const overlay of pathOverlays) {
+        if (overlay.visible) {
+          drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern);
+        }
+      }
+    }
+
     // Draw hover highlight
     if (hoveredCell) {
       const { row, col } = hoveredCell;
@@ -626,7 +755,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     }
 
   }, [matrix, positions, gameteNames, containerSize, cellWidth, cellHeight, startCol, endCol, numRows, numCols, 
-      totalMatrixHeight, viewportWidth, showGridLines, getCellColor, maxValue, hoveredCell]);
+      totalMatrixHeight, viewportWidth, showGridLines, getCellColor, maxValue, hoveredCell, pathOverlays, drawPath]);
 
   // Handle mouse down for drag scrolling
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
