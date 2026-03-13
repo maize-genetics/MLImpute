@@ -109,10 +109,17 @@ const PATH_COLORS = {
 } as const;
 
 const PATH_DASHES = {
-  true1: [1, 0],      // solid
-  true2: [8, 5],      // dashed
-  pred1: [1, 0],      // solid
-  pred2: [8, 5],      // dashed
+  true1: [1, 0],       // solid (observed haplotype 1)
+  true2: [1, 0],       // solid (observed haplotype 2)
+  pred1: [10, 4],      // dashed (predicted haplotype 1)
+  pred2: [4, 3, 1, 3], // dot-dash (predicted haplotype 2)
+} as const;
+
+const PATH_WIDTHS = {
+  true1: 1.4,
+  true2: 1.4,
+  pred1: 0.7,
+  pred2: 0.7,
 } as const;
 
 interface HeatmapViewerProps {
@@ -429,6 +436,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
         data: remapPath(overlayData.true_paths[0]),
         color: PATH_COLORS.true1,
         dashPattern: [...PATH_DASHES.true1],
+        lineWidth: PATH_WIDTHS.true1,
         label: 'True 1',
         visible: showTruePath1,
       });
@@ -438,6 +446,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
         data: remapPath(overlayData.true_paths[1]),
         color: PATH_COLORS.true2,
         dashPattern: [...PATH_DASHES.true2],
+        lineWidth: PATH_WIDTHS.true2,
         label: 'True 2',
         visible: showTruePath2,
       });
@@ -447,6 +456,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
         data: remapPath(overlayData.predicted_paths[0]),
         color: PATH_COLORS.pred1,
         dashPattern: [...PATH_DASHES.pred1],
+        lineWidth: PATH_WIDTHS.pred1,
         label: 'Pred 1',
         visible: showPredPath1,
       });
@@ -456,6 +466,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
         data: remapPath(overlayData.predicted_paths[1]),
         color: PATH_COLORS.pred2,
         dashPattern: [...PATH_DASHES.pred2],
+        lineWidth: PATH_WIDTHS.pred2,
         label: 'Pred 2',
         visible: showPredPath2,
       });

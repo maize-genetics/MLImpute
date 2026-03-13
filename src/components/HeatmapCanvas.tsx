@@ -32,6 +32,8 @@ export interface PathOverlay {
   color: string;
   /** Canvas dash pattern */
   dashPattern: number[];
+  /** Base line width multiplier (observed paths thicker, predicted thinner) */
+  lineWidth: number;
   /** Display label */
   label: string;
   /** Whether this path is currently visible */
@@ -349,6 +351,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     pathData: number[],
     color: string,
     dashPattern: number[],
+    lineWidthMultiplier: number,
   ) => {
     if (pathData.length < 2) return;
 
@@ -375,21 +378,31 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     }
     decimated.push(points[points.length - 1]);
 
-    const adaptiveLineWidth = Math.max(1.5, Math.min(3, cellWidth * 0.45));
+    const baseWidth = Math.max(2, Math.min(4, cellWidth * 0.5));
+    const adaptiveLineWidth = baseWidth * lineWidthMultiplier;
     const dashScale = Math.max(0.5, Math.min(1.5, cellWidth / 6));
     const scaledDash = dashPattern.map(d => d * dashScale);
 
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = adaptiveLineWidth;
-    ctx.setLineDash(scaledDash);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+
+    // Build the path once, then stroke twice
     ctx.beginPath();
     ctx.moveTo(decimated[0].x, decimated[0].y);
     for (let i = 1; i < decimated.length; i++) {
       ctx.lineTo(decimated[i].x, decimated[i].y);
     }
+
+    // Pass 1: dark outline for contrast against any heatmap background
+    ctx.setLineDash(scaledDash);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.lineWidth = adaptiveLineWidth + 2;
+    ctx.stroke();
+
+    // Pass 2: colored path on top
+    ctx.strokeStyle = color;
+    ctx.lineWidth = adaptiveLineWidth;
     ctx.stroke();
 
     if (cellWidth >= 8) {
@@ -533,7 +546,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
       const hasVisiblePathsExport = pathOverlays?.some(o => o.visible);
       if (hasVisiblePathsExport) {
         const renderedWidthExport = (endCol - startCol) * cellWidth;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
         ctx.fillRect(
           LABEL_MARGIN_LEFT + PADDING,
           LABEL_MARGIN_TOP + PADDING,
@@ -546,7 +559,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
       if (pathOverlays) {
         for (const overlay of pathOverlays) {
           if (overlay.visible) {
-            drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern);
+            drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern, overlay.lineWidth);
           }
         }
       }
@@ -742,7 +755,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     if (hasVisiblePaths) {
       ctx.save();
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
       const renderedWidth = (endCol - startCol) * cellWidth;
       ctx.fillRect(
         LABEL_MARGIN_LEFT + PADDING,
@@ -757,7 +770,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     if (pathOverlays) {
       for (const overlay of pathOverlays) {
         if (overlay.visible) {
-          drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern);
+          drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern, overlay.lineWidth);
         }
       }
     }
