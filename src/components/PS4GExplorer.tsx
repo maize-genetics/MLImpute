@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline, mdiChartTimeline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline, mdiChartTimeline, mdiLayersOutline } from '@mdi/js';
 import HeatmapViewer from './HeatmapViewer';
 import './PS4GExplorer.css';
 
@@ -68,6 +68,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   const [progress, setProgress] = useState<PS4GProgress | null>(null);
   const [gameteSortKey, setGameteSortKey] = useState<GameteSortKey>('index');
   const [gameteSortDir, setGameteSortDir] = useState<SortDirection>('asc');
+  const [overlayModalOpen, setOverlayModalOpen] = useState<boolean>(false);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   // Set up event listener for progress updates
@@ -174,6 +175,16 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
             </button>
           )}
         </div>
+        {parseResult && activeTab === 'heatmap' && (
+          <button
+            className="overlay-header-button"
+            onClick={() => setOverlayModalOpen(true)}
+            title="Load path overlay from .npy files"
+          >
+            <Icon path={mdiLayersOutline} size={0.7} />
+            <span>Path Overlay</span>
+          </button>
+        )}
         <p className="explorer-subtitle">Load and analyze PS4G haplotype files</p>
       </div>
 
@@ -458,6 +469,8 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
                   filePath={filePath}
                   metadata={parseResult.metadata}
                   summary={parseResult.summary}
+                  overlayModalOpen={overlayModalOpen}
+                  onOverlayModalClose={() => setOverlayModalOpen(false)}
                 />
               </div>
             )}

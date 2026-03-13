@@ -119,12 +119,16 @@ interface HeatmapViewerProps {
   filePath: string;
   metadata: PS4GMetadata;
   summary: PS4GSummary;
+  overlayModalOpen?: boolean;
+  onOverlayModalClose?: () => void;
 }
 
 const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   filePath,
   metadata: _metadata,
   summary,
+  overlayModalOpen = false,
+  onOverlayModalClose,
 }) => {
   // State
   const [selectedChromosome, setSelectedChromosome] = useState<string>(summary.chromosomes[0] || '');
@@ -158,7 +162,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [topControlsVisible, setTopControlsVisible] = useState<boolean>(true);
 
   // NumPy overlay state
-  const [matrixNpyPath, setMatrixNpyPath] = useState<string>('');
+  const [observedNpyPath, setObservedNpyPath] = useState<string>('');
   const [predictionsNpyPath, setPredictionsNpyPath] = useState<string>('');
   const [overlayData, setOverlayData] = useState<NpyOverlayResult | null>(null);
   const [overlayLoading, setOverlayLoading] = useState<boolean>(false);
@@ -485,7 +489,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   // Load overlay data from the selected .npy files
   const loadOverlay = useCallback(async () => {
     if (!matrixData) return;
-    if (!matrixNpyPath && !predictionsNpyPath) {
+    if (!observedNpyPath && !predictionsNpyPath) {
       setOverlayError('Select at least one .npy file');
       return;
     }
@@ -495,7 +499,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
 
     try {
       const result = await invoke<NpyOverlayResult>('load_npy_overlay', {
-        matrixPath: matrixNpyPath || null,
+        observedPath: observedNpyPath || null,
         predictionsPath: predictionsNpyPath || null,
         expectedNumPositions: matrixData.num_positions,
         expectedNumGametes: matrixData.num_gametes,
@@ -514,12 +518,12 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     } finally {
       setOverlayLoading(false);
     }
-  }, [matrixData, matrixNpyPath, predictionsNpyPath]);
+  }, [matrixData, observedNpyPath, predictionsNpyPath]);
 
   const clearOverlay = useCallback(() => {
     setOverlayData(null);
     setOverlayError(null);
-    setMatrixNpyPath('');
+    setObservedNpyPath('');
     setPredictionsNpyPath('');
   }, []);
 
@@ -637,69 +641,86 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
               </div>
             </div>
 
-            {/* Overlay file loaders */}
-            <div className="overlay-controls-row">
-              <span className="overlay-section-label">Path Overlay</span>
-              <div className="overlay-file-input">
-                <span className="overlay-file-label">Matrix</span>
-                <input
-                  type="text"
-                  className="overlay-file-path"
-                  value={matrixNpyPath ? matrixNpyPath.split(/[/\\]/).pop() || '' : ''}
-                  readOnly
-                  placeholder="matrix.npy"
-                  title={matrixNpyPath || 'No file selected'}
-                />
-                <button
-                  className="control-button overlay-browse-button"
-                  onClick={() => selectNpyFile(setMatrixNpyPath, 'Select Matrix .npy File')}
-                  disabled={overlayLoading}
-                >
-                  Browse
-                </button>
+            {/* Path Overlay Modal */}
+            {overlayModalOpen && (
+              <div className="overlay-modal-backdrop" onClick={onOverlayModalClose}>
+                <div className="overlay-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="overlay-modal-header">
+                    <h3>Path Overlay</h3>
+                    <button className="overlay-modal-close" onClick={onOverlayModalClose}>
+                      <Icon path={mdiClose} size={0.7} />
+                    </button>
+                  </div>
+                  <div className="overlay-modal-body">
+                    <div className="overlay-modal-field">
+                      <label className="overlay-modal-label">Observed</label>
+                      <div className="overlay-modal-input-row">
+                        <input
+                          type="text"
+                          className="overlay-modal-path"
+                          value={observedNpyPath ? observedNpyPath.split(/[/\\]/).pop() || '' : ''}
+                          readOnly
+                          placeholder="observed.npy"
+                          title={observedNpyPath || 'No file selected'}
+                        />
+                        <button
+                          className="control-button overlay-browse-button"
+                          onClick={() => selectNpyFile(setObservedNpyPath, 'Select Observed .npy File')}
+                          disabled={overlayLoading}
+                        >
+                          Browse
+                        </button>
+                      </div>
+                    </div>
+                    <div className="overlay-modal-field">
+                      <label className="overlay-modal-label">Predictions</label>
+                      <div className="overlay-modal-input-row">
+                        <input
+                          type="text"
+                          className="overlay-modal-path"
+                          value={predictionsNpyPath ? predictionsNpyPath.split(/[/\\]/).pop() || '' : ''}
+                          readOnly
+                          placeholder="predictions.npy"
+                          title={predictionsNpyPath || 'No file selected'}
+                        />
+                        <button
+                          className="control-button overlay-browse-button"
+                          onClick={() => selectNpyFile(setPredictionsNpyPath, 'Select Predictions .npy File')}
+                          disabled={overlayLoading}
+                        >
+                          Browse
+                        </button>
+                      </div>
+                    </div>
+                    {overlayError && (
+                      <div className="overlay-modal-error">
+                        <Icon path={mdiAlertCircle} size={0.6} />
+                        <span>{overlayError}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="overlay-modal-footer">
+                    {overlayData && (
+                      <button
+                        className="control-button overlay-clear-button"
+                        onClick={clearOverlay}
+                        title="Clear overlay paths"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    <button
+                      className="control-button overlay-load-button"
+                      onClick={async () => { await loadOverlay(); onOverlayModalClose?.(); }}
+                      disabled={overlayLoading || (!observedNpyPath && !predictionsNpyPath)}
+                      title="Load overlay paths from selected .npy files"
+                    >
+                      {overlayLoading ? 'Loading...' : 'Load'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="overlay-file-input">
-                <span className="overlay-file-label">Predictions</span>
-                <input
-                  type="text"
-                  className="overlay-file-path"
-                  value={predictionsNpyPath ? predictionsNpyPath.split(/[/\\]/).pop() || '' : ''}
-                  readOnly
-                  placeholder="predictions.npy"
-                  title={predictionsNpyPath || 'No file selected'}
-                />
-                <button
-                  className="control-button overlay-browse-button"
-                  onClick={() => selectNpyFile(setPredictionsNpyPath, 'Select Predictions .npy File')}
-                  disabled={overlayLoading}
-                >
-                  Browse
-                </button>
-              </div>
-              <button
-                className="control-button overlay-load-button"
-                onClick={loadOverlay}
-                disabled={overlayLoading || (!matrixNpyPath && !predictionsNpyPath)}
-                title="Load overlay paths from selected .npy files"
-              >
-                {overlayLoading ? 'Loading...' : 'Load'}
-              </button>
-              {overlayData && (
-                <button
-                  className="control-button overlay-clear-button"
-                  onClick={clearOverlay}
-                  title="Clear overlay paths"
-                >
-                  <Icon path={mdiClose} size={0.5} />
-                </button>
-              )}
-              {overlayError && (
-                <span className="overlay-error" title={overlayError}>
-                  <Icon path={mdiAlertCircle} size={0.5} />
-                  {overlayError.length > 40 ? overlayError.substring(0, 40) + '...' : overlayError}
-                </span>
-              )}
-            </div>
+            )}
           </>)}
 
           <div className="heatmap-canvas-wrapper" ref={wrapperRef}>

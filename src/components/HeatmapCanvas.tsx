@@ -78,6 +78,7 @@ interface TooltipContentProps {
   gameteNames: string[];
   positions: number[];
   hoveredCell: { row: number; col: number; value: number };
+  pathOverlays?: PathOverlay[];
 }
 
 const TooltipContent: React.FC<TooltipContentProps> = ({
@@ -86,6 +87,7 @@ const TooltipContent: React.FC<TooltipContentProps> = ({
   gameteNames,
   positions,
   hoveredCell,
+  pathOverlays,
 }) => {
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
@@ -153,6 +155,23 @@ const TooltipContent: React.FC<TooltipContentProps> = ({
       <div><strong>{gameteNames[hoveredCell.row]}</strong></div>
       <div>Position: {positions[hoveredCell.col]?.toLocaleString()}</div>
       <div>Count: {hoveredCell.value}</div>
+      {pathOverlays && pathOverlays.filter(o => o.visible && o.data[hoveredCell.col] === hoveredCell.row).length > 0 && (
+        <div style={{ marginTop: 3, borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: 3 }}>
+          {pathOverlays.filter(o => o.visible && o.data[hoveredCell.col] === hoveredCell.row).map(o => (
+            <div key={o.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{
+                display: 'inline-block',
+                width: 10,
+                height: 3,
+                background: o.color,
+                borderRadius: 1,
+                flexShrink: 0,
+              }} />
+              <span>{o.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -513,11 +532,12 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
       // Desaturate cells when path overlays are visible
       const hasVisiblePathsExport = pathOverlays?.some(o => o.visible);
       if (hasVisiblePathsExport) {
+        const renderedWidthExport = (endCol - startCol) * cellWidth;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
         ctx.fillRect(
           LABEL_MARGIN_LEFT + PADDING,
           LABEL_MARGIN_TOP + PADDING,
-          viewportWidth,
+          renderedWidthExport,
           totalMatrixHeight,
         );
       }
@@ -723,10 +743,11 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
       ctx.save();
       ctx.globalCompositeOperation = 'source-atop';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      const renderedWidth = (endCol - startCol) * cellWidth;
       ctx.fillRect(
         LABEL_MARGIN_LEFT + PADDING,
         LABEL_MARGIN_TOP + PADDING,
-        viewportWidth,
+        renderedWidth,
         totalMatrixHeight,
       );
       ctx.restore();
@@ -893,6 +914,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
           gameteNames={gameteNames}
           positions={positions}
           hoveredCell={hoveredCell}
+          pathOverlays={pathOverlays}
         />
       )}
     </div>

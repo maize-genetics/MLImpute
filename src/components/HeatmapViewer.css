@@ -993,67 +993,148 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
-/* Path Overlay Controls */
-.overlay-controls-row {
+/* Path Overlay Modal */
+.overlay-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.35rem 1rem;
-  background: var(--md-sys-color-surface-container-low);
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  flex-shrink: 0;
-  flex-wrap: wrap;
+  justify-content: center;
+  z-index: 1000;
+  animation: overlay-fade-in 150ms var(--md-sys-motion-easing-standard);
 }
 
-.overlay-section-label {
-  font-family: var(--md-sys-typescale-label-small-font);
-  font-size: 9px;
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface-variant);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.overlay-file-input {
+.overlay-modal {
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-sys-shape-corner-extra-large, 28px);
+  box-shadow: var(--md-sys-elevation-level3);
+  width: 420px;
+  max-width: 90vw;
+  animation: overlay-slide-up 200ms var(--md-sys-motion-easing-standard);
+}
+
+@keyframes overlay-slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.overlay-modal-header {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem 0.75rem;
 }
 
-.overlay-file-label {
-  font-family: var(--md-sys-typescale-label-small-font);
-  font-size: 10px;
+.overlay-modal-header h3 {
+  margin: 0;
+  font-family: var(--md-sys-typescale-title-large-font, var(--md-sys-typescale-title-medium-font));
+  font-size: var(--md-sys-typescale-title-large-size, 22px);
+  font-weight: 400;
+  color: var(--md-sys-color-on-surface);
+}
+
+.overlay-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: var(--md-sys-shape-corner-full);
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  transition: background 150ms var(--md-sys-motion-easing-standard);
+}
+
+.overlay-modal-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.overlay-modal-body {
+  padding: 0.75rem 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.overlay-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.overlay-modal-label {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
   font-weight: 500;
   color: var(--md-sys-color-on-surface-variant);
-  white-space: nowrap;
+  letter-spacing: var(--md-sys-typescale-label-medium-tracking);
 }
 
-.overlay-file-path {
-  width: 110px;
-  padding: 0.2rem 0.5rem;
+.overlay-modal-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.overlay-modal-path {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container-lowest);
   color: var(--md-sys-color-on-surface);
   font-family: 'Roboto Mono', monospace;
-  font-size: 10px;
+  font-size: var(--md-sys-typescale-body-small-size);
   cursor: default;
 }
 
-.overlay-file-path::placeholder {
+.overlay-modal-path::placeholder {
   color: var(--md-sys-color-on-surface-variant);
   opacity: 0.5;
 }
 
+.overlay-modal-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  border-radius: var(--md-sys-shape-corner-small);
+  font-family: var(--md-sys-typescale-body-small-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.overlay-modal-error span {
+  flex: 1;
+  word-break: break-word;
+}
+
+.overlay-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem 1.25rem;
+}
+
 .overlay-browse-button {
-  font-size: 10px !important;
-  padding: 0.2rem 0.4rem !important;
+  font-size: var(--md-sys-typescale-label-large-size) !important;
+  padding: 0.4rem 0.75rem !important;
+  white-space: nowrap;
 }
 
 .overlay-load-button {
-  font-size: 10px !important;
-  padding: 0.2rem 0.6rem !important;
+  font-size: var(--md-sys-typescale-label-large-size) !important;
+  padding: 0.5rem 1.25rem !important;
   font-weight: 500;
   background: var(--md-sys-color-primary) !important;
   color: var(--md-sys-color-on-primary) !important;
@@ -1071,20 +1152,8 @@
 }
 
 .overlay-clear-button {
-  padding: 0.15rem !important;
-}
-
-.overlay-error {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-family: var(--md-sys-typescale-label-small-font);
-  font-size: 10px;
-  color: var(--md-sys-color-error);
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 0.5rem 1rem !important;
+  font-size: var(--md-sys-typescale-label-large-size) !important;
 }
 
 /* Path toggle buttons in bottom bar */

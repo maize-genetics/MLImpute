@@ -111,7 +111,7 @@ fn extract_path_columns(arr: &Array2<f64>, start_col: usize) -> Vec<Vec<usize>> 
 
 #[tauri::command]
 pub async fn load_npy_overlay(
-    matrix_path: Option<String>,
+    observed_path: Option<String>,
     predictions_path: Option<String>,
     expected_num_positions: usize,
     expected_num_gametes: usize,
@@ -122,28 +122,28 @@ pub async fn load_npy_overlay(
     let mut is_diploid_predicted = false;
     let mut num_positions = expected_num_positions;
 
-    if matrix_path.is_none() && predictions_path.is_none() {
+    if observed_path.is_none() && predictions_path.is_none() {
         return Ok(NpyOverlayResult::error(
-            "At least one file path (matrix or predictions) must be provided".to_string(),
+            "At least one file path (observed or predictions) must be provided".to_string(),
         ));
     }
 
-    // Load matrix file and extract true paths from label columns
-    if let Some(ref mpath) = matrix_path {
-        let path = Path::new(mpath);
+    // Load observed file and extract true paths from label columns
+    if let Some(ref opath) = observed_path {
+        let path = Path::new(opath);
         if !path.exists() {
             return Ok(NpyOverlayResult::error(format!(
-                "Matrix file not found: {}",
-                mpath
+                "Observed file not found: {}",
+                opath
             )));
         }
 
-        let matrix = read_npy_as_f64(path)?;
-        let (nrows, ncols) = (matrix.nrows(), matrix.ncols());
+        let observed = read_npy_as_f64(path)?;
+        let (nrows, ncols) = (observed.nrows(), observed.ncols());
 
         if nrows != expected_num_positions {
             return Ok(NpyOverlayResult::error(format!(
-                "Matrix has {} rows but expected {} positions (from PS4G chromosome data)",
+                "Observed file has {} rows but expected {} positions (from PS4G chromosome data)",
                 nrows, expected_num_positions
             )));
         }
@@ -151,20 +151,20 @@ pub async fn load_npy_overlay(
         let label_cols = ncols.saturating_sub(expected_num_gametes);
         if label_cols == 0 {
             return Ok(NpyOverlayResult::error(format!(
-                "Matrix has {} columns but expected at least {} gamete columns + label columns",
+                "Observed file has {} columns but expected at least {} gamete columns + label columns",
                 ncols, expected_num_gametes
             )));
         }
 
         if label_cols > 2 {
             return Ok(NpyOverlayResult::error(format!(
-                "Matrix has {} label columns (expected 1 for haploid or 2 for diploid). \
+                "Observed file has {} label columns (expected 1 for haploid or 2 for diploid). \
                  Total cols: {}, gametes: {}",
                 label_cols, ncols, expected_num_gametes
             )));
         }
 
-        true_paths = extract_path_columns(&matrix, expected_num_gametes);
+        true_paths = extract_path_columns(&observed, expected_num_gametes);
         is_diploid_true = true_paths.len() == 2;
         num_positions = nrows;
     }
