@@ -165,51 +165,69 @@ def iter_records(path: str) -> Iterator[Tuple[Key, str, str]]:
 
 
 def compare_sorted(
-    truth_sorted: str,
-    imputed_sorted: str,
-    max_report: int,
-    phase_sensitive: bool,
-    partial_credit: bool,
-    out_fh=None,
-    only_mismatches: bool = False,
-    only_matched_sites: bool = False,
-    missing_as_ref: bool = False,
+        truth_sorted: str,
+        imputed_sorted: str,
+        max_report: int,
+        phase_sensitive: bool,
+        partial_credit: bool,
+        out_fh=None,
+        only_mismatches: bool = False,
+        only_matched_sites: bool = False,
+        missing_as_ref: bool = False,
 ) -> Dict:
-    """
-    Stream-compare two sorted TSVs.
+    """Main comparison function - orchestrates the comparison process."""
 
-    If out_fh is provided, write per-site TSV:
-      TYPE CHROM POS REF TRUTH_ALT TRUTH_GT IMPUTED_ALT IMPUTED_GT
+    # Initialize counters and bins
+    counts = initialize_counts()
+    freq_bins = [i / 20 for i in range(21)]
+    NBINS = len(freq_bins) - 1
+    bin_total = [0] * NBINS
+    bin_correct = [0] * NBINS
+    het_bin_total = [0] * NBINS
+    het_bin_correct = [0] * NBINS
 
-    Filtering for output file:
-    - only_mismatches: write only MISMATCH_ALLELE (and optionally site-missing/extra if you want them too;
-      here we include them because they're informative)
-    - only_matched_sites: write only sites where key matches; suppress EXTRA/MISSING site lines
-    """
+    # Create output writer
+    writer = OutputWriter(out_fh, only_mismatches, only_matched_sites)
+
+    # Stream through both files
     t_iter = iter_records(truth_sorted)
     i_iter = iter_records(imputed_sorted)
 
-    def next_or_none(it):
-        try:
-            return next(it)
-        except StopIteration:
-            return None
+    t = next_or_none(t_iter)
+    i = next_or_none(i_iter)
 
-    def write_site(kind: str, key: Key, t_alt, t_gt, i_alt, i_gt):
-        if not out_fh:
-            return
-        if only_matched_sites and kind in {"MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
-            return
-        if only_mismatches and kind not in {"MISMATCH_ALLELE", "MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
-            return
-        chrom, pos, ref = key
-        out_fh.write(
-            f"{kind}\t{chrom}\t{pos}\t{ref}\t"
-            f"{t_alt if t_alt is not None else '.'}\t{t_gt if t_gt is not None else '.'}\t"
-            f"{i_alt if i_alt is not None else '.'}\t{i_gt if i_gt is not None else '.'}\n"
-        )
+    while t is not None or i is not None:
+        if t is not None and (i is None or t[0] < i[0]):
+            # Truth site missing in imputed
+            handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive, partial_credit,
+                                      bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS)
+            t = next_or_none(t_iter)
 
-    counts = {
+        elif i is not None and (t is None or i[0] < t[0]):
+            # Extra site in imputed
+            handle_extra_in_imputed(i, counts, writer, max_report)
+            i = next_or_none(i_iter)
+
+        else:
+            # Sites match - this is where the main comparison happens
+            handle_matched_sites(
+                t, i, counts, writer, max_report, phase_sensitive, partial_credit,
+                missing_as_ref, bin_total, bin_correct, het_bin_total,
+                het_bin_correct, NBINS
+            )
+            t = next_or_none(t_iter)
+            i = next_or_none(i_iter)
+
+    # Finalize results
+    finalize_counts(counts, bin_total, bin_correct, het_bin_total,
+                    het_bin_correct, freq_bins, NBINS)
+
+    return counts
+
+
+def initialize_counts() -> Dict:
+    """Initialize the counts dictionary."""
+    return {
         "truth_records": 0,
         "imputed_records": 0,
         "site_key_matches": 0,
@@ -233,236 +251,249 @@ def compare_sorted(
         "het_bin_accuracy": None,
     }
 
-    freq_bins = [i/20 for i in range(21)]  # 0,0.05,...,1
-    NBINS = len(freq_bins) - 1
 
-    bin_total = [0] * NBINS
-    bin_correct = [0] * NBINS
-    het_bin_total = [0] * NBINS
-    het_bin_correct = [0] * NBINS
+class OutputWriter:
+    """Handles writing output with filtering logic."""
 
-    t = next_or_none(t_iter)
-    i = next_or_none(i_iter)
+    def __init__(self, out_fh, only_mismatches: bool, only_matched_sites: bool):
+        self.out_fh = out_fh
+        self.only_mismatches = only_mismatches
+        self.only_matched_sites = only_matched_sites
 
-    while t is not None or i is not None:
-        if t is not None and (i is None or t[0] < i[0]):
-            key, t_alt, t_info, t_gt = t
-            counts["truth_records"] += 1
+    def write_site(self, kind: str, key, t_alt, t_gt, i_alt, i_gt):
+        if not self.out_fh:
+            return
+        if self.only_matched_sites and kind in {"MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
+            return
+        if self.only_mismatches and kind not in {"MISMATCH_ALLELE", "MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
+            return
 
-            if missing_as_ref:
-                # Treat completely missing site as reference genotype
-                truth_parts = parse_gt(t_gt)
-                if truth_parts is None:
-                    counts["truth_missing_gt"] += 1
-                    write_site("TRUTH_MISSING_GT", key, t_alt, t_gt, None, None)
-                else:
-                    ploidy = len(truth_parts)
-                    ref_alleles = tuple([key[2]] * ploidy)
+        chrom, pos, ref = key
+        self.out_fh.write(
+            f"{kind}\t{chrom}\t{pos}\t{ref}\t"
+            f"{t_alt if t_alt is not None else '.'}\t{t_gt if t_gt is not None else '.'}\t"
+            f"{i_alt if i_alt is not None else '.'}\t{i_gt if i_gt is not None else '.'}\n"
+        )
 
-                    t_alleles = gt_to_allele_multiset(
-                        key[2], t_alt, t_gt, phase_sensitive
-                    )
 
-                    counts["compared_sites"] += 1
+def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive, partial_credit,
+                             bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
+    """Handle sites present in truth but missing in imputed."""
+    key, t_alt, t_info, t_gt = t
+    counts["truth_records"] += 1
 
-                    if partial_credit:
-                        counts["partial_credit_sum"] += allele_multiset_score(
-                            t_alleles, ref_alleles
-                        )
-
-                    if t_alleles == ref_alleles:
-                        counts["gt_allele_matches"] += 1
-                        write_site("MATCH_ALLELE", key, t_alt, t_gt, None, None)
-                    else:
-                        counts["gt_allele_mismatches"] += 1
-                        write_site("MISMATCH_ALLELE", key, t_alt, t_gt, None, None)
-
-            else:
-                counts["missing_in_imputed_sites"] += 1
-                write_site("MISSING_IN_IMPUTED_SITE", key, t_alt, t_gt, None, None)
-
-            t = next_or_none(t_iter)
-            continue
-
-        if i is not None and (t is None or i[0] < t[0]):
-            # imputed has a site not in truth
-            key, i_alt, i_info, i_gt = i
-            counts["imputed_records"] += 1
-            counts["extra_in_imputed_sites"] += 1
-            write_site("EXTRA_IN_IMPUTED_SITE", key, None, None, i_alt, i_gt)
-            if len(counts["examples"]) < max_report:
-                counts["examples"].append(("EXTRA_IN_IMPUTED_SITE", key, None, None, i_alt, i_gt))
-            i = next_or_none(i_iter)
-            continue
-
-        # Keys match: (CHROM,POS,REF)
-        key, t_alt, t_info, t_gt = t
-        _,  i_alt, i_info, i_gt = i
-
-        counts["truth_records"] += 1
-        counts["imputed_records"] += 1
-        counts["site_key_matches"] += 1
-
-        t_alleles = gt_to_allele_multiset(key[2], t_alt, t_gt, phase_sensitive=phase_sensitive)
-        i_alleles = gt_to_allele_multiset(key[2], i_alt, i_gt, phase_sensitive=phase_sensitive)
-
-        # Determine missing vs unparseable
-        t_missing = parse_gt(t_gt) is None
-        i_missing = parse_gt(i_gt) is None
-
-        if t_alleles is None and i_alleles is None:
-            if t_missing and i_missing:
-                counts["both_missing_gt"] += 1
-                write_site("BOTH_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
-            else:
-                counts["gt_unparseable"] += 1
-                write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
-
-        elif t_alleles is None:
-            if t_missing:
-                counts["truth_missing_gt"] += 1
-                write_site("TRUTH_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
-            else:
-                counts["gt_unparseable"] += 1
-                write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
-
-        elif i_alleles is None:
-            if i_missing:
-                if missing_as_ref:
-                    # Treat missing imputed GT as reference genotype
-                    truth_parts = parse_gt(t_gt)
-                    if truth_parts is None:
-                        counts["imputed_missing_gt"] += 1
-                        write_site("IMPUTED_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
-                    else:
-                        ploidy = len(truth_parts)
-
-                        # Build reference allele multiset directly
-                        ref_alleles = tuple([key[2]] * ploidy)
-
-                        t_alleles = gt_to_allele_multiset(
-                            key[2], t_alt, t_gt, phase_sensitive
-                        )
-
-                        counts["compared_sites"] += 1
-
-                        if partial_credit:
-                            counts["partial_credit_sum"] += allele_multiset_score(
-                                t_alleles, ref_alleles
-                            )
-
-                        if t_alleles == ref_alleles:
-                            counts["gt_allele_matches"] += 1
-                            write_site("MATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
-                        else:
-                            counts["gt_allele_mismatches"] += 1
-                            write_site("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
-                else:
-                    counts["imputed_missing_gt"] += 1
-                    write_site("IMPUTED_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
-            else:
-                counts["gt_unparseable"] += 1
-                write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
-
+    if missing_as_ref:
+        # Treat missing site as reference genotype
+        truth_parts = parse_gt(t_gt)
+        if truth_parts is None:
+            counts["truth_missing_gt"] += 1
+            writer.write_site("TRUTH_MISSING_GT", key, t_alt, t_gt, None, None)
         else:
+            ploidy = len(truth_parts)
+            ref_alleles = tuple([key[2]] * ploidy)
+            t_alleles = gt_to_allele_multiset(key[2], t_alt, t_gt, phase_sensitive)
+
             counts["compared_sites"] += 1
 
-            # --- Minor allele accuracy ---
-            ac = None
-            an = None
+            # Extract allele frequency and update bins
+            ac, an = extract_allele_frequency(t_info, missing_as_ref)
+            update_frequency_bins(t_alleles, ref_alleles, ac, an, t_alt,
+                                 bin_total, bin_correct, het_bin_total, het_bin_correct,
+                                 NBINS, partial_credit)
 
-            for field in t_info.split(";"):
-                if field.startswith("AC="):
-                    try:
-                        ac = int(field.split("=")[1])
-                    except ValueError:
-                        pass
-                elif field.startswith("AN="):
-                    try:
-                        an = int(field.split("=")[1])
-                    except ValueError:
-                        pass
+            if partial_credit:
+                counts["partial_credit_sum"] += allele_multiset_score(t_alleles, ref_alleles)
 
-            # Homozygous truth sites
-            if (len(set(t_alleles)) == 1):
-                if ac is not None and an is not None and an > 0:
-                    alt_freq = ac / an
-                    ref_freq = 1 - alt_freq
-
-                    # determine which allele is in the truth genotype
-                    if t_alt in t_alleles:      # REF allele present
-                        af = alt_freq
-                    else:
-                        af = ref_freq
-
-                    # determine AF bin
-                    bin_idx = min(int(af * 20), 19)
-                    if bin_idx >= NBINS:
-                        bin_idx = NBINS - 1
-
-                    bin_total[bin_idx] += 1
-
-                    if partial_credit:
-                        score = allele_multiset_score(t_alleles, i_alleles)
-                        bin_correct[bin_idx] += score
-                    else:
-                        if t_alleles == i_alleles: bin_correct[bin_idx] += 1
-
-                if partial_credit:
-                    counts["partial_credit_sum"] += allele_multiset_score(t_alleles, i_alleles)
-                if t_alleles == i_alleles:
-                    counts["gt_allele_matches"] += 1
-                    write_site("MATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
-                else:
-                    counts["gt_allele_mismatches"] += 1
-                    write_site("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
-                    if len(counts["examples"]) < max_report:
-                        counts["examples"].append(("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt))
-
-            # Heterozygous truth sites
+            if t_alleles == ref_alleles:
+                counts["gt_allele_matches"] += 1
+                writer.write_site("MATCH_ALLELE", key, t_alt, t_gt, None, None)
             else:
-                # minor allele frequency
-                alt_freq = ac / an
-                maf = min(alt_freq, 1 - alt_freq)
-                bin_idx = min(int(maf * 20), 19)
-                het_bin_total[bin_idx] += 1
-                het_bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles)
-
-                if partial_credit:
-                    counts["partial_credit_sum"] += allele_multiset_score(t_alleles, i_alleles)
-                if t_alleles == i_alleles:
-                    counts["gt_allele_matches"] += 1
-                    write_site("MATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
-                else:
-                    counts["gt_allele_mismatches"] += 1
-                    write_site("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
-                    if len(counts["examples"]) < max_report:
-                        counts["examples"].append(("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt))
+                counts["gt_allele_mismatches"] += 1
+                writer.write_site("MISMATCH_ALLELE", key, t_alt, t_gt, None, None)
+    else:
+        counts["missing_in_imputed_sites"] += 1
+        writer.write_site("MISSING_IN_IMPUTED_SITE", key, t_alt, t_gt, None, None)
 
 
-        bin_accuracy = [
-            (bin_correct[i] / bin_total[i]) if bin_total[i] > 0 else None
-            for i in range(NBINS)
-        ]
+def handle_extra_in_imputed(i, counts, writer, max_report):
+    """Handle sites present in imputed but missing in truth."""
+    key, i_alt, i_info, i_gt = i
+    counts["imputed_records"] += 1
+    counts["extra_in_imputed_sites"] += 1
+    writer.write_site("EXTRA_IN_IMPUTED_SITE", key, None, None, i_alt, i_gt)
 
-        counts["af_bin_total"] = bin_total
-        counts["af_bin_correct"] = bin_correct
-        counts["af_bin_accuracy"] = bin_accuracy
-        counts["af_bins"] = freq_bins
+    if len(counts["examples"]) < max_report:
+        counts["examples"].append(("EXTRA_IN_IMPUTED_SITE", key, None, None, i_alt, i_gt))
 
-        het_bin_accuracy = [
-            (het_bin_correct[i] / het_bin_total[i]) if het_bin_total[i] > 0 else None
-            for i in range(NBINS)
-        ]
 
-        counts["het_bin_total"] = het_bin_total
-        counts["het_bin_correct"] = het_bin_correct
-        counts["het_bin_accuracy"] = het_bin_accuracy
+def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, partial_credit,
+                         missing_as_ref, bin_total, bin_correct, het_bin_total,
+                         het_bin_correct, NBINS):
+    """Handle sites where truth and imputed keys match."""
+    key, t_alt, t_info, t_gt = t
+    _, i_alt, i_info, i_gt = i
 
-        t = next_or_none(t_iter)
-        i = next_or_none(i_iter)
+    counts["truth_records"] += 1
+    counts["imputed_records"] += 1
+    counts["site_key_matches"] += 1
 
-    return counts
+    t_alleles = gt_to_allele_multiset(key[2], t_alt, t_gt, phase_sensitive=phase_sensitive)
+    i_alleles = gt_to_allele_multiset(key[2], i_alt, i_gt, phase_sensitive=phase_sensitive)
+
+    # Handle missing/unparseable genotypes
+    if not handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt, t_info,
+                                     counts, writer, missing_as_ref, phase_sensitive, partial_credit,
+                                     bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
+        return  # Early return if genotypes were missing/unparseable
+
+    # Both genotypes are valid - do the comparison
+    counts["compared_sites"] += 1
+
+    # Extract allele frequency info with missing_as_ref logic
+    ac, an = extract_allele_frequency(t_info, missing_as_ref)
+
+    # Update frequency bins
+    update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
+                          bin_total, bin_correct, het_bin_total, het_bin_correct,
+                          NBINS, partial_credit)
+
+    # Update overall counts
+    if partial_credit:
+        counts["partial_credit_sum"] += allele_multiset_score(t_alleles, i_alleles)
+
+    if t_alleles == i_alleles:
+        counts["gt_allele_matches"] += 1
+        writer.write_site("MATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
+    else:
+        counts["gt_allele_mismatches"] += 1
+        writer.write_site("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
+        if len(counts["examples"]) < max_report:
+            counts["examples"].append(("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt))
+
+
+def extract_allele_frequency(t_info: str, missing_as_ref: bool = False) -> tuple:
+    """Extract AC and AN from INFO field, adjusting for missing_as_ref if needed."""
+    ac = None
+    an = None
+
+    for field in t_info.split(";"):
+        if field.startswith("AC="):
+            try:
+                ac = int(field.split("=")[1])
+            except ValueError:
+                pass
+        elif field.startswith("AN="):
+            try:
+                an = int(field.split("=")[1])
+            except ValueError:
+                pass
+
+    return ac, an
+
+
+def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
+                          bin_total, bin_correct, het_bin_total, het_bin_correct,
+                          NBINS, partial_credit):
+    """Update frequency bins based on allele frequencies."""
+    if ac is None or an is None or an == 0:
+        print(f"Skipping frequency bin update: ac={ac}, an={an}")
+        return
+
+    alt_freq = ac / an
+
+    # Homozygous sites
+    if len(set(t_alleles)) == 1:
+        ref_freq = 1 - alt_freq
+        af = alt_freq if t_alt in t_alleles else ref_freq
+        bin_idx = min(int(af * 20), NBINS - 1)
+
+        bin_total[bin_idx] += 1
+        if partial_credit:
+            bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles)
+        elif t_alleles == i_alleles:
+            bin_correct[bin_idx] += 1
+
+    # Heterozygous sites
+    else:
+        maf = min(alt_freq, 1 - alt_freq)
+        bin_idx = min(int(maf * 20), NBINS - 1)
+
+        het_bin_total[bin_idx] += 1
+        het_bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles)
+
+
+def handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt, t_info,
+                             counts, writer, missing_as_ref, phase_sensitive, partial_credit,
+                             bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
+    """Handle cases where one or both genotypes are missing/unparseable. Returns False if handled."""
+    t_missing = parse_gt(t_gt) is None
+    i_missing = parse_gt(i_gt) is None
+
+    if t_alleles is None and i_alleles is None:
+        if t_missing and i_missing:
+            counts["both_missing_gt"] += 1
+            writer.write_site("BOTH_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
+        else:
+            counts["gt_unparseable"] += 1
+            writer.write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
+        return False
+
+    elif t_alleles is None:
+        if t_missing:
+            counts["truth_missing_gt"] += 1
+            writer.write_site("TRUTH_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
+        else:
+            counts["gt_unparseable"] += 1
+            writer.write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
+        return False
+
+    elif i_alleles is None:
+        if i_missing and missing_as_ref:
+            # Reuse the missing_in_imputed logic - construct the truth record format
+            t_record = (key, t_alt, t_info, t_gt)
+            handle_missing_in_imputed(t_record, counts, writer, missing_as_ref, phase_sensitive, partial_credit,
+                                     bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS)
+            return False
+        else:
+            if i_missing:
+                counts["imputed_missing_gt"] += 1
+                writer.write_site("IMPUTED_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
+            else:
+                counts["gt_unparseable"] += 1
+                writer.write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
+            return False
+
+    return True  # Both genotypes are valid
+
+
+def finalize_counts(counts, bin_total, bin_correct, het_bin_total,
+                    het_bin_correct, freq_bins, NBINS):
+    """Calculate final accuracy metrics and store in counts."""
+    bin_accuracy = [
+        (bin_correct[i] / bin_total[i]) if bin_total[i] > 0 else None
+        for i in range(NBINS)
+    ]
+
+    het_bin_accuracy = [
+        (het_bin_correct[i] / het_bin_total[i]) if het_bin_total[i] > 0 else None
+        for i in range(NBINS)
+    ]
+
+    counts["af_bin_total"] = bin_total
+    counts["af_bin_correct"] = bin_correct
+    counts["af_bin_accuracy"] = bin_accuracy
+    counts["af_bins"] = freq_bins
+    counts["het_bin_total"] = het_bin_total
+    counts["het_bin_correct"] = het_bin_correct
+    counts["het_bin_accuracy"] = het_bin_accuracy
+
+
+def next_or_none(it):
+    """Helper function to get next item or None if exhausted."""
+    try:
+        return next(it)
+    except StopIteration:
+        return None
 
 
 def main():
