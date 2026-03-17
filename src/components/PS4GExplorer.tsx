@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline, mdiChartTimeline, mdiLayersOutline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline, mdiLayersOutline } from '@mdi/js';
 import HeatmapViewer from './HeatmapViewer';
 import './PS4GExplorer.css';
 
@@ -480,7 +480,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
 
       {!parseResult && !isLoading && !error && (
         <div className="empty-state">
-          <div className="empty-icon"><Icon path={mdiChartBoxOutline} size={3} /></div>
+          <div className="empty-icon"><Icon path={mdiFileTable} size={3} /></div>
           <h3>No File Loaded</h3>
           <p>Select a PS4G file to view its contents and statistics</p>
         </div>

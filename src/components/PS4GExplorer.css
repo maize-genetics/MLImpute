@@ -164,9 +164,8 @@
 }
 
 .browse-button:disabled {
-  background: var(--md-sys-color-on-surface);
-  opacity: 0.12;
-  color: var(--md-sys-color-on-surface);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 38%, transparent);
+  color: var(--md-sys-color-on-primary);
   cursor: not-allowed;
   box-shadow: none;
 }
