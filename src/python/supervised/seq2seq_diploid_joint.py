@@ -9,13 +9,28 @@ import argparse
 import os
 from torch.utils.data import DataLoader, Dataset
 
-# Calculates the accuracy of the path (for a more practical measurement of performance than loss)
+
+# Calculates unordered diploid accuracy at each position.
 def path_acc_diploid(preds, labels):
     p1, p2 = preds[:, :, 0], preds[:, :, 1]
     l1, l2 = labels[:, :, 0], labels[:, :, 1]
 
     correct = ((p1 == l1) & (p2 == l2)) | ((p1 == l2) & (p2 == l1))
     return correct.float().mean()
+
+
+# Convert joint pair logits into diploid parent predictions.
+# logits: (B, T, V, V)
+# returns: (B, T, 2)
+def decode_joint_predictions(logits):
+    B, T, V, V2 = logits.shape
+    assert V == V2, "Joint logits must be square over vocab x vocab."
+
+    pair_idx = logits.reshape(B, T, V * V).argmax(dim=-1)  # (B, T)
+    p1 = pair_idx // V
+    p2 = pair_idx % V
+    return torch.stack([p1, p2], dim=-1)  # (B, T, 2)
+
 
 # Dataset class
 # there will be multiple input files to be memory-mapped with numpy
@@ -37,7 +52,7 @@ class LabeledDatasetDiploid(Dataset):
         # windows is a list of tuples, where each tuple represents a training data point
         # the tuples are formatted as (file index, window step index)
         # multiply window step index by step_size to get the index of the first position in the window
-        windows = [] # file idx, window step idx
+        windows = []  # file idx, window step idx
 
         for idx in range(len(self.input_file_names)):
             filelen = np.load(f"{self.file_dir}/{self.input_file_names[idx]}").shape[0]
@@ -59,11 +74,17 @@ class LabeledDatasetDiploid(Dataset):
         pos_end = pos_start + self.window_size
 
         # grab segment from mmaped numpy
-        ip = np.load(f"{self.file_dir}/{self.input_file_names[file_idx]}", allow_pickle=True, mmap_mode='r')[pos_start:pos_end]
-        if ip.shape[1] != 26: # copy haploid labels
+        ip = np.load(
+            f"{self.file_dir}/{self.input_file_names[file_idx]}",
+            allow_pickle=True,
+            mmap_mode='r'
+        )[pos_start:pos_end]
+
+        if ip.shape[1] != 26:  # copy haploid labels
             matrix = np.concatenate([ip, ip[:, self.num_parents:self.num_parents+1]], axis=1)
-        else: # diploid labels
+        else:  # diploid labels
             matrix = ip[:, 0:self.num_parents+2]
+
         labels = torch.tensor(matrix[:, self.num_parents:self.num_parents+2], dtype=torch.int64)
         labels[labels == -1] = 24
 
@@ -71,6 +92,7 @@ class LabeledDatasetDiploid(Dataset):
             "input_embeds": torch.tensor(matrix[:, :-2], dtype=torch.float),
             "labels": labels
         }
+
 
 class EncoderDiploid(nn.Module):
     def __init__(self, in_features, emb_dim, hidden_dim):
@@ -86,23 +108,24 @@ class EncoderDiploid(nn.Module):
         outputs, hidden = self.rnn(emb)     # hidden: (1, batch, hidden_dim)
         return hidden
 
-class DecoderDiploid(nn.Module):
+
+class DecoderDiploidJoint(nn.Module):
     def __init__(self, output_dim, emb_dim, hidden_dim, ploidy=2):
         super().__init__()
         self.output_dim = output_dim      # vocab_size = num_parents + 1
-        self.ploidy = ploidy              # 2 for diploid
+        self.ploidy = ploidy              # kept for input token shape, expected 2
 
         self.embedding = nn.Embedding(output_dim, emb_dim)
         self.rnn = nn.GRU(emb_dim, hidden_dim)
-        # predict ploidy * vocab logits from hidden
-        self.fc = nn.Linear(hidden_dim, output_dim * ploidy)
+        # predict joint pair logits over vocab x vocab
+        self.fc = nn.Linear(hidden_dim, output_dim * output_dim)
 
     def forward(self, input, hidden):
         """
         input: (batch, ploidy) integer tokens for each haplotype
         hidden: (1, batch, hidden_dim)
         returns:
-            prediction: (batch, ploidy, output_dim)
+            prediction: (batch, output_dim, output_dim)
             hidden:     (1, batch, hidden_dim)
         """
         # input: (batch, ploidy) -> (batch, ploidy, emb_dim)
@@ -118,13 +141,14 @@ class DecoderDiploid(nn.Module):
         output, hidden = self.rnn(embedded, hidden)  # output: (1, batch, hidden_dim)
         output = output.squeeze(0)                   # (batch, hidden_dim)
 
-        # (batch, hidden_dim) -> (batch, ploidy * vocab)
+        # (batch, hidden_dim) -> (batch, vocab * vocab)
         prediction = self.fc(output)
-        prediction = prediction.view(-1, self.ploidy, self.output_dim)  # (batch, ploidy, vocab)
+        prediction = prediction.view(-1, self.output_dim, self.output_dim)  # (batch, vocab, vocab)
 
         return prediction, hidden
 
-class Seq2SeqDiploid(nn.Module):
+
+class Seq2SeqDiploidJoint(nn.Module):
     def __init__(self, encoder, decoder, device, ploidy=2):
         super().__init__()
         self.encoder = encoder
@@ -137,7 +161,7 @@ class Seq2SeqDiploid(nn.Module):
         src_feats: (batch, seq_len, in_features)
         trg:       (batch, seq_len, ploidy) or None
         returns:
-            outputs: (batch, seq_len, ploidy, vocab_size)
+            outputs: (batch, seq_len, vocab_size, vocab_size)
         """
         batch_size, seq_len, _ = src_feats.shape
         vocab_size = self.decoder.output_dim
@@ -158,124 +182,107 @@ class Seq2SeqDiploid(nn.Module):
         outputs = []
 
         for t in range(seq_len):
-            # output: (batch, ploidy, vocab)
+            # output: (batch, vocab, vocab)
             output, hidden = self.decoder(input, hidden)
             # store with time dimension
-            outputs.append(output.unsqueeze(1))   # (batch, 1, ploidy, vocab)
+            outputs.append(output.unsqueeze(1))   # (batch, 1, vocab, vocab)
 
             use_teacher_forcing = (trg is not None) and (torch.rand(1).item() < teacher_forcing_ratio)
             if use_teacher_forcing:
                 # trg[t]: (batch, ploidy)
                 input = trg[t]
             else:
-                # argmax over vocab -> (batch, ploidy)
-                input = output.argmax(dim=-1)
+                # decode best joint pair -> (batch, ploidy)
+                pair_idx = output.reshape(batch_size, vocab_size * vocab_size).argmax(dim=-1)
+                p1 = pair_idx // vocab_size
+                p2 = pair_idx % vocab_size
+                input = torch.stack([p1, p2], dim=-1)
 
-        # concat over time: list[(batch, 1, ploidy, vocab)] -> (batch, seq_len, ploidy, vocab)
+        # concat over time: list[(batch, 1, vocab, vocab)] -> (batch, seq_len, vocab, vocab)
         outputs = torch.cat(outputs, dim=1)
 
         return outputs
 
-class DiploidCrossEntropyLoss(nn.Module):
+
+class JointPairCrossEntropyLoss(nn.Module):
     """
-    Cross-entropy over ploidy:
-      logits:  (B, T, P, V)
-      targets:(B, T, P)
-    Equivalent to running CE over P*T tokens per batch.
-    """
-    def __init__(self, ploidy=2):
-        super().__init__()
-        self.ploidy = ploidy
-        self.ce = nn.CrossEntropyLoss(reduction='mean')
+    Swap-invariant CE for joint diploid pair prediction.
 
-    def forward(self, logits, targets):
-        # logits: (B, T, P, V)
-        # targets: (B, T, P)
-        B, T, P, V = logits.shape
-        assert P == self.ploidy, "Ploidy mismatch between logits and loss."
-
-        # (B, T, P, V) -> (B, P, V, T) -> (B*P, V, T)
-        logits = logits.permute(0, 2, 3, 1).reshape(B * P, V, T)
-
-        # (B, T, P) -> (B, P, T) -> (B*P, T)
-        targets = targets.permute(0, 2, 1).reshape(B * P, T)
-
-        return self.ce(logits, targets)
-
-class DiploidUnorderedCrossEntropyLoss(nn.Module):
-    """
-    Swap-invariant CE for diploid outputs.
-    logits:  (B, T, 2, V)
+    logits:  (B, T, V, V)
     targets: (B, T, 2)
-    Chooses the better of (t0->p0,t1->p1) vs (t0->p1,t1->p0) per sample.
+
+    Predicts a joint distribution over parent pairs:
+      P(parent_i, parent_j)
+
+    Since diploid parent order is not meaningful, this loss uses the better
+    of (p1, p2) and (p2, p1) at each position.
     """
     def __init__(self, reduction="mean"):
         super().__init__()
-        self.reduction = reduction  # "mean" or "sum" or "none"
+        self.reduction = reduction  # "mean", "sum", or "none"
 
     def forward(self, logits, targets):
-        B, T, P, V = logits.shape
-        assert P == 2, "This loss is written for diploid (P=2)."
+        B, T, V, V2 = logits.shape
+        assert V == V2, "Joint pair logits must have shape (B, T, V, V)."
+        assert targets.shape[-1] == 2, "Targets must have ploidy dimension 2."
 
-        # CE per token, no reduction yet: (B, T)
-        ce00 = F.cross_entropy(logits[:, :, 0, :].reshape(B*T, V),
-                               targets[:, :, 0].reshape(B*T),
-                               reduction="none").reshape(B, T)
-        ce11 = F.cross_entropy(logits[:, :, 1, :].reshape(B*T, V),
-                               targets[:, :, 1].reshape(B*T),
-                               reduction="none").reshape(B, T)
-        ce01 = F.cross_entropy(logits[:, :, 0, :].reshape(B*T, V),
-                               targets[:, :, 1].reshape(B*T),
-                               reduction="none").reshape(B, T)
-        ce10 = F.cross_entropy(logits[:, :, 1, :].reshape(B*T, V),
-                               targets[:, :, 0].reshape(B*T),
-                               reduction="none").reshape(B, T)
+        logits_flat = logits.reshape(B * T, V * V)   # (B*T, V*V)
 
-        # loss_noswap = (ce00 + ce11).sum(dim=1)  # (B,)
-        # loss_swap   = (ce01 + ce10).sum(dim=1)  # (B,)
-        loss_noswap = (ce00 + ce11).mean(dim=1)  # (B,)
-        loss_swap   = (ce01 + ce10).mean(dim=1)  # (B,)
+        p1 = targets[:, :, 0].reshape(B * T)
+        p2 = targets[:, :, 1].reshape(B * T)
 
-        loss = torch.minimum(loss_noswap, loss_swap)  # (B,)
+        idx_forward = p1 * V + p2
+        idx_reverse = p2 * V + p1
+
+        loss_fwd = F.cross_entropy(logits_flat, idx_forward, reduction="none")
+        loss_rev = F.cross_entropy(logits_flat, idx_reverse, reduction="none")
+
+        loss = torch.minimum(loss_fwd, loss_rev)  # (B*T,)
 
         if self.reduction == "none":
-            return loss
+            return loss.reshape(B, T)
         if self.reduction == "sum":
             return loss.sum()
         return loss.mean()
 
 
-class SmoothPredictDiploid(nn.Module):
+class SmoothPredictDiploidJoint(nn.Module):
     """
-    Optional smoothing loss for diploid predictions.
-    By default this *penalizes* positions where consecutive time steps
-    don't have the same predictions (keeps original sign convention).
+    Optional smoothing loss for joint diploid pair predictions.
+
+    logits:  (B, T, V, V)
+    targets: (B, T, 2)
+
+    Note: because the pair is unordered, smoothing across the two decoded
+    haplotypes can be less stable than in an ordered-haplotype model. This is
+    included mainly to preserve parity with the old script. For your first test
+    of joint prediction, setting --ls 0.0 is a good idea.
     """
-    def __init__(self, lambda_smooth=0.2, ploidy=2):
+    def __init__(self, lambda_smooth=0.2):
         super().__init__()
         self.lambda_smooth = lambda_smooth
-        #self.ce = DiploidCrossEntropyLoss(ploidy=ploidy)
-        self.ce = DiploidUnorderedCrossEntropyLoss(reduction="mean")
+        self.ce = JointPairCrossEntropyLoss(reduction="mean")
 
     def forward(self, logits, targets):
-        # logits: (B, T, P, V)
-        # targets: (B, T, P)
         ce_loss = self.ce(logits, targets)
 
-        # split into hap1 and hap2
-        preds_hap1 = logits[:, :, 0, :].argmax(dim=-1)  # (B, T)
-        preds_hap2 = logits[:, :, 1, :].argmax(dim=-1)  # (B, T)
+        pred_labels = decode_joint_predictions(logits)  # (B, T, 2)
+        preds_hap1 = pred_labels[:, :, 0]               # (B, T)
+        preds_hap2 = pred_labels[:, :, 1]               # (B, T)
 
         if preds_hap1.size(1) <= 1 or preds_hap2.size(1) <= 1:
             return ce_loss
 
-        # compare adjacent time steps for each haplotype
         diff_hap1 = (preds_hap1[:, :-1] != preds_hap1[:, 1:])
         diff_hap2 = (preds_hap2[:, :-1] != preds_hap2[:, 1:])
 
-        smoothness_penalty = torch.mean(torch.sum(diff_hap1.float(), dim=1)) + torch.mean(torch.sum(diff_hap2.float(), dim=1))
+        smoothness_penalty = (
+            torch.mean(torch.sum(diff_hap1.float(), dim=1)) +
+            torch.mean(torch.sum(diff_hap2.float(), dim=1))
+        )
 
         return ce_loss + self.lambda_smooth * smoothness_penalty
+
 
 # training loop
 def train(model, iterator, optimizer, criterion, steps_to_print):
@@ -287,60 +294,59 @@ def train(model, iterator, optimizer, criterion, steps_to_print):
 
     for idx, batch in enumerate(tqdm(iterator, desc="Training...")):
         input_embeds = batch["input_embeds"].to(device)
-        labels = batch["labels"].to(device)   # (batch, seq_len, ploidy)
+        labels = batch["labels"].to(device)   # (batch, seq_len, 2)
 
         optimizer.zero_grad()
 
         # forward
-        predictions = model(input_embeds)     # (batch, seq_len, ploidy, vocab)
+        predictions = model(input_embeds)     # (batch, seq_len, vocab, vocab)
 
         loss = criterion(predictions, labels)
 
-        # You’ll likely want to update path_acc to handle ploidy, but for now you
-        # can compute accuracy per haplotype similarly by flattening.
-        # For a quick placeholder, here’s a naive genotype-accuracy:
         with torch.no_grad():
-            # predictions: (batch, seq_len, ploidy, vocab)
-            pred_labels = predictions.argmax(dim=-1)  # (batch, seq_len, ploidy)
-            # exact-match both haplotypes at each position
-            B, T, P, V = predictions.shape
-            #predictions_flat = predictions.reshape(B, T * P, V)  # (B, T*P, V)
-            #labels_flat = labels.reshape(B, T * P)  # (B, T*P)
-            #acc = path_acc(predictions_flat.detach().cpu(), labels_flat.detach().cpu())
+            pred_labels = decode_joint_predictions(predictions)  # (batch, seq_len, 2)
             acc = path_acc_diploid(pred_labels, labels)
 
         loss.backward()
         optimizer.step()
 
         epoch_loss += loss.item()
-        epoch_acc += acc
+        epoch_acc += acc.item()
 
         if idx % steps_to_print == 0:
-            wandb.log({"Loss": epoch_loss / (idx+1), "Accuracy": epoch_acc / (idx+1), "Step": idx})
+            wandb.log({
+                "Loss": epoch_loss / (idx + 1),
+                "Accuracy": epoch_acc / (idx + 1),
+                "Step": idx
+            })
 
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
-#evaluation loop
+
+# evaluation loop
 def evaluate(model, iterator, criterion):
     epoch_loss = 0
     epoch_acc = 0
 
-    device=model.device
+    device = model.device
     model.eval()
+
     with torch.no_grad():
         for batch in tqdm(iterator, desc="Evaluating..."):
             input_embeds = batch["input_embeds"].to(device)
             labels = batch["labels"].to(device)
 
-            predictions = model(input_embeds)
+            predictions = model(input_embeds)   # (batch, seq_len, vocab, vocab)
             loss = criterion(predictions, labels)
-            pred_labels = predictions.argmax(dim=-1)  # (batch, seq_len, ploidy)
-            acc = path_acc_diploid(pred_labels.detach().cpu(), labels.detach().cpu())
+
+            pred_labels = decode_joint_predictions(predictions)  # (batch, seq_len, 2)
+            acc = path_acc_diploid(pred_labels, labels)
 
             epoch_loss += loss.item()
-            epoch_acc += acc
+            epoch_acc += acc.item()
 
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
 
 # arguments for running the script
 def parse_args():
@@ -353,13 +359,14 @@ def parse_args():
     parser.add_argument("--num-epochs", "-e", type=int, default=9, help="number of training epochs")
     parser.add_argument("--step-size", "-s", type=int, default=128, help="distance between the start points of each training window")
     parser.add_argument("--project-name", "--pn", type=str, default="test", help="wandb project name")
-    parser.add_argument("--run-name", "--rn", type=str, default="run-1", help="wand run name")
+    parser.add_argument("--run-name", "--rn", type=str, default="run-1", help="wandb run name")
     parser.add_argument("--batch-size", "-b", type=int, default=8, help="batch size")
     parser.add_argument("--save-model-path", type=str, default="best_model.pt", help="path to save the best performing model")
     parser.add_argument("--steps-to-print", "--sp", type=int, default=100, help="steps between reporting to wandb")
     parser.add_argument("--embedding-dim", type=int, default=12, help="embedding dimension")
     parser.add_argument("--hidden-dim", type=int, default=24, help="hidden dimension")
     parser.add_argument("--ls", type=float, default=0.0, help="smoothing hyperparameter")
+    parser.add_argument("--teacher-forcing-ratio", "--tfr", type=float, default=0.5, help="teacher forcing ratio")
 
     args = parser.parse_args()
     return args
@@ -367,6 +374,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+
     # Initializing model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -375,30 +383,51 @@ def main():
     ploidy = 2
 
     enc = EncoderDiploid(args.num_parents, EMB_DIM, HID_DIM)
-    dec = DecoderDiploid(args.num_parents + 1, EMB_DIM, HID_DIM, ploidy=ploidy)
-    model = Seq2SeqDiploid(enc, dec, device, ploidy=ploidy)
+    dec = DecoderDiploidJoint(args.num_parents + 1, EMB_DIM, HID_DIM, ploidy=ploidy)
+    model = Seq2SeqDiploidJoint(enc, dec, device, ploidy=ploidy)
 
     # Initializing training dataset
     training_filenames = os.listdir(args.training_data_path)
-    training_dataset = LabeledDatasetDiploid(args.training_data_path, training_filenames, args.max_seq_length, args.num_parents, args.step_size)
+    training_dataset = LabeledDatasetDiploid(
+        args.training_data_path,
+        training_filenames,
+        args.max_seq_length,
+        args.num_parents,
+        args.step_size
+    )
 
     # Initializing validation dataset
     validation_filenames = os.listdir(args.validation_data_path)
-    validation_dataset = LabeledDatasetDiploid(args.validation_data_path, validation_filenames, args.max_seq_length, args.num_parents, args.step_size)
+    validation_dataset = LabeledDatasetDiploid(
+        args.validation_data_path,
+        validation_filenames,
+        args.max_seq_length,
+        args.num_parents,
+        args.step_size
+    )
 
     # Setting up optimizer and loss function
     optimizer = optim.AdamW(model.parameters(), lr=1e-4)
-    #criterion = nn.CrossEntropyLoss()
-    criterion = SmoothPredictDiploid(lambda_smooth=args.ls)
+    criterion = SmoothPredictDiploidJoint(lambda_smooth=args.ls)
 
     model.to(device)
     criterion.to(device)
 
     # start up wandb run
-    wandb.init(project=args.project_name, entity="maize-genetics", name=args.run_name, config={
+    wandb.init(
+        project=args.project_name,
+        entity="maize-genetics",
+        name=args.run_name,
+        config={
             "epochs": args.num_epochs,
-            "batch_size": args.batch_size
-        })
+            "batch_size": args.batch_size,
+            "embedding_dim": EMB_DIM,
+            "hidden_dim": HID_DIM,
+            "teacher_forcing_ratio": args.teacher_forcing_ratio,
+            "joint_pair_prediction": True,
+            "lambda_smooth": args.ls
+        }
+    )
 
     best_loss = float('inf')
 
@@ -406,18 +435,26 @@ def main():
     for epoch in range(args.num_epochs):
         dataloader = DataLoader(training_dataset, batch_size=args.batch_size, shuffle=True)
         test_dataloader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False)
+
+        # keep behavior close to your original script: no teacher forcing in training call by default
+        # but this arg is available if you want to wire it in below.
         train_loss, train_acc = train(model, dataloader, optimizer, criterion, args.steps_to_print)
         test_loss, test_acc = evaluate(model, test_dataloader, criterion)
 
-        wandb.log({"Epoch Loss": train_loss, "Epoch Accuracy": train_acc,
-                   "Test Loss": test_loss, "Test Accuracy": test_acc,
-                   "Epoch": epoch})
+        wandb.log({
+            "Epoch Loss": train_loss,
+            "Epoch Accuracy": train_acc,
+            "Test Loss": test_loss,
+            "Test Accuracy": test_acc,
+            "Epoch": epoch
+        })
 
         if test_loss < best_loss:
             best_loss = test_loss
             torch.save(model.state_dict(), args.save_model_path)
 
     wandb.finish()
+
 
 if __name__ == '__main__':
     main()
