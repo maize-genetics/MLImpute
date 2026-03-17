@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline } from '@mdi/js';
 import BEDHeatmapViewer from './BEDHeatmapViewer';
 import './BEDExplorer.css';
 
@@ -231,7 +231,8 @@ const BEDExplorer: React.FC = () => {
               className={`tab-button ${activeTab === 'visualizer' ? 'active' : ''}`}
               onClick={() => setActiveTab('visualizer')}
             >
-              Visualizer
+              <Icon path={mdiChartTimeline} size={0.7} style={{ marginRight: '0.375rem' }} />
+              Heatmap
             </button>
             </div>
             <div className="file-info-items">
@@ -532,7 +533,7 @@ const BEDExplorer: React.FC = () => {
 
       {!parseResult && !isLoading && !error && (
         <div className="empty-state">
-          <div className="empty-icon"><Icon path={mdiChartBoxOutline} size={3} /></div>
+          <div className="empty-icon"><Icon path={mdiFileTable} size={3} /></div>
           <h3>No File Loaded</h3>
           <p>Select a BED file to view its contents and statistics</p>
         </div>
