@@ -7,6 +7,7 @@ import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay,
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle, PathOverlay } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import PositionSearch from './PositionSearch';
+import ExportModal, { ExportSettings, PathOverlayInfo } from './ExportModal';
 import { findNearestColumnIndex, calculateScrollOffset } from '../utils/positionSearch';
 import './HeatmapViewer.css';
 
@@ -167,6 +168,9 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   
   // Top-level controls visibility (hide to maximize heatmap viewspace)
   const [topControlsVisible, setTopControlsVisible] = useState<boolean>(true);
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
 
   // NumPy overlay state
   const [observedNpyPath, setObservedNpyPath] = useState<string>('');
@@ -362,20 +366,26 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     return path.split(/[/\\]/).pop() || path;
   }, []);
 
-  // Handle PNG export
-  const handleExportPng = useCallback(async () => {
-    console.log('Export PNG clicked', { canvasRef: canvasRef.current, selectedChromosome });
+  // Handle PNG export via modal settings
+  const handleExportWithSettings = useCallback(async (settings: ExportSettings) => {
+    setShowExportModal(false);
     if (canvasRef.current && selectedChromosome) {
       try {
         await canvasRef.current.exportToPng({
           fileId: getFileName(filePath),
           chromosome: selectedChromosome,
+          title: settings.title,
+          width: settings.width,
+          height: settings.height,
+          scale: settings.scale,
+          includeLegend: settings.includeLegend,
+          pathVisibility: settings.pathVisibility,
+          startPosition: settings.startPosition,
+          endPosition: settings.endPosition,
         });
       } catch (error) {
         console.error('Export failed:', error);
       }
-    } else {
-      console.warn('Cannot export: canvasRef or selectedChromosome not available');
     }
   }, [filePath, selectedChromosome, getFileName]);
 
@@ -795,8 +805,8 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                   <span className="section-label">Export</span>
                   <button
                     className="section-button with-label"
-                    onClick={handleExportPng}
-                    title="Export current view as PNG"
+                    onClick={() => setShowExportModal(true)}
+                    title="Export heatmap as PNG"
                   >
                     <Icon path={mdiDownload} size={0.7} />
                     <span>PNG</span>
@@ -981,6 +991,33 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           <p>Choose a chromosome from the dropdown to visualize its heatmap</p>
         </div>
       )}
+
+      {showExportModal && matrixData && selectedChromosome && (() => {
+        const fileId = getFileName(filePath);
+        const visStart = visibleRange?.startPos ?? matrixData.position_range[0];
+        const visEnd = visibleRange?.endPos ?? matrixData.position_range[1];
+        const defaultTitle = `${fileId} | ${selectedChromosome} | ${visStart.toLocaleString()} - ${visEnd.toLocaleString()} rbp`;
+
+        const overlayInfos: PathOverlayInfo[] = (pathOverlays ?? []).map(p => ({
+          label: p.label,
+          visible: p.visible,
+        }));
+
+        return (
+          <ExportModal
+            defaultTitle={defaultTitle}
+            defaultWidth={containerWidth}
+            defaultHeight={400}
+            visibleStartPos={visStart}
+            visibleEndPos={visEnd}
+            fullRangeStart={matrixData.position_range[0]}
+            fullRangeEnd={matrixData.position_range[1]}
+            pathOverlays={overlayInfos}
+            onExport={handleExportWithSettings}
+            onClose={() => setShowExportModal(false)}
+          />
+        );
+      })()}
     </div>
   );
 };

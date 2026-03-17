@@ -20,6 +20,22 @@ export interface BEDRegion {
 export interface BEDExportOptions {
   fileId: string;
   chromosome: string;
+  /** Custom title (overrides auto-generated one) */
+  title?: string;
+  /** Export width in logical pixels */
+  width?: number;
+  /** Export height in logical pixels (heatmap area, excluding title/legend) */
+  height?: number;
+  /** DPI scale factor (default 3) */
+  scale?: number;
+  /** Whether to include the legend (default true) */
+  includeLegend?: boolean;
+  /** Per-path visibility overrides keyed by label */
+  pathVisibility?: Record<string, boolean>;
+  /** Start position for the exported range */
+  startPosition?: number;
+  /** End position for the exported range */
+  endPosition?: number;
 }
 
 /** Methods exposed via ref */
@@ -318,20 +334,37 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
     exportToPng: async (options: BEDExportOptions) => {
       try {
         const { fileId, chromosome } = options;
-        const startRegion = regions[startCol] ?? regions[0];
-        const lastVisibleCol = Math.min(endCol - 1, numCols - 1);
-        const endRegion = regions[lastVisibleCol] ?? regions[regions.length - 1];
-        const title = `${fileId} | ${chromosome} | ${startRegion.start.toLocaleString()} - ${endRegion.end.toLocaleString()} bp`;
+
+        // Resolve export column range from position overrides or current viewport
+        let expStartCol = startCol;
+        let expEndCol = endCol;
+        if (options.startPosition != null && options.endPosition != null) {
+          expStartCol = regions.findIndex(r => r.start >= options.startPosition!);
+          if (expStartCol < 0) expStartCol = 0;
+          expEndCol = regions.findIndex(r => r.start > options.endPosition!);
+          if (expEndCol < 0) expEndCol = numCols;
+        }
+
+        const expStartRegion = regions[expStartCol] ?? regions[0];
+        const expLastVisibleCol = Math.min(expEndCol - 1, numCols - 1);
+        const expEndRegion = regions[expLastVisibleCol] ?? regions[regions.length - 1];
+
+        const titleText = options.title ??
+          `${fileId} | ${chromosome} | ${expStartRegion.start.toLocaleString()} - ${expEndRegion.end.toLocaleString()} bp`;
 
         const TITLE_HEIGHT = 50;
-        const LEGEND_HEIGHT = 50;
-        const exportWidth = containerSize.width;
-        const exportHeight = containerSize.height + TITLE_HEIGHT + LEGEND_HEIGHT;
+        const includeLegend = options.includeLegend !== false;
+        const LEGEND_HEIGHT = includeLegend ? 50 : 0;
+
+        const expW = options.width ?? containerSize.width;
+        const expH = (options.height ?? containerSize.height) + TITLE_HEIGHT + LEGEND_HEIGHT;
+
+        const heatmapAreaHeight = expH - TITLE_HEIGHT - LEGEND_HEIGHT;
 
         const exportCanvas = document.createElement('canvas');
-        const exportScale = 3;
-        exportCanvas.width = exportWidth * exportScale;
-        exportCanvas.height = exportHeight * exportScale;
+        const exportScale = options.scale ?? 3;
+        exportCanvas.width = expW * exportScale;
+        exportCanvas.height = expH * exportScale;
 
         const ctx = exportCanvas.getContext('2d');
         if (!ctx) return;
@@ -342,14 +375,14 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         const outlineVariantColor = '#cac4d0';
 
         ctx.fillStyle = surfaceColor;
-        ctx.fillRect(0, 0, exportWidth, exportHeight);
+        ctx.fillRect(0, 0, expW, expH);
 
         // Title
         ctx.fillStyle = onSurfaceColor;
         ctx.font = 'bold 16px "Roboto", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(title, exportWidth / 2, TITLE_HEIGHT / 2);
+        ctx.fillText(titleText, expW / 2, TITLE_HEIGHT / 2);
 
         ctx.save();
         ctx.translate(0, TITLE_HEIGHT);
@@ -361,24 +394,24 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         ctx.textBaseline = 'middle';
         for (let row = 0; row < numRows; row++) {
           const y = LABEL_MARGIN_TOP + PADDING + row * cellHeight + cellHeight / 2;
-          if (y < containerSize.height) {
+          if (y < heatmapAreaHeight) {
             const label = parentNames[row] || `Parent ${row}`;
             const truncated = label.length > 12 ? label.substring(0, 10) + '...' : label;
             ctx.fillText(truncated, LABEL_MARGIN_LEFT - 8, y);
           }
         }
 
-        // White background behind cells
+        const expViewportWidth = (expEndCol - expStartCol) * cellWidth;
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(LABEL_MARGIN_LEFT + PADDING, LABEL_MARGIN_TOP + PADDING, viewportWidth, totalMatrixHeight);
+        ctx.fillRect(LABEL_MARGIN_LEFT + PADDING, LABEL_MARGIN_TOP + PADDING, expViewportWidth, totalMatrixHeight);
 
-        // Draw cells
+        // Cells
         for (let row = 0; row < numRows; row++) {
           const y = LABEL_MARGIN_TOP + PADDING + row * cellHeight;
-          if (y > containerSize.height) break;
-          for (let col = startCol; col < endCol; col++) {
-            const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth;
-            if (x > containerSize.width - PADDING) break;
+          if (y > heatmapAreaHeight) break;
+          for (let col = expStartCol; col < expEndCol; col++) {
+            const x = LABEL_MARGIN_LEFT + PADDING + (col - expStartCol) * cellWidth;
+            if (x > expW - PADDING) break;
             const value = matrix[row]?.[col] ?? 0;
             ctx.fillStyle = getCellColor(value);
             ctx.fillRect(x, y, cellWidth - (showGridLines ? 1 : 0), cellHeight - (showGridLines ? 1 : 0));
@@ -389,9 +422,9 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         if (showGridLines && Math.min(cellWidth, cellHeight) >= 4) {
           ctx.strokeStyle = outlineVariantColor;
           ctx.lineWidth = 0.5;
-          for (let col = startCol; col <= endCol; col++) {
-            const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth;
-            if (x <= containerSize.width - PADDING) {
+          for (let col = expStartCol; col <= expEndCol; col++) {
+            const x = LABEL_MARGIN_LEFT + PADDING + (col - expStartCol) * cellWidth;
+            if (x <= expW - PADDING) {
               ctx.beginPath();
               ctx.moveTo(x, LABEL_MARGIN_TOP + PADDING);
               ctx.lineTo(x, LABEL_MARGIN_TOP + PADDING + totalMatrixHeight);
@@ -400,57 +433,62 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
           }
           for (let row = 0; row <= numRows; row++) {
             const y = LABEL_MARGIN_TOP + PADDING + row * cellHeight;
-            if (y <= containerSize.height) {
+            if (y <= heatmapAreaHeight) {
               ctx.beginPath();
               ctx.moveTo(LABEL_MARGIN_LEFT + PADDING, y);
-              ctx.lineTo(LABEL_MARGIN_LEFT + PADDING + viewportWidth, y);
+              ctx.lineTo(LABEL_MARGIN_LEFT + PADDING + expViewportWidth, y);
               ctx.stroke();
             }
           }
         }
 
-        // Paths
-        if (showParent1Path) {
+        // Paths with optional visibility overrides
+        const showP1 = options.pathVisibility
+          ? (options.pathVisibility['Parent 1 Path'] ?? showParent1Path)
+          : showParent1Path;
+        const showP2 = options.pathVisibility
+          ? (options.pathVisibility['Parent 2 Path'] ?? showParent2Path)
+          : showParent2Path;
+
+        if (showP1) {
           drawParentPath(ctx, parent1Path, PATH_COLOR_PARENT1, [8, 4]);
         }
-        if (showParent2Path) {
+        if (showP2) {
           drawParentPath(ctx, parent2Path, PATH_COLOR_PARENT2, [4, 8]);
         }
 
         ctx.restore();
 
         // Legend
-        const legendY = TITLE_HEIGHT + containerSize.height + LEGEND_HEIGHT / 2;
-        ctx.font = '12px "Roboto", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        const legendStartX = exportWidth / 2 - 180;
+        if (includeLegend) {
+          const legendY = TITLE_HEIGHT + heatmapAreaHeight + LEGEND_HEIGHT / 2;
+          ctx.font = '12px "Roboto", sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          const legendStartX = expW / 2 - 180;
 
-        // Parent 1
-        ctx.fillStyle = COLOR_PARENT1;
-        ctx.fillRect(legendStartX, legendY - 8, 16, 16);
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('Parent 1', legendStartX + 24, legendY);
+          ctx.fillStyle = COLOR_PARENT1;
+          ctx.fillRect(legendStartX, legendY - 8, 16, 16);
+          ctx.fillStyle = onSurfaceColor;
+          ctx.fillText('Parent 1', legendStartX + 24, legendY);
 
-        // Parent 2
-        ctx.fillStyle = COLOR_PARENT2;
-        ctx.fillRect(legendStartX + 110, legendY - 8, 16, 16);
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('Parent 2', legendStartX + 134, legendY);
+          ctx.fillStyle = COLOR_PARENT2;
+          ctx.fillRect(legendStartX + 110, legendY - 8, 16, 16);
+          ctx.fillStyle = onSurfaceColor;
+          ctx.fillText('Parent 2', legendStartX + 134, legendY);
 
-        // Both
-        ctx.fillStyle = COLOR_BOTH;
-        ctx.fillRect(legendStartX + 220, legendY - 8, 16, 16);
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('Both', legendStartX + 244, legendY);
+          ctx.fillStyle = COLOR_BOTH;
+          ctx.fillRect(legendStartX + 220, legendY - 8, 16, 16);
+          ctx.fillStyle = onSurfaceColor;
+          ctx.fillText('Both', legendStartX + 244, legendY);
 
-        // Empty
-        ctx.fillStyle = COLOR_EMPTY;
-        ctx.fillRect(legendStartX + 300, legendY - 8, 16, 16);
-        ctx.strokeStyle = outlineVariantColor;
-        ctx.strokeRect(legendStartX + 300, legendY - 8, 16, 16);
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('Empty', legendStartX + 324, legendY);
+          ctx.fillStyle = COLOR_EMPTY;
+          ctx.fillRect(legendStartX + 300, legendY - 8, 16, 16);
+          ctx.strokeStyle = outlineVariantColor;
+          ctx.strokeRect(legendStartX + 300, legendY - 8, 16, 16);
+          ctx.fillStyle = onSurfaceColor;
+          ctx.fillText('Empty', legendStartX + 324, legendY);
+        }
 
         const sanitizedFileId = fileId.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sanitizedChromosome = chromosome.replace(/[^a-zA-Z0-9_-]/g, '_');

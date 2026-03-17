@@ -17,6 +17,7 @@ import {
 import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle, BEDRegion } from './BEDHeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import PositionSearch from './PositionSearch';
+import ExportModal, { ExportSettings, PathOverlayInfo } from './ExportModal';
 import { findNearestColumnIndex, calculateScrollOffset } from '../utils/positionSearch';
 import './HeatmapViewer.css';
 import './BEDHeatmapViewer.css';
@@ -87,6 +88,9 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
   const [visibleRange, setVisibleRange] = useState<BEDVisibleRange | null>(null);
 
   const [topControlsVisible, setTopControlsVisible] = useState<boolean>(true);
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
 
   // Progress listener
   useEffect(() => {
@@ -234,12 +238,21 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
     return path.split(/[/\\]/).pop() || path;
   }, []);
 
-  const handleExportPng = useCallback(async () => {
+  const handleExportWithSettings = useCallback(async (settings: ExportSettings) => {
+    setShowExportModal(false);
     if (canvasRef.current && selectedChromosome) {
       try {
         await canvasRef.current.exportToPng({
           fileId: getFileName(filePath),
           chromosome: selectedChromosome,
+          title: settings.title,
+          width: settings.width,
+          height: settings.height,
+          scale: settings.scale,
+          includeLegend: settings.includeLegend,
+          pathVisibility: settings.pathVisibility,
+          startPosition: settings.startPosition,
+          endPosition: settings.endPosition,
         });
       } catch (err) {
         console.error('Export failed:', err);
@@ -422,8 +435,8 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
                   <span className="section-label">Export</span>
                   <button
                     className="section-button with-label"
-                    onClick={handleExportPng}
-                    title="Export current view as PNG"
+                    onClick={() => setShowExportModal(true)}
+                    title="Export heatmap as PNG"
                   >
                     <Icon path={mdiDownload} size={0.7} />
                     <span>PNG</span>
@@ -569,6 +582,46 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
           <p>Choose a chromosome from the dropdown to visualize parent assignments</p>
         </div>
       )}
+
+      {showExportModal && matrixData && selectedChromosome && (() => {
+        const fileId = getFileName(filePath);
+        const firstRegion = matrixData.regions[0];
+        const lastRegion = matrixData.regions[matrixData.regions.length - 1];
+        const fullStart = firstRegion?.start ?? 0;
+        const fullEnd = lastRegion?.end ?? 0;
+
+        const visStart = visibleRange
+          ? (matrixData.regions[visibleRange.startRegionIdx]?.start ?? fullStart)
+          : fullStart;
+        const visEnd = visibleRange
+          ? (matrixData.regions[visibleRange.endRegionIdx]?.end ?? fullEnd)
+          : fullEnd;
+
+        const defaultTitle = `${fileId} | ${selectedChromosome} | ${visStart.toLocaleString()} - ${visEnd.toLocaleString()} bp`;
+
+        const overlayInfos: PathOverlayInfo[] = [];
+        if (matrixData.parent1_path?.length > 0) {
+          overlayInfos.push({ label: 'Parent 1 Path', visible: showParent1Path });
+        }
+        if (matrixData.parent2_path?.length > 0) {
+          overlayInfos.push({ label: 'Parent 2 Path', visible: showParent2Path });
+        }
+
+        return (
+          <ExportModal
+            defaultTitle={defaultTitle}
+            defaultWidth={containerWidth}
+            defaultHeight={400}
+            visibleStartPos={visStart}
+            visibleEndPos={visEnd}
+            fullRangeStart={fullStart}
+            fullRangeEnd={fullEnd}
+            pathOverlays={overlayInfos}
+            onExport={handleExportWithSettings}
+            onClose={() => setShowExportModal(false)}
+          />
+        );
+      })()}
     </div>
   );
 };
