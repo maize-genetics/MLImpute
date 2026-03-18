@@ -214,14 +214,16 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 />
                 <span>Cell values</span>
               </label>
-              <label className="export-modal-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={includePathLegend}
-                  onChange={(e) => setIncludePathLegend(e.target.checked)}
-                />
-                <span>Paths</span>
-              </label>
+              {pathOverlays.length > 0 && (
+                <label className="export-modal-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={includePathLegend}
+                    onChange={(e) => setIncludePathLegend(e.target.checked)}
+                  />
+                  <span>Paths</span>
+                </label>
+              )}
             </div>
           </div>
 
