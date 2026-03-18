@@ -669,8 +669,8 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                 <div className="overlay-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="overlay-modal-header">
                     <h3>Path Overlay</h3>
-                    <button className="overlay-modal-close" onClick={onOverlayModalClose}>
-                      <Icon path={mdiClose} size={0.7} />
+                    <button className="overlay-modal-close" onClick={onOverlayModalClose} title="Close">
+                      <Icon path={mdiClose} size={0.9} />
                     </button>
                   </div>
                   <div className="overlay-modal-body">

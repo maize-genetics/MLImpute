@@ -1029,6 +1029,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1.5rem 0.75rem;
+  flex-shrink: 0;
 }
 
 .overlay-modal-header h3 {
@@ -1043,18 +1044,38 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border: none;
   background: transparent;
   border-radius: var(--md-sys-shape-corner-full);
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--md-sys-color-on-surface);
   cursor: pointer;
+  transition: background 150ms var(--md-sys-motion-easing-standard);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.overlay-modal-close svg {
+  display: block;
+  fill: currentColor;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.overlay-modal-close::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: transparent;
   transition: background 150ms var(--md-sys-motion-easing-standard);
 }
 
-.overlay-modal-close:hover {
-  background: rgba(0, 0, 0, 0.08);
+.overlay-modal-close:hover::before {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
 }
 
 .overlay-modal-body {
