@@ -204,7 +204,9 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
           {/* Legend toggles */}
           <div className="export-modal-field">
-            <label className="export-modal-label">Legends</label>
+            <label className="export-modal-label">
+              {pathOverlays.length > 0 ? 'Legends' : 'Legend'}
+            </label>
             <div className="export-modal-legend-toggles">
               <label className="export-modal-checkbox-row">
                 <input
