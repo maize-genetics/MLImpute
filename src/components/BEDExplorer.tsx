@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline } from '@mdi/js';
 import BEDHeatmapViewer from './BEDHeatmapViewer';
 import './BEDExplorer.css';
 
@@ -145,37 +145,36 @@ const BEDExplorer: React.FC = () => {
   return (
     <div className="bed-explorer">
       <div className="explorer-header">
-        <h2>BED File Explorer</h2>
-        <p className="explorer-subtitle">Load and analyze imputation BED output files</p>
-      </div>
-
-      <div className="file-selector">
-        <div className="file-input-group">
-          <input
-            type="text"
-            value={filePath}
-            onChange={(e) => setFilePath(e.target.value)}
-            placeholder="Select a BED file..."
-            readOnly
-            className="file-path-input"
-          />
-          <button
-            onClick={selectFile}
-            disabled={isLoading}
-            className="browse-button"
-          >
-            {isLoading ? 'Loading...' : 'Browse'}
-          </button>
+        <h2>BED Explorer</h2>
+        <div className="file-selector">
+          <div className="file-input-group">
+            <input
+              type="text"
+              value={filePath}
+              onChange={(e) => setFilePath(e.target.value)}
+              placeholder="Select a BED file..."
+              readOnly
+              className="file-path-input"
+            />
+            <button
+              onClick={selectFile}
+              disabled={isLoading}
+              className="browse-button"
+            >
+              {isLoading ? 'Loading...' : 'Browse'}
+            </button>
+          </div>
+          {filePath && (
+            <button
+              onClick={() => loadBEDFile(filePath)}
+              disabled={isLoading || !filePath}
+              className="reload-button"
+            >
+              <Icon path={mdiRefresh} size={0.7} /> Reload
+            </button>
+          )}
         </div>
-        {filePath && (
-          <button
-            onClick={() => loadBEDFile(filePath)}
-            disabled={isLoading || !filePath}
-            className="reload-button"
-          >
-            <Icon path={mdiRefresh} size={0.7} /> Reload
-          </button>
-        )}
+        <p className="explorer-subtitle">Load and analyze imputation BED output files</p>
       </div>
 
       {error && (
@@ -209,12 +208,7 @@ const BEDExplorer: React.FC = () => {
       {parseResult && (
         <div className="results-container">
           <div className="file-info-bar">
-            <span className="file-name">{getFileName(filePath)}</span>
-            <span className="file-version">BED</span>
-            <span className="success-badge"><Icon path={mdiCheck} size={0.6} /> Loaded</span>
-          </div>
-
-          <div className="results-tabs">
+            <div className="results-tabs">
             <button
               className={`tab-button ${activeTab === 'summary' ? 'active' : ''}`}
               onClick={() => setActiveTab('summary')}
@@ -237,8 +231,15 @@ const BEDExplorer: React.FC = () => {
               className={`tab-button ${activeTab === 'visualizer' ? 'active' : ''}`}
               onClick={() => setActiveTab('visualizer')}
             >
-              Visualizer
+              <Icon path={mdiChartTimeline} size={0.7} style={{ marginRight: '0.375rem' }} />
+              Heatmap
             </button>
+            </div>
+            <div className="file-info-items">
+              <span className="file-name">{getFileName(filePath)}</span>
+              <span className="file-version">BED</span>
+              <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
+            </div>
           </div>
 
           <div className="tab-content">
@@ -532,7 +533,7 @@ const BEDExplorer: React.FC = () => {
 
       {!parseResult && !isLoading && !error && (
         <div className="empty-state">
-          <div className="empty-icon"><Icon path={mdiChartBoxOutline} size={3} /></div>
+          <div className="empty-icon"><Icon path={mdiFileTable} size={3} /></div>
           <h3>No File Loaded</h3>
           <p>Select a BED file to view its contents and statistics</p>
         </div>

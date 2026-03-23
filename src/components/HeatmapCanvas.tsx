@@ -16,12 +16,46 @@ export interface ExportOptions {
   fileId: string;
   /** Chromosome being viewed */
   chromosome: string;
+  /** Custom title (overrides auto-generated one) */
+  title?: string;
+  /** Export width in logical pixels */
+  width?: number;
+  /** Export height in logical pixels (heatmap area, excluding title/legend) */
+  height?: number;
+  /** DPI scale factor (default 3) */
+  scale?: number;
+  /** Whether to include the cell value legend (default true) */
+  includeCellValueLegend?: boolean;
+  /** Whether to include the path overlay legend (default true) */
+  includePathLegend?: boolean;
+  /** Per-path visibility overrides keyed by label */
+  pathVisibility?: Record<string, boolean>;
+  /** Start position for the exported range */
+  startPosition?: number;
+  /** End position for the exported range */
+  endPosition?: number;
 }
 
 /** Methods exposed by HeatmapCanvas via ref */
 export interface HeatmapCanvasHandle {
   /** Export the current visible view as a PNG image */
   exportToPng: (options: ExportOptions) => Promise<void>;
+}
+
+/** A path overlay line drawn on top of the heatmap */
+export interface PathOverlay {
+  /** Row index per position (column) in the heatmap matrix */
+  data: number[];
+  /** Stroke color */
+  color: string;
+  /** Canvas dash pattern */
+  dashPattern: number[];
+  /** Base line width multiplier (observed paths thicker, predicted thinner) */
+  lineWidth: number;
+  /** Display label */
+  label: string;
+  /** Whether this path is currently visible */
+  visible: boolean;
 }
 
 interface HeatmapCanvasProps {
@@ -53,6 +87,8 @@ interface HeatmapCanvasProps {
   showGridLines?: boolean;
   /** Color scheme: 'binary' (gray/white) or 'intensity' (color gradient) */
   colorScheme?: 'binary' | 'intensity';
+  /** Optional path overlays (true/predicted paths from NumPy data) */
+  pathOverlays?: PathOverlay[];
 }
 
 // Tooltip component with smart positioning to avoid overflow
@@ -62,6 +98,7 @@ interface TooltipContentProps {
   gameteNames: string[];
   positions: number[];
   hoveredCell: { row: number; col: number; value: number };
+  pathOverlays?: PathOverlay[];
 }
 
 const TooltipContent: React.FC<TooltipContentProps> = ({
@@ -70,6 +107,7 @@ const TooltipContent: React.FC<TooltipContentProps> = ({
   gameteNames,
   positions,
   hoveredCell,
+  pathOverlays,
 }) => {
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipSize, setTooltipSize] = useState({ width: 0, height: 0 });
@@ -137,6 +175,23 @@ const TooltipContent: React.FC<TooltipContentProps> = ({
       <div><strong>{gameteNames[hoveredCell.row]}</strong></div>
       <div>Position: {positions[hoveredCell.col]?.toLocaleString()}</div>
       <div>Count: {hoveredCell.value}</div>
+      {pathOverlays && pathOverlays.filter(o => o.visible && o.data[hoveredCell.col] === hoveredCell.row).length > 0 && (
+        <div style={{ marginTop: 3, borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: 3 }}>
+          {pathOverlays.filter(o => o.visible && o.data[hoveredCell.col] === hoveredCell.row).map(o => (
+            <div key={o.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{
+                display: 'inline-block',
+                width: 10,
+                height: 3,
+                background: o.color,
+                borderRadius: 1,
+                flexShrink: 0,
+              }} />
+              <span>{o.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -156,6 +211,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
   cellHeightMultiplier = 1,
   showGridLines = true,
   colorScheme = 'binary',
+  pathOverlays,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -307,217 +363,406 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     return max;
   }, [matrix]);
 
+  // Draw a path overlay line on the canvas (adapted from BEDHeatmapCanvas)
+  const drawPath = useCallback((
+    ctx: CanvasRenderingContext2D,
+    pathData: number[],
+    color: string,
+    dashPattern: number[],
+    lineWidthMultiplier: number,
+  ) => {
+    if (pathData.length < 2) return;
+
+    const points: { x: number; y: number }[] = [];
+    for (let col = startCol; col < endCol && col < pathData.length; col++) {
+      const rowIdx = pathData[col];
+      if (rowIdx < 0 || rowIdx >= numRows) continue;
+      const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth + cellWidth / 2;
+      const y = LABEL_MARGIN_TOP + PADDING + rowIdx * cellHeight + cellHeight / 2;
+      points.push({ x, y });
+    }
+
+    if (points.length < 2) return;
+
+    // Decimate: keep only transition boundary points to reduce noise when zoomed out
+    const decimated: { x: number; y: number }[] = [points[0]];
+    for (let i = 1; i < points.length - 1; i++) {
+      const prevRow = pathData[startCol + i - 1];
+      const currRow = pathData[startCol + i];
+      const nextRow = pathData[startCol + i + 1];
+      if (currRow !== prevRow || currRow !== nextRow) {
+        decimated.push(points[i]);
+      }
+    }
+    decimated.push(points[points.length - 1]);
+
+    const baseWidth = Math.max(2, Math.min(4, cellWidth * 0.5));
+    const adaptiveLineWidth = baseWidth * lineWidthMultiplier;
+    const dashScale = Math.max(0.5, Math.min(1.5, cellWidth / 6));
+    const scaledDash = dashPattern.map(d => d * dashScale);
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // Build the path once, then stroke twice
+    ctx.beginPath();
+    ctx.moveTo(decimated[0].x, decimated[0].y);
+    for (let i = 1; i < decimated.length; i++) {
+      ctx.lineTo(decimated[i].x, decimated[i].y);
+    }
+
+    // Pass 1: dark outline for contrast against any heatmap background
+    ctx.setLineDash(scaledDash);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.lineWidth = adaptiveLineWidth + 2;
+    ctx.stroke();
+
+    // Pass 2: colored path on top
+    ctx.strokeStyle = color;
+    ctx.lineWidth = adaptiveLineWidth;
+    ctx.stroke();
+
+    if (cellWidth >= 8) {
+      const circleRadius = Math.max(2.5, Math.min(4, cellWidth * 0.35));
+      const strokeWidth = Math.max(0.5, Math.min(1.5, cellWidth * 0.15));
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.9;
+      for (const pt of decimated) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, circleRadius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = strokeWidth;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }, [startCol, endCol, cellWidth, cellHeight, numRows, LABEL_MARGIN_LEFT, LABEL_MARGIN_TOP, PADDING]);
+
   // Export to PNG functionality
   useImperativeHandle(ref, () => ({
     exportToPng: async (options: ExportOptions) => {
       try {
         const { fileId, chromosome } = options;
-        
-        // Get visible range positions
-        const startPos = positions[startCol] ?? positions[0];
-        const lastVisibleCol = Math.min(endCol - 1, numCols - 1);
-        const endPos = positions[lastVisibleCol] ?? positions[positions.length - 1];
-      
-      // Create title text
-      const title = `${fileId} | ${chromosome} | ${startPos.toLocaleString()} - ${endPos.toLocaleString()} rbp`;
-      
-      // Calculate dimensions for export canvas
-      const TITLE_HEIGHT = 50;
-      const LEGEND_HEIGHT = 40;
-      const exportWidth = containerSize.width;
-      const exportHeight = containerSize.height + TITLE_HEIGHT + LEGEND_HEIGHT;
-      
-      // Create export canvas with high DPI for crisp output
-      const exportCanvas = document.createElement('canvas');
-      const exportScale = 3; // 3x scale = ~288 DPI for high-quality exports
-      exportCanvas.width = exportWidth * exportScale;
-      exportCanvas.height = exportHeight * exportScale;
-      
-      const ctx = exportCanvas.getContext('2d');
-      if (!ctx) return;
-      
-      ctx.scale(exportScale, exportScale);
-      
-      // Use light theme colors for export (consistent appearance regardless of app theme)
-      const surfaceColor = '#fef7ff';        // Light theme surface
-      const onSurfaceColor = '#1d1b20';      // Light theme on-surface (text)
-      const primaryColor = '#6750a4';        // Light theme primary
-      const outlineVariantColor = '#cac4d0'; // Light theme outline-variant
-      
-      // Fill background
-      ctx.fillStyle = surfaceColor;
-      ctx.fillRect(0, 0, exportWidth, exportHeight);
-      
-      // Draw title
-      ctx.fillStyle = onSurfaceColor;
-      ctx.font = 'bold 16px "Roboto", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(title, exportWidth / 2, TITLE_HEIGHT / 2);
-      
-      // Draw the heatmap content (offset by title height)
-      ctx.save();
-      ctx.translate(0, TITLE_HEIGHT);
-      
-      // Draw gamete labels (y-axis)
-      ctx.fillStyle = onSurfaceColor;
-      ctx.font = `${Math.min(11, cellHeight * 0.8)}px "Roboto", sans-serif`;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      
-      for (let row = 0; row < numRows; row++) {
-        const y = LABEL_MARGIN_TOP + PADDING + row * cellHeight + cellHeight / 2;
-        if (y < containerSize.height) {
-          const label = gameteNames[row] || `Gamete ${row}`;
-          const truncatedLabel = label.length > 12 ? label.substring(0, 10) + '...' : label;
-          ctx.fillText(truncatedLabel, LABEL_MARGIN_LEFT - 8, y);
+
+        // Resolve export column range from position overrides or current viewport
+        let expStartCol = startCol;
+        let expEndCol = endCol;
+        if (options.startPosition != null && options.endPosition != null) {
+          expStartCol = positions.findIndex(p => p >= options.startPosition!);
+          if (expStartCol < 0) expStartCol = 0;
+          expEndCol = positions.findIndex(p => p > options.endPosition!);
+          if (expEndCol < 0) expEndCol = numCols;
         }
-      }
-      
-      // Draw white background behind cells (ensures no dark lines show through in dark theme)
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(
-        LABEL_MARGIN_LEFT + PADDING,
-        LABEL_MARGIN_TOP + PADDING,
-        viewportWidth,
-        totalMatrixHeight
-      );
-      
-      // Draw cells
-      for (let row = 0; row < numRows; row++) {
-        const y = LABEL_MARGIN_TOP + PADDING + row * cellHeight;
-        if (y > containerSize.height) break;
-        
-        for (let col = startCol; col < endCol; col++) {
-          const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth;
-          if (x > containerSize.width - PADDING) break;
-          
-          const value = matrix[row]?.[col] ?? 0;
-          ctx.fillStyle = getCellColor(value, maxValue, primaryColor);
-          ctx.fillRect(x, y, cellWidth - (showGridLines ? 1 : 0), cellHeight - (showGridLines ? 1 : 0));
-        }
-      }
-      
-      // Draw grid lines
-      if (showGridLines && Math.min(cellWidth, cellHeight) >= 4) {
-        ctx.strokeStyle = outlineVariantColor;
-        ctx.lineWidth = 0.5;
-        
-        // Vertical lines
-        for (let col = startCol; col <= endCol; col++) {
-          const x = LABEL_MARGIN_LEFT + PADDING + (col - startCol) * cellWidth;
-          if (x <= containerSize.width - PADDING) {
-            ctx.beginPath();
-            ctx.moveTo(x, LABEL_MARGIN_TOP + PADDING);
-            ctx.lineTo(x, LABEL_MARGIN_TOP + PADDING + totalMatrixHeight);
-            ctx.stroke();
+
+        const expStartPos = positions[expStartCol] ?? positions[0];
+        const expLastVisibleCol = Math.min(expEndCol - 1, numCols - 1);
+        const expEndPos = positions[expLastVisibleCol] ?? positions[positions.length - 1];
+
+        const titleText = options.title ??
+          `${fileId} | ${chromosome} | ${expStartPos.toLocaleString()} - ${expEndPos.toLocaleString()} rbp`;
+
+        const TITLE_HEIGHT = 50;
+        const includeCellValueLegend = options.includeCellValueLegend !== false;
+        const includePathLegend = options.includePathLegend !== false;
+        const includeLegend = includeCellValueLegend || includePathLegend;
+        const resolvePathVisible = (overlay: PathOverlay): boolean => {
+          if (options.pathVisibility && overlay.label in options.pathVisibility) {
+            return options.pathVisibility[overlay.label];
+          }
+          return overlay.visible;
+        };
+        const hasVisiblePathsExport = pathOverlays?.some(o => resolvePathVisible(o)) ?? false;
+        const LEGEND_HEIGHT = includeLegend ? 40 : 0;
+
+        const expW = options.width ?? containerSize.width;
+        const expH = (options.height ?? containerSize.height) + TITLE_HEIGHT + LEGEND_HEIGHT;
+
+        const heatmapAreaHeight = expH - TITLE_HEIGHT - LEGEND_HEIGHT;
+
+        const numVisibleCols = expEndCol - expStartCol;
+        const heatmapDrawWidth = expW - LABEL_MARGIN_LEFT - PADDING * 2;
+        const heatmapDrawHeight = heatmapAreaHeight - LABEL_MARGIN_TOP - PADDING * 2;
+        const expCellWidth = numVisibleCols > 0 ? heatmapDrawWidth / numVisibleCols : cellWidth;
+        const expCellHeight = numRows > 0 ? heatmapDrawHeight / numRows : cellHeight;
+        const expTotalMatrixHeight = numRows * expCellHeight;
+
+        const exportCanvas = document.createElement('canvas');
+        const exportScale = options.scale ?? 3;
+        exportCanvas.width = expW * exportScale;
+        exportCanvas.height = expH * exportScale;
+
+        const ctx = exportCanvas.getContext('2d');
+        if (!ctx) return;
+        ctx.scale(exportScale, exportScale);
+
+        const surfaceColor = '#ffffff';
+        const onSurfaceColor = '#1d1b20';
+        const primaryColor = '#6750a4';
+        const outlineVariantColor = '#cac4d0';
+
+        ctx.fillStyle = surfaceColor;
+        ctx.fillRect(0, 0, expW, expH);
+
+        // Title
+        ctx.fillStyle = onSurfaceColor;
+        ctx.font = 'bold 16px "Roboto", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(titleText, expW / 2, TITLE_HEIGHT / 2);
+
+        ctx.save();
+        ctx.translate(0, TITLE_HEIGHT);
+
+        // Gamete labels (y-axis)
+        ctx.fillStyle = onSurfaceColor;
+        ctx.font = `${Math.min(11, expCellHeight * 0.8)}px "Roboto", sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        for (let row = 0; row < numRows; row++) {
+          const y = LABEL_MARGIN_TOP + PADDING + row * expCellHeight + expCellHeight / 2;
+          if (y < heatmapAreaHeight) {
+            const label = gameteNames[row] || `Gamete ${row}`;
+            const truncatedLabel = label.length > 12 ? label.substring(0, 10) + '...' : label;
+            ctx.fillText(truncatedLabel, LABEL_MARGIN_LEFT - 8, y);
           }
         }
-        
-        // Horizontal lines
-        for (let row = 0; row <= numRows; row++) {
-          const y = LABEL_MARGIN_TOP + PADDING + row * cellHeight;
-          if (y <= containerSize.height) {
-            ctx.beginPath();
-            ctx.moveTo(LABEL_MARGIN_LEFT + PADDING, y);
-            ctx.lineTo(LABEL_MARGIN_LEFT + PADDING + viewportWidth, y);
-            ctx.stroke();
-          }
-        }
-      }
-      
-      ctx.restore();
-      
-      // Draw legend at bottom
-      const legendY = TITLE_HEIGHT + containerSize.height + LEGEND_HEIGHT / 2;
-      ctx.fillStyle = onSurfaceColor;
-      ctx.font = '12px "Roboto", sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      
-      if (colorScheme === 'binary') {
-        // Binary legend
-        const legendStartX = exportWidth / 2 - 100;
-        
-        // No data
+
+        const expViewportWidth = numVisibleCols * expCellWidth;
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(legendStartX, legendY - 8, 16, 16);
-        ctx.strokeStyle = outlineVariantColor;
-        ctx.strokeRect(legendStartX, legendY - 8, 16, 16);
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('No data', legendStartX + 24, legendY);
-        
-        // Has reads
-        ctx.fillStyle = primaryColor;
-        ctx.fillRect(legendStartX + 100, legendY - 8, 16, 16);
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('Has reads', legendStartX + 124, legendY);
-      } else {
-        // Intensity gradient legend
-        const gradientStartX = exportWidth / 2 - 80;
-        const gradientWidth = 100;
-        
-        ctx.fillText('Low', gradientStartX - 30, legendY);
-        
-        // Draw gradient
-        const gradient = ctx.createLinearGradient(gradientStartX, 0, gradientStartX + gradientWidth, 0);
-        gradient.addColorStop(0, 'rgb(0, 0, 0)');
-        gradient.addColorStop(0.2, 'rgb(63, 0, 92)');
-        gradient.addColorStop(0.4, 'rgb(148, 23, 81)');
-        gradient.addColorStop(0.55, 'rgb(199, 52, 44)');
-        gradient.addColorStop(0.7, 'rgb(237, 117, 15)');
-        gradient.addColorStop(0.85, 'rgb(251, 191, 36)');
-        gradient.addColorStop(1, 'rgb(252, 253, 141)');
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(gradientStartX, legendY - 8, gradientWidth, 16);
-        ctx.strokeStyle = outlineVariantColor;
-        ctx.strokeRect(gradientStartX, legendY - 8, gradientWidth, 16);
-        
-        ctx.fillStyle = onSurfaceColor;
-        ctx.fillText('High', gradientStartX + gradientWidth + 8, legendY);
-      }
-      
-      // Create suggested filename
-      const sanitizedFileId = fileId.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const sanitizedChromosome = chromosome.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const suggestedFilename = `${sanitizedFileId}_${sanitizedChromosome}_${startPos}-${endPos}.png`;
-      
-      // Use Tauri's save dialog
-      const savePath = await save({
-        title: 'Export Heatmap as PNG',
-        defaultPath: suggestedFilename,
-        filters: [{ name: 'PNG Image', extensions: ['png'] }],
-      });
-      
-      if (!savePath) return; // User cancelled
-      
-      // Convert canvas to blob then to Uint8Array
-      const blob = await new Promise<Blob | null>((resolve) => {
-        exportCanvas.toBlob(resolve, 'image/png');
-      });
-      
-      if (!blob) {
-        console.error('Failed to create PNG blob');
-        return;
-      }
-      
-      // Convert blob to Uint8Array for Tauri file writing
-      const arrayBuffer = await blob.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      
-      // Write file using Tauri's fs plugin
-      await writeFile(savePath, uint8Array);
-      console.log('PNG exported successfully to:', savePath);
+        ctx.fillRect(
+          LABEL_MARGIN_LEFT + PADDING,
+          LABEL_MARGIN_TOP + PADDING,
+          expViewportWidth,
+          expTotalMatrixHeight
+        );
+
+        // Cells
+        for (let row = 0; row < numRows; row++) {
+          const y = LABEL_MARGIN_TOP + PADDING + row * expCellHeight;
+          if (y > heatmapAreaHeight) break;
+
+          for (let col = expStartCol; col < expEndCol; col++) {
+            const x = LABEL_MARGIN_LEFT + PADDING + (col - expStartCol) * expCellWidth;
+            if (x > expW - PADDING) break;
+
+            const value = matrix[row]?.[col] ?? 0;
+            ctx.fillStyle = getCellColor(value, maxValue, primaryColor);
+            ctx.fillRect(x, y, expCellWidth - (showGridLines ? 1 : 0), expCellHeight - (showGridLines ? 1 : 0));
+          }
+        }
+
+        // Grid lines
+        if (showGridLines && Math.min(expCellWidth, expCellHeight) >= 4) {
+          ctx.strokeStyle = outlineVariantColor;
+          ctx.lineWidth = 0.5;
+
+          for (let col = expStartCol; col <= expEndCol; col++) {
+            const x = LABEL_MARGIN_LEFT + PADDING + (col - expStartCol) * expCellWidth;
+            if (x <= expW - PADDING) {
+              ctx.beginPath();
+              ctx.moveTo(x, LABEL_MARGIN_TOP + PADDING);
+              ctx.lineTo(x, LABEL_MARGIN_TOP + PADDING + expTotalMatrixHeight);
+              ctx.stroke();
+            }
+          }
+
+          for (let row = 0; row <= numRows; row++) {
+            const y = LABEL_MARGIN_TOP + PADDING + row * expCellHeight;
+            if (y <= heatmapAreaHeight) {
+              ctx.beginPath();
+              ctx.moveTo(LABEL_MARGIN_LEFT + PADDING, y);
+              ctx.lineTo(LABEL_MARGIN_LEFT + PADDING + expViewportWidth, y);
+              ctx.stroke();
+            }
+          }
+        }
+
+        // Determine per-path visibility with optional overrides (resolvePathVisible already defined above)
+        if (hasVisiblePathsExport) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+          ctx.fillRect(
+            LABEL_MARGIN_LEFT + PADDING,
+            LABEL_MARGIN_TOP + PADDING,
+            expViewportWidth,
+            expTotalMatrixHeight,
+          );
+        }
+
+        if (pathOverlays) {
+          for (const overlay of pathOverlays) {
+            if (!resolvePathVisible(overlay)) continue;
+            const pathData = overlay.data;
+            if (pathData.length < 2) continue;
+
+            const points: { x: number; y: number }[] = [];
+            for (let col = expStartCol; col < expEndCol && col < pathData.length; col++) {
+              const rowIdx = pathData[col];
+              if (rowIdx < 0 || rowIdx >= numRows) continue;
+              const x = LABEL_MARGIN_LEFT + PADDING + (col - expStartCol) * expCellWidth + expCellWidth / 2;
+              const y = LABEL_MARGIN_TOP + PADDING + rowIdx * expCellHeight + expCellHeight / 2;
+              points.push({ x, y });
+            }
+            if (points.length < 2) continue;
+
+            const decimated: { x: number; y: number }[] = [points[0]];
+            for (let i = 1; i < points.length - 1; i++) {
+              const prevRow = pathData[expStartCol + i - 1];
+              const currRow = pathData[expStartCol + i];
+              const nextRow = pathData[expStartCol + i + 1];
+              if (currRow !== prevRow || currRow !== nextRow) {
+                decimated.push(points[i]);
+              }
+            }
+            decimated.push(points[points.length - 1]);
+
+            const baseWidth = Math.max(2, Math.min(4, expCellWidth * 0.5));
+            const adaptiveLineWidth = baseWidth * overlay.lineWidth;
+            const dashScale = Math.max(0.5, Math.min(1.5, expCellWidth / 6));
+            const scaledDash = overlay.dashPattern.map(d => d * dashScale);
+
+            ctx.save();
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            ctx.beginPath();
+            ctx.moveTo(decimated[0].x, decimated[0].y);
+            for (let i = 1; i < decimated.length; i++) {
+              ctx.lineTo(decimated[i].x, decimated[i].y);
+            }
+
+            ctx.setLineDash(scaledDash);
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.lineWidth = adaptiveLineWidth + 2;
+            ctx.stroke();
+
+            ctx.strokeStyle = overlay.color;
+            ctx.lineWidth = adaptiveLineWidth;
+            ctx.stroke();
+
+            if (expCellWidth >= 8) {
+              const circleRadius = Math.max(2.5, Math.min(4, expCellWidth * 0.35));
+              const strokeWidth = Math.max(0.5, Math.min(1.5, expCellWidth * 0.15));
+              ctx.setLineDash([]);
+              ctx.globalAlpha = 0.9;
+              for (const pt of decimated) {
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, circleRadius, 0, Math.PI * 2);
+                ctx.fillStyle = overlay.color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = strokeWidth;
+                ctx.stroke();
+              }
+            }
+            ctx.restore();
+          }
+        }
+
+        ctx.restore();
+
+        // Legend
+        if (includeLegend) {
+          const legendY = TITLE_HEIGHT + heatmapAreaHeight + LEGEND_HEIGHT / 2;
+          ctx.fillStyle = onSurfaceColor;
+          ctx.font = '12px "Roboto", sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+
+          let nextX = expW / 2;
+          if (includeCellValueLegend) {
+            if (colorScheme === 'binary') {
+              const legendStartX = nextX - 100;
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(legendStartX, legendY - 8, 16, 16);
+              ctx.strokeStyle = outlineVariantColor;
+              ctx.strokeRect(legendStartX, legendY - 8, 16, 16);
+              ctx.fillStyle = onSurfaceColor;
+              ctx.fillText('No data', legendStartX + 24, legendY);
+
+              ctx.fillStyle = primaryColor;
+              ctx.fillRect(legendStartX + 100, legendY - 8, 16, 16);
+              ctx.fillStyle = onSurfaceColor;
+              ctx.fillText('Has reads', legendStartX + 124, legendY);
+              nextX = legendStartX + 200;
+            } else {
+              const gradientStartX = nextX - 80;
+              const gradientWidth = 100;
+
+              ctx.fillText('Low', gradientStartX - 30, legendY);
+
+              const gradient = ctx.createLinearGradient(gradientStartX, 0, gradientStartX + gradientWidth, 0);
+              gradient.addColorStop(0, 'rgb(0, 0, 0)');
+              gradient.addColorStop(0.2, 'rgb(63, 0, 92)');
+              gradient.addColorStop(0.4, 'rgb(148, 23, 81)');
+              gradient.addColorStop(0.55, 'rgb(199, 52, 44)');
+              gradient.addColorStop(0.7, 'rgb(237, 117, 15)');
+              gradient.addColorStop(0.85, 'rgb(251, 191, 36)');
+              gradient.addColorStop(1, 'rgb(252, 253, 141)');
+
+              ctx.fillStyle = gradient;
+              ctx.fillRect(gradientStartX, legendY - 8, gradientWidth, 16);
+              ctx.strokeStyle = outlineVariantColor;
+              ctx.strokeRect(gradientStartX, legendY - 8, gradientWidth, 16);
+
+              ctx.fillStyle = onSurfaceColor;
+              ctx.fillText('High', gradientStartX + gradientWidth + 8, legendY);
+              nextX = gradientStartX + gradientWidth + 50;
+            }
+          }
+
+          // Path overlay legend (when paths are visible) — side by side
+          if (includePathLegend && hasVisiblePathsExport && pathOverlays) {
+            nextX += 16; // gap before path items
+            for (const overlay of pathOverlays) {
+              if (!resolvePathVisible(overlay)) continue;
+              ctx.fillStyle = overlay.color;
+              ctx.fillRect(nextX, legendY - 6, 12, 3);
+              ctx.fillStyle = onSurfaceColor;
+              ctx.font = '11px "Roboto", sans-serif';
+              ctx.fillText(overlay.label, nextX + 18, legendY);
+              nextX += 18 + ctx.measureText(overlay.label).width + 16;
+            }
+          }
+        }
+
+        const sanitizedFileId = fileId.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sanitizedChromosome = chromosome.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const suggestedFilename = `${sanitizedFileId}_${sanitizedChromosome}_${expStartPos}-${expEndPos}.png`;
+
+        const savePath = await save({
+          title: 'Export Heatmap as PNG',
+          defaultPath: suggestedFilename,
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+        });
+
+        if (!savePath) return;
+
+        const blob = await new Promise<Blob | null>((resolve) => {
+          exportCanvas.toBlob(resolve, 'image/png');
+        });
+
+        if (!blob) {
+          console.error('Failed to create PNG blob');
+          return;
+        }
+
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        await writeFile(savePath, uint8Array);
+        console.log('PNG exported successfully to:', savePath);
       } catch (error) {
         console.error('Failed to export PNG:', error);
         throw error;
       }
     }
   }), [
-    matrix, positions, gameteNames, containerSize, cellWidth, cellHeight, 
-    startCol, endCol, numRows, numCols, totalMatrixHeight, viewportWidth, 
-    showGridLines, colorScheme, getCellColor, maxValue
+    matrix, positions, gameteNames, containerSize, cellWidth, cellHeight,
+    startCol, endCol, numRows, numCols,
+    showGridLines, colorScheme, getCellColor, maxValue, pathOverlays,
   ]);
 
   // Draw the heatmap
@@ -612,6 +857,31 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
       }
     }
 
+    // Desaturate cells when path overlays are visible so paths stand out
+    const hasVisiblePaths = pathOverlays?.some(o => o.visible);
+    if (hasVisiblePaths) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+      const renderedWidth = (endCol - startCol) * cellWidth;
+      ctx.fillRect(
+        LABEL_MARGIN_LEFT + PADDING,
+        LABEL_MARGIN_TOP + PADDING,
+        renderedWidth,
+        totalMatrixHeight,
+      );
+      ctx.restore();
+    }
+
+    // Draw path overlays
+    if (pathOverlays) {
+      for (const overlay of pathOverlays) {
+        if (overlay.visible) {
+          drawPath(ctx, overlay.data, overlay.color, overlay.dashPattern, overlay.lineWidth);
+        }
+      }
+    }
+
     // Draw hover highlight
     if (hoveredCell) {
       const { row, col } = hoveredCell;
@@ -626,7 +896,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
     }
 
   }, [matrix, positions, gameteNames, containerSize, cellWidth, cellHeight, startCol, endCol, numRows, numCols, 
-      totalMatrixHeight, viewportWidth, showGridLines, getCellColor, maxValue, hoveredCell]);
+      totalMatrixHeight, viewportWidth, showGridLines, getCellColor, maxValue, hoveredCell, pathOverlays, drawPath]);
 
   // Handle mouse down for drag scrolling
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -764,6 +1034,7 @@ const HeatmapCanvas = forwardRef<HeatmapCanvasHandle, HeatmapCanvasProps>(({
           gameteNames={gameteNames}
           positions={positions}
           hoveredCell={hoveredCell}
+          pathOverlays={pathOverlays}
         />
       )}
     </div>
