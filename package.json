@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite --mode web",
     "build": "tsc && vite build",
+    "build:wasm": "wasm-pack build crates/parser-wasm --target web --out-dir ../../src/wasm/pkg",
+    "build:web": "npm run build:wasm && tsc --skipLibCheck && vite build --mode web",
     "preview": "vite preview",
+    "preview:web": "vite preview --outDir dist-web --mode web",
     "tauri": "tauri",
     "package": "bash ./scripts/package.sh",
     "package:debug": "bash ./scripts/package.sh --mode debug",
