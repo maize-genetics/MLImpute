@@ -1,7 +1,15 @@
 use js_sys::Function;
 use parser_core::types::*;
+use serde::Serialize;
 use std::io::Cursor;
 use wasm_bindgen::prelude::*;
+
+fn to_js_value<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    value
+        .serialize(&serializer)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
 
 // ============================================================================
 // PS4G
@@ -20,7 +28,7 @@ impl PS4GFileHandle {
     pub fn get_chromosome_matrix(&self, chromosome: &str) -> Result<JsValue, JsValue> {
         let result = parser_core::build_chromosome_matrix(&self.cached, chromosome)
             .map_err(|e| JsValue::from_str(&e))?;
-        serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+        to_js_value(&result)
     }
 
     /// Encode a chromosome matrix as a compact base64 binary payload.
@@ -28,7 +36,7 @@ impl PS4GFileHandle {
         let matrix = parser_core::build_chromosome_matrix(&self.cached, chromosome)
             .map_err(|e| JsValue::from_str(&e))?;
         let binary = parser_core::encode_matrix_binary(&matrix);
-        serde_wasm_bindgen::to_value(&binary).map_err(|e| JsValue::from_str(&e.to_string()))
+        to_js_value(&binary)
     }
 }
 
@@ -48,7 +56,7 @@ pub fn parse_ps4g_file(
         Some(file_size),
         |p: PS4GProgress| {
             if let Some(ref f) = on_progress {
-                if let Ok(val) = serde_wasm_bindgen::to_value(&p) {
+                if let Ok(val) = to_js_value(&p) {
                     let _ = f.call1(&JsValue::NULL, &val);
                 }
             }
@@ -56,7 +64,7 @@ pub fn parse_ps4g_file(
     )
     .map_err(|e| JsValue::from_str(&e))?;
 
-    serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    to_js_value(&result)
 }
 
 /// Parse a PS4G file and return an opaque handle for chromosome matrix queries.
@@ -72,7 +80,7 @@ pub fn parse_ps4g_to_handle(
         Some(file_size),
         |p: PS4GProgress| {
             if let Some(ref f) = on_progress {
-                if let Ok(val) = serde_wasm_bindgen::to_value(&p) {
+                if let Ok(val) = to_js_value(&p) {
                     let _ = f.call1(&JsValue::NULL, &val);
                 }
             }
@@ -111,7 +119,7 @@ impl BEDFileHandle {
             chromosome,
             |p: BEDMatrixProgress| {
                 if let Some(ref f) = on_progress {
-                    if let Ok(val) = serde_wasm_bindgen::to_value(&p) {
+                    if let Ok(val) = to_js_value(&p) {
                         let _ = f.call1(&JsValue::NULL, &val);
                     }
                 }
@@ -119,7 +127,7 @@ impl BEDFileHandle {
         )
         .map_err(|e| JsValue::from_str(&e))?;
 
-        serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+        to_js_value(&result)
     }
 }
 
@@ -136,7 +144,7 @@ pub fn parse_bed_file(
         Some(file_size),
         |p: BEDProgress| {
             if let Some(ref f) = on_progress {
-                if let Ok(val) = serde_wasm_bindgen::to_value(&p) {
+                if let Ok(val) = to_js_value(&p) {
                     let _ = f.call1(&JsValue::NULL, &val);
                 }
             }
@@ -144,7 +152,7 @@ pub fn parse_bed_file(
     )
     .map_err(|e| JsValue::from_str(&e))?;
 
-    serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    to_js_value(&result)
 }
 
 /// Parse a BED file and return an opaque handle for chromosome matrix queries.
@@ -161,7 +169,7 @@ pub fn parse_bed_to_handle(
         Some(file_size),
         |p: BEDProgress| {
             if let Some(ref f) = on_progress {
-                if let Ok(val) = serde_wasm_bindgen::to_value(&p) {
+                if let Ok(val) = to_js_value(&p) {
                     let _ = f.call1(&JsValue::NULL, &val);
                 }
             }
@@ -208,5 +216,5 @@ pub fn load_npy_overlay(
     )
     .map_err(|e| JsValue::from_str(&e))?;
 
-    serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    to_js_value(&result)
 }
