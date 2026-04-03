@@ -1,56 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import React, { useState, useRef } from 'react';
 import Icon from '@mdi/react';
 import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline } from '@mdi/js';
 import BEDHeatmapViewer from './BEDHeatmapViewer';
+import { getBackend } from '../platform';
+import type { BEDProgress, BEDParseResult, FileHandle, FileInput } from '../platform';
 import './BEDExplorer.css';
-
-interface BEDProgress {
-  rows_processed: number;
-  bytes_processed: number;
-  total_bytes: number;
-  percent: number;
-}
-
-interface BEDDataRow {
-  chrom: string;
-  start: number;
-  end: number;
-  parent1: string;
-  parent2: string;
-}
-
-interface ParentStats {
-  parent_id: string;
-  regions_as_parent1: number;
-  regions_as_parent2: number;
-  total_regions: number;
-  coverage_bp_as_parent1: number;
-  coverage_bp_as_parent2: number;
-  total_coverage_bp: number;
-  chromosome_count: number;
-}
-
-interface BEDSummary {
-  total_rows: number;
-  chromosomes: string[];
-  chromosome_counts: Record<string, number>;
-  position_range: Record<string, [number, number]>;
-  total_coverage_bp: number;
-  avg_region_size_bp: number;
-  unique_parents: string[];
-  unique_parent_pairs: number;
-  parent_stats: ParentStats[];
-}
-
-interface BEDParseResult {
-  success: boolean;
-  summary: BEDSummary;
-  data_preview: BEDDataRow[];
-  error: string | null;
-}
 
 const BEDExplorer: React.FC = () => {
   const [filePath, setFilePath] = useState<string>('');
@@ -61,37 +15,26 @@ const BEDExplorer: React.FC = () => {
   const [progress, setProgress] = useState<BEDProgress | null>(null);
   const [gameteSortKey, setGameteSortKey] = useState<'parent_id' | 'total_regions' | 'as_parent1' | 'as_parent2' | 'total_coverage' | 'chromosomes' | 'proportion'>('total_regions');
   const [gameteSortDir, setGameteSortDir] = useState<'asc' | 'desc'>('desc');
-  const unlistenRef = useRef<UnlistenFn | null>(null);
-
-  useEffect(() => {
-    const setupListener = async () => {
-      unlistenRef.current = await listen<BEDProgress>('bed-progress', (event) => {
-        setProgress(event.payload);
-      });
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlistenRef.current) {
-        unlistenRef.current();
-      }
-    };
-  }, []);
+  const fileHandleRef = useRef<FileHandle | null>(null);
+  const fileInputRef = useRef<FileInput | null>(null);
 
   const selectFile = async () => {
     try {
-      const selected = await open({
+      const backend = await getBackend();
+      const selected = await backend.openFile({
         title: 'Select BED File',
-        multiple: false,
         filters: [
           { name: 'BED Files (*.bed)', extensions: ['bed'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       });
 
-      if (selected && typeof selected === 'string') {
-        setFilePath(selected);
+      if (selected) {
+        const displayName = typeof selected === 'string'
+          ? selected
+          : (selected as File).name;
+        setFilePath(displayName);
+        fileInputRef.current = selected;
         await loadBEDFile(selected);
       }
     } catch (err) {
@@ -100,14 +43,19 @@ const BEDExplorer: React.FC = () => {
     }
   };
 
-  const loadBEDFile = async (path: string) => {
+  const loadBEDFile = async (file: FileInput) => {
     setIsLoading(true);
     setError(null);
     setParseResult(null);
     setProgress(null);
 
     try {
-      const result = await invoke<BEDParseResult>('parse_bed_file', { filePath: path });
+      const backend = await getBackend();
+      const { result, handle } = await backend.parseBEDFile(file, (p) => {
+        setProgress(p);
+      });
+
+      fileHandleRef.current = handle;
 
       if (result.success) {
         setParseResult(result);
@@ -166,8 +114,8 @@ const BEDExplorer: React.FC = () => {
           </div>
           {filePath && (
             <button
-              onClick={() => loadBEDFile(filePath)}
-              disabled={isLoading || !filePath}
+              onClick={() => fileInputRef.current && loadBEDFile(fileInputRef.current)}
+              disabled={isLoading || !fileInputRef.current}
               className="reload-button"
             >
               <Icon path={mdiRefresh} size={0.7} /> Reload
@@ -523,6 +471,7 @@ const BEDExplorer: React.FC = () => {
               <div className="visualizer-panel">
                 <BEDHeatmapViewer
                   filePath={filePath}
+                  fileHandle={fileHandleRef.current}
                   summary={parseResult.summary}
                 />
               </div>

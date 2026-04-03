@@ -1,56 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import React, { useState, useRef } from 'react';
 import Icon from '@mdi/react';
 import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline, mdiLayersOutline } from '@mdi/js';
 import HeatmapViewer from './HeatmapViewer';
+import { getBackend } from '../platform';
+import type { PS4GProgress, PS4GParseResult, FileHandle, FileInput } from '../platform';
 import './PS4GExplorer.css';
-
-interface PS4GProgress {
-  rows_processed: number;
-  bytes_processed: number;
-  total_bytes: number;
-  percent: number;
-}
-
-interface GameteInfo {
-  gamete: string;
-  gamete_index: number;
-  read_count: number;
-  weight: number;
-}
-
-interface PS4GDataRow {
-  gamete_set: number[];
-  ref_contig: string;
-  ref_pos_binned: number;
-  count: number;
-}
-
-interface PS4GMetadata {
-  version: string | null;
-  command: string | null;
-  total_unique_counts: number | null;
-  gametes: GameteInfo[];
-}
-
-interface PS4GSummary {
-  total_rows: number;
-  unique_positions: number;
-  chromosomes: string[];
-  chromosome_counts: Record<string, number>;
-  gamete_count: number;
-  position_range: Record<string, [number, number]>;
-}
-
-interface PS4GParseResult {
-  success: boolean;
-  metadata: PS4GMetadata;
-  summary: PS4GSummary;
-  data_preview: PS4GDataRow[];
-  error: string | null;
-}
 
 interface PS4GExplorerProps {
   onDataLoaded?: (result: PS4GParseResult) => void;
@@ -69,38 +23,26 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   const [gameteSortKey, setGameteSortKey] = useState<GameteSortKey>('index');
   const [gameteSortDir, setGameteSortDir] = useState<SortDirection>('asc');
   const [overlayModalOpen, setOverlayModalOpen] = useState<boolean>(false);
-  const unlistenRef = useRef<UnlistenFn | null>(null);
-
-  // Set up event listener for progress updates
-  useEffect(() => {
-    const setupListener = async () => {
-      unlistenRef.current = await listen<PS4GProgress>('ps4g-progress', (event) => {
-        setProgress(event.payload);
-      });
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlistenRef.current) {
-        unlistenRef.current();
-      }
-    };
-  }, []);
+  const fileHandleRef = useRef<FileHandle | null>(null);
+  const fileInputRef = useRef<FileInput | null>(null);
 
   const selectFile = async () => {
     try {
-      const selected = await open({
+      const backend = await getBackend();
+      const selected = await backend.openFile({
         title: 'Select PS4G File',
-        multiple: false,
         filters: [
           { name: 'PS4G Files (*.ps4g, *.ps4g.txt, *_ps4g.txt)', extensions: ['ps4g', 'txt'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       });
-      
-      if (selected && typeof selected === 'string') {
-        setFilePath(selected);
+
+      if (selected) {
+        const displayName = typeof selected === 'string'
+          ? selected
+          : (selected as File).name;
+        setFilePath(displayName);
+        fileInputRef.current = selected;
         await loadPS4GFile(selected);
       }
     } catch (err) {
@@ -109,15 +51,20 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
     }
   };
 
-  const loadPS4GFile = async (path: string) => {
+  const loadPS4GFile = async (file: FileInput) => {
     setIsLoading(true);
     setError(null);
     setParseResult(null);
     setProgress(null);
 
     try {
-      const result = await invoke<PS4GParseResult>('parse_ps4g_file', { filePath: path });
-      
+      const backend = await getBackend();
+      const { result, handle } = await backend.parsePS4GFile(file, (p) => {
+        setProgress(p);
+      });
+
+      fileHandleRef.current = handle;
+
       if (result.success) {
         setParseResult(result);
         if (onDataLoaded) {
@@ -167,8 +114,8 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
           </div>
           {filePath && (
             <button
-              onClick={() => loadPS4GFile(filePath)}
-              disabled={isLoading || !filePath}
+              onClick={() => fileInputRef.current && loadPS4GFile(fileInputRef.current)}
+              disabled={isLoading || !fileInputRef.current}
               className="reload-button"
             >
               <Icon path={mdiRefresh} size={0.7} /> Reload
@@ -467,6 +414,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
               <div className="heatmap-panel">
                 <HeatmapViewer
                   filePath={filePath}
+                  fileHandle={fileHandleRef.current}
                   metadata={parseResult.metadata}
                   summary={parseResult.summary}
                   overlayModalOpen={overlayModalOpen}

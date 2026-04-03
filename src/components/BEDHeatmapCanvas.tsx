@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile } from '@tauri-apps/plugin-fs';
+import { getBackend } from '../platform';
 
 /** Visible range information reported by the canvas */
 export interface BEDVisibleRange {
@@ -582,13 +581,6 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
         const sanitizedChromosome = chromosome.replace(/[^a-zA-Z0-9_-]/g, '_');
         const suggestedFilename = `${sanitizedFileId}_${sanitizedChromosome}_heatmap.png`;
 
-        const savePath = await save({
-          title: 'Export BED Heatmap as PNG',
-          defaultPath: suggestedFilename,
-          filters: [{ name: 'PNG Image', extensions: ['png'] }],
-        });
-        if (!savePath) return;
-
         const blob = await new Promise<Blob | null>((resolve) => {
           exportCanvas.toBlob(resolve, 'image/png');
         });
@@ -596,7 +588,11 @@ const BEDHeatmapCanvas = forwardRef<BEDHeatmapCanvasHandle, BEDHeatmapCanvasProp
 
         const arrayBuffer = await blob.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
-        await writeFile(savePath, uint8Array);
+        const backend = await getBackend();
+        await backend.saveFile(uint8Array, {
+          defaultName: suggestedFilename,
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+        });
       } catch (error) {
         console.error('Failed to export BED heatmap PNG:', error);
         throw error;
