@@ -51,9 +51,10 @@ pixi run -- python impute.py --input <input_file> --output <output_file> --model
 ## Prerequisites
 
 * Node.js
-* Rust
+* Rust (with `wasm32-unknown-unknown` target for web builds)
+* [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) (for web builds only)
 
-## Run Tauri dev container
+## Tauri Desktop App
 
 If running this for the first time:
 
@@ -73,7 +74,58 @@ npm run build-wheelhouse
 npm run tauri dev
 ```
 
-For subsequent runs, just use `npm run tauri dev`
+For subsequent runs, just use `npm run tauri dev`.
+
+## Static Web App (PS4G / BED Visualization)
+
+The PS4G and BED visualization components can be built as a standalone
+static web application. File parsing runs entirely client-side via Rust
+compiled to WebAssembly -- no server required.
+
+### One-time setup
+
+```bash
+# Add the WASM compilation target
+rustup target add wasm32-unknown-unknown
+
+# Install wasm-pack
+cargo install wasm-pack
+
+# Install npm dependencies
+npm install
+```
+
+### Development
+
+```bash
+# Start the Vite dev server in web mode (port 3001)
+npm run dev:web
+```
+
+### Production build
+
+```bash
+# Build WASM + TypeScript + Vite to dist-web/
+npm run build:web
+
+# Preview the production build locally
+npm run preview:web
+```
+
+The `dist-web/` directory is a fully static site that can be deployed to
+GitHub Pages, Netlify, Vercel, S3, or any static file host.
+
+### Build commands reference
+
+| Command              | Description                                                        |
+| -------------------- | ------------------------------------------------------------------ |
+| `npm run dev`        | Vite dev server for Tauri (port 3000)                              |
+| `npm run dev:web`    | Vite dev server for web (port 3001)                                |
+| `npm run build`      | Production frontend build for Tauri (`dist/`)                      |
+| `npm run build:web`  | Full web pipeline: WASM + TS + Vite (`dist-web/`)                  |
+| `npm run build:wasm` | Build only the WASM module (`src/wasm/pkg/`)                       |
+| `npm run preview:web`| Serve the `dist-web/` production build locally                     |
+| `npm run tauri dev`  | Launch the full Tauri desktop app in development mode              |
 
 # Testing
 
