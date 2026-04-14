@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Icon from '@mdi/react';
-import { mdiMapMarkerPath, mdiChartBoxOutline } from '@mdi/js';
+import { mdiMapMarkerPath, mdiChartTimeline } from '@mdi/js';
 import "./App.css";
 import ImputePage from "./components/ImputePage";
 import PS4GExplorer from "./components/PS4GExplorer";
@@ -31,14 +31,14 @@ function App() {
             className={`nav-tab ${activePage === 'ps4g' ? 'active' : ''}`}
             onClick={() => setActivePage('ps4g')}
           >
-            <span className="nav-tab-icon"><Icon path={mdiChartBoxOutline} size={0.9} /></span>
+            <span className="nav-tab-icon"><Icon path={mdiChartTimeline} size={0.9} /></span>
             PS4G Explorer
           </button>
           <button 
             className={`nav-tab ${activePage === 'bed' ? 'active' : ''}`}
             onClick={() => setActivePage('bed')}
           >
-            <span className="nav-tab-icon"><Icon path={mdiChartBoxOutline} size={0.9} /></span>
+            <span className="nav-tab-icon"><Icon path={mdiChartTimeline} size={0.9} /></span>
             BED Explorer
           </button>
         </div>

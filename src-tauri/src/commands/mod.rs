@@ -1,5 +1,6 @@
 pub mod bed_parser;
 pub mod gpu;
+pub mod npy_overlay;
 pub mod python_impute;
 pub mod python_bootstrap;
 pub mod ps4g_parser;
