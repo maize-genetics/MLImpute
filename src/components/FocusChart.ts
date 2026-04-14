@@ -86,13 +86,13 @@ export const renderFocusChart = (
     .attr("fill", (d: DataPoint) => {
       const parent = highlightMap.get(`${d.row}:${d.col}`);
       if (parent === 'parent1') {
-        return "#FF6B35"; // Orange for parent1
+        return "#FFAB91"; // Pale orange
       } else if (parent === 'parent2') {
-        return "#2E86AB"; // Blue for parent2
+        return "#81D4FA"; // Pale blue
       } else if (parent === 'both') {
-        return "#9D4EDD"; // Purple for overlap
+        return "#CE93D8"; // Pale purple
       }
-      return "#E8E8E8"; // Light grey for non-parent cells
+      return "#F0F0F0"; // Light grey
     })
     .attr("stroke", "#fff")
     .attr("stroke-width", 0.5);
@@ -292,28 +292,30 @@ const renderParentPaths = (
   nRows: number,
   focusCols: string[]
 ) => {
-  // Remove existing paths
   focusG.selectAll(".parent-path").remove();
   focusG.selectAll(".parent-point").remove();
 
-  // Separate highlights by parent
   const parent1Highlights = highlightData.filter(h => h.parent === 'parent1');
   const parent2Highlights = highlightData.filter(h => h.parent === 'parent2');
 
-  // Render path for parent1
+  const cellW = innerWidth / nCols;
+  const adaptiveStrokeWidth = Math.max(1, Math.min(3, cellW * 0.4));
+  const dashScale = Math.max(0.3, Math.min(1, cellW / 8));
+
   renderSingleParentPath(focusG, parent1Highlights, xScale, yScale, innerWidth, innerHeight, nCols, nRows, focusCols, {
-    color: '#FF6B35',
+    color: '#B81D00',
     className: 'parent1-path',
-    strokeWidth: 3,
-    strokeDash: '8,4'
+    strokeWidth: adaptiveStrokeWidth,
+    strokeDash: `${8 * dashScale},${4 * dashScale}`,
+    cellWidth: cellW,
   });
 
-  // Render path for parent2
   renderSingleParentPath(focusG, parent2Highlights, xScale, yScale, innerWidth, innerHeight, nCols, nRows, focusCols, {
-    color: '#2E86AB', 
+    color: '#0B4F6C',
     className: 'parent2-path',
-    strokeWidth: 3,
-    strokeDash: '4,8'
+    strokeWidth: adaptiveStrokeWidth,
+    strokeDash: `${4 * dashScale},${8 * dashScale}`,
+    cellWidth: cellW,
   });
 };
 
@@ -327,36 +329,46 @@ const renderSingleParentPath = (
   nCols: number,
   nRows: number,
   focusCols: string[],
-  style: { color: string; className: string; strokeWidth: number; strokeDash: string }
+  style: { color: string; className: string; strokeWidth: number; strokeDash: string; cellWidth: number }
 ) => {
-  // Filter highlights to only include those visible in current focus
-  const visibleHighlights = highlights.filter(h => 
+  const visibleHighlights = highlights.filter(h =>
     focusCols.includes(h.col) && yScale.domain().includes(h.row)
   );
 
-  // Sort by column order to ensure path follows column sequence
   visibleHighlights.sort((a, b) => {
     const aIndex = focusCols.indexOf(a.col);
     const bIndex = focusCols.indexOf(b.col);
     return aIndex - bIndex;
   });
 
-  if (visibleHighlights.length < 2) return; // Need at least 2 points to draw a path
+  if (visibleHighlights.length < 2) return;
 
-  // Calculate center coordinates for each highlighted cell
-  const pathPoints = visibleHighlights.map(h => {
+  // Decimate: keep only transition boundary points to reduce noise when zoomed out
+  let decimated = visibleHighlights;
+  if (visibleHighlights.length > 2) {
+    decimated = [visibleHighlights[0]];
+    for (let i = 1; i < visibleHighlights.length - 1; i++) {
+      const prevRow = visibleHighlights[i - 1].row;
+      const currRow = visibleHighlights[i].row;
+      const nextRow = visibleHighlights[i + 1].row;
+      if (currRow !== prevRow || currRow !== nextRow) {
+        decimated.push(visibleHighlights[i]);
+      }
+    }
+    decimated.push(visibleHighlights[visibleHighlights.length - 1]);
+  }
+
+  const pathPoints = decimated.map(h => {
     const x = xScale(h.col)! + (innerWidth / nCols) / 2;
     const y = yScale(h.row)! + (innerHeight / nRows) / 2;
     return [x, y] as [number, number];
   });
 
-  // Create line generator
   const line = d3.line()
     .x(d => d[0])
     .y(d => d[1])
     .curve(d3.curveLinear);
 
-  // Draw path
   focusG
     .append("path")
     .datum(pathPoints)
@@ -368,17 +380,21 @@ const renderSingleParentPath = (
     .attr("stroke-dasharray", style.strokeDash)
     .style("opacity", 0.9);
 
-  // Add circles at each point for better visibility
-  focusG
-    .selectAll(`.parent-point.${style.className}`)
-    .data(pathPoints)
-    .join("circle")
-    .attr("class", `parent-point ${style.className}`)
-    .attr("cx", d => d[0])
-    .attr("cy", d => d[1])
-    .attr("r", 4)
-    .attr("fill", style.color)
-    .attr("stroke", "#fff")
-    .attr("stroke-width", 2)
-    .style("opacity", 0.9);
+  // Draw circles only when cells are large enough to be useful
+  if (style.cellWidth >= 8) {
+    const circleRadius = Math.max(2, Math.min(4, style.cellWidth * 0.3));
+    const circleStroke = Math.max(0.5, Math.min(2, style.cellWidth * 0.15));
+    focusG
+      .selectAll(`.parent-point.${style.className}`)
+      .data(pathPoints)
+      .join("circle")
+      .attr("class", `parent-point ${style.className}`)
+      .attr("cx", d => d[0])
+      .attr("cy", d => d[1])
+      .attr("r", circleRadius)
+      .attr("fill", style.color)
+      .attr("stroke", "#fff")
+      .attr("stroke-width", circleStroke)
+      .style("opacity", 0.9);
+  }
 };

@@ -216,8 +216,8 @@ export function convertVisualizationToMatrix(data: VisualizationData): {
     
     let highlights: Array<{col: string; row: string; parent?: 'parent1' | 'parent2'}> = [];
 
-    // Check if we have parent path data or BED highlight data in metadata
-    if ((data.metadata?.type === 'parent_paths' || data.metadata?.type === 'bed_file_visualization') && data.metadata?.highlights) {
+    // Check if we have parent path data in metadata
+    if (data.metadata?.type === 'parent_paths' && data.metadata?.highlights) {
       highlights = data.metadata.highlights;
     } else {
       // Fallback: Create highlights for non-zero values (typical for imputation results)

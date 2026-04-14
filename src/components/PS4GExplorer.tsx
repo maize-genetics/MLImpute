@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
-import { mdiRefresh, mdiClose, mdiCheck, mdiChartBoxOutline } from '@mdi/js';
+import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline, mdiLayersOutline } from '@mdi/js';
+import HeatmapViewer from './HeatmapViewer';
 import './PS4GExplorer.css';
 
 interface PS4GProgress {
@@ -63,10 +64,11 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [parseResult, setParseResult] = useState<PS4GParseResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'gametes' | 'preview'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'gametes' | 'preview' | 'heatmap'>('summary');
   const [progress, setProgress] = useState<PS4GProgress | null>(null);
   const [gameteSortKey, setGameteSortKey] = useState<GameteSortKey>('index');
   const [gameteSortDir, setGameteSortDir] = useState<SortDirection>('asc');
+  const [overlayModalOpen, setOverlayModalOpen] = useState<boolean>(false);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   // Set up event listener for progress updates
@@ -92,7 +94,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
         title: 'Select PS4G File',
         multiple: false,
         filters: [
-          { name: 'PS4G Files', extensions: ['ps4g'] },
+          { name: 'PS4G Files (*.ps4g, *.ps4g.txt, *_ps4g.txt)', extensions: ['ps4g', 'txt'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       });
@@ -144,37 +146,46 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   return (
     <div className="ps4g-explorer">
       <div className="explorer-header">
-        <h2>PS4G File Explorer</h2>
-        <p className="explorer-subtitle">Load and analyze PS4G haplotype files</p>
-      </div>
-
-      <div className="file-selector">
-        <div className="file-input-group">
-          <input
-            type="text"
-            value={filePath}
-            onChange={(e) => setFilePath(e.target.value)}
-            placeholder="Select a PS4G file..."
-            readOnly
-            className="file-path-input"
-          />
-          <button
-            onClick={selectFile}
-            disabled={isLoading}
-            className="browse-button"
-          >
-            {isLoading ? 'Loading...' : 'Browse'}
-          </button>
+        <h2>PS4G Explorer</h2>
+        <div className="file-selector">
+          <div className="file-input-group">
+            <input
+              type="text"
+              value={filePath}
+              onChange={(e) => setFilePath(e.target.value)}
+              placeholder="Select a PS4G file..."
+              readOnly
+              className="file-path-input"
+            />
+            <button
+              onClick={selectFile}
+              disabled={isLoading}
+              className="browse-button"
+            >
+              {isLoading ? 'Loading...' : 'Browse'}
+            </button>
+          </div>
+          {filePath && (
+            <button
+              onClick={() => loadPS4GFile(filePath)}
+              disabled={isLoading || !filePath}
+              className="reload-button"
+            >
+              <Icon path={mdiRefresh} size={0.7} /> Reload
+            </button>
+          )}
         </div>
-        {filePath && (
+        {parseResult && activeTab === 'heatmap' && (
           <button
-            onClick={() => loadPS4GFile(filePath)}
-            disabled={isLoading || !filePath}
-            className="reload-button"
+            className="overlay-header-button"
+            onClick={() => setOverlayModalOpen(true)}
+            title="Load path overlay from .npy files"
           >
-            <Icon path={mdiRefresh} size={0.7} /> Reload
+            <Icon path={mdiLayersOutline} size={0.7} />
+            <span>Path Overlay</span>
           </button>
         )}
+        <p className="explorer-subtitle">Load and analyze PS4G haplotype files</p>
       </div>
 
       {error && (
@@ -208,14 +219,7 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
       {parseResult && (
         <div className="results-container">
           <div className="file-info-bar">
-            <span className="file-name">{getFileName(filePath)}</span>
-            {parseResult.metadata.version && (
-              <span className="file-version">v{parseResult.metadata.version}</span>
-            )}
-            <span className="success-badge"><Icon path={mdiCheck} size={0.6} /> Loaded</span>
-          </div>
-
-          <div className="results-tabs">
+            <div className="results-tabs">
             <button
               className={`tab-button ${activeTab === 'summary' ? 'active' : ''}`}
               onClick={() => setActiveTab('summary')}
@@ -234,6 +238,21 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
             >
               Data Preview
             </button>
+            <button
+              className={`tab-button ${activeTab === 'heatmap' ? 'active' : ''}`}
+              onClick={() => setActiveTab('heatmap')}
+            >
+              <Icon path={mdiChartTimeline} size={0.7} style={{ marginRight: '0.375rem' }} />
+              Heatmap
+            </button>
+            </div>
+            <div className="file-info-items">
+              <span className="file-name">{getFileName(filePath)}</span>
+              {parseResult.metadata.version && (
+                <span className="file-version">v{parseResult.metadata.version}</span>
+              )}
+              <span className="success-badge"><Icon path={mdiCheck} size={0.45} /> Loaded</span>
+            </div>
           </div>
 
           <div className="tab-content">
@@ -443,13 +462,25 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
                 </div>
               </div>
             )}
+
+            {activeTab === 'heatmap' && (
+              <div className="heatmap-panel">
+                <HeatmapViewer
+                  filePath={filePath}
+                  metadata={parseResult.metadata}
+                  summary={parseResult.summary}
+                  overlayModalOpen={overlayModalOpen}
+                  onOverlayModalClose={() => setOverlayModalOpen(false)}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {!parseResult && !isLoading && !error && (
         <div className="empty-state">
-          <div className="empty-icon"><Icon path={mdiChartBoxOutline} size={3} /></div>
+          <div className="empty-icon"><Icon path={mdiFileTable} size={3} /></div>
           <h3>No File Loaded</h3>
           <p>Select a PS4G file to view its contents and statistics</p>
         </div>
