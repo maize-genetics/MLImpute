@@ -104,6 +104,8 @@ class EncoderDiploid(nn.Module):
         self.window_size = window_size
 
         config = ModernBertConfig(
+            vocab_size=1,
+            pad_token_id=0,
             hidden_size=emb_dim,
             num_hidden_layers=2,
             num_attention_heads=8,
