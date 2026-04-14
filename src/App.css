@@ -494,6 +494,15 @@ html, body {
 }
 
 /* =========================================
+   Landing Page
+   ========================================= */
+.landing-page {
+  flex: 1;
+  overflow: hidden;
+  background: var(--md-sys-color-background);
+}
+
+/* =========================================
    PS4G Explorer Full Page
    ========================================= */
 .ps4g-page {

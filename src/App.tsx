@@ -1,16 +1,17 @@
 import { useState } from "react";
 import Icon from '@mdi/react';
-import { mdiMapMarkerPath, mdiChartTimeline } from '@mdi/js';
+import { mdiHome, mdiMapMarkerPath, mdiChartTimeline } from '@mdi/js';
 import "./App.css";
+import LandingPage from "./components/LandingPage";
 import PS4GExplorer from "./components/PS4GExplorer";
 import BEDExplorer from "./components/BEDExplorer";
 import ThemeSwitch from "./components/ThemeSwitch";
 import { isTauri } from "./platform";
 
-type PageType = 'imputation' | 'ps4g' | 'bed';
+type PageType = 'landing' | 'imputation' | 'ps4g' | 'bed';
 
 function App() {
-  const [activePage, setActivePage] = useState<PageType>(isTauri ? 'imputation' : 'ps4g');
+  const [activePage, setActivePage] = useState<PageType>('landing');
 
   return (
     <div className="app">
@@ -19,6 +20,13 @@ function App() {
           <span className="brand-text">MLImpute</span>
         </div>
         <div className="nav-tabs">
+          <button 
+            className={`nav-tab ${activePage === 'landing' ? 'active' : ''}`}
+            onClick={() => setActivePage('landing')}
+          >
+            <span className="nav-tab-icon"><Icon path={mdiHome} size={0.9} /></span>
+            Home
+          </button>
           {isTauri && (
             <button 
               className={`nav-tab ${activePage === 'imputation' ? 'active' : ''}`}
@@ -48,6 +56,10 @@ function App() {
       </nav>
 
       <div className="page-content">
+        <div className="landing-page" style={{ display: activePage === 'landing' ? 'block' : 'none' }}>
+          <LandingPage onNavigate={setActivePage} />
+        </div>
+
         {isTauri && (
           <div className="imputation-page" style={{ display: activePage === 'imputation' ? 'flex' : 'none' }}>
             <ImputePage />
