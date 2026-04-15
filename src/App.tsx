@@ -17,7 +17,8 @@ function App() {
     <div className="app">
       <nav className="global-nav">
         <div className="nav-brand">
-          <span className="brand-text">MLImpute</span>
+          <span className="brand-text">GRITS</span>
+          <span className="brand-version">(v{__APP_VERSION__})</span>
         </div>
         <div className="nav-tabs">
           <button 

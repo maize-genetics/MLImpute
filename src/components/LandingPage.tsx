@@ -23,7 +23,7 @@ interface FeatureCard {
   tauriOnly?: boolean;
 }
 
-const GITHUB_REPO_URL = 'https://github.com/maize-genetics/MLImpute';
+const GITHUB_REPO_URL = 'https://github.com/maize-genetics/grits';
 
 const features: FeatureCard[] = [
   {

@@ -405,6 +405,15 @@ html, body {
   letter-spacing: 0;
 }
 
+.brand-version {
+  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 400;
+  color: var(--md-sys-color-on-surface-variant);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 .nav-tabs {
   display: flex;
   gap: 0.5rem;
