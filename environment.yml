@@ -1,4 +1,4 @@
-name: ml-impute-env
+name: grits-env
 channels:
   - conda-forge
   - defaults
