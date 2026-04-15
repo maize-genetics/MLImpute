@@ -29,10 +29,16 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Iterator
+from enum import Enum
 
 Key = Tuple[str, int, str]  # (CHROM, POS, REF)
 MISSING_GTS = {"./.", ".|.", "."}
-
+class SiteKind(Enum):
+    MATCH = "MATCH"
+    MISMATCH_ALLELE = "MISMATCH_ALLELE"
+    MISSING_IN_IMPUTED_SITE = "MISSING_IN_IMPUTED_SITE"
+    EXTRA_IN_IMPUTED_SITE = "EXTRA_IN_IMPUTED_SITE"
+    MISMATCH_GT = "MISMATCH_GT"
 
 def write_query_tsv(vcf: str, out_tsv: str, sample: Optional[str], region: Optional[str]) -> None:
     """
@@ -129,7 +135,6 @@ def gt_to_allele_multiset(
     return tuple(sorted(allele_strings))
 
 
-
 def allele_multiset_score(truth_alleles: Tuple[str, ...], imputed_alleles: Tuple[str, ...]) -> float:
     """Return fractional concordance based on multiset allele overlap.
 
@@ -146,6 +151,7 @@ def allele_multiset_score(truth_alleles: Tuple[str, ...], imputed_alleles: Tuple
     i = Counter(imputed_alleles)
     inter = sum((t & i).values())
     return inter / float(len(truth_alleles))
+
 
 def iter_records(path: str) -> Iterator[Tuple[Key, str, str, str]]:
     """
@@ -250,11 +256,9 @@ def initialize_counts() -> Dict:
         "examples": [],
         "af_bin_total": None,
         "af_bin_correct": None,
-        # "af_bin_accuracy": None,
         "af_bins": None,
         "het_bin_total": None,
         "het_bin_correct": None,
-        # "het_bin_accuracy": None,
     }
 
 
@@ -266,12 +270,16 @@ class OutputWriter:
         self.only_mismatches = only_mismatches
         self.only_matched_sites = only_matched_sites
 
-    def write_site(self, kind: str, key, t_alt, t_info, t_gt, i_alt, i_info, i_gt):
+    def write_site(self, kind: SiteKind, key, t_alt, t_info, t_gt, i_alt, i_info, i_gt):
         if not self.out_fh:
             return
-        if self.only_matched_sites and kind in {"MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
+
+        unmatched_sites = {SiteKind.MISSING_IN_IMPUTED_SITE, SiteKind.EXTRA_IN_IMPUTED_SITE}
+        mismatch_sites = {SiteKind.MISMATCH_ALLELE, SiteKind.MISSING_IN_IMPUTED_SITE, SiteKind.EXTRA_IN_IMPUTED_SITE}
+
+        if self.only_matched_sites and kind in unmatched_sites:
             return
-        if self.only_mismatches and kind not in {"MISMATCH_ALLELE", "MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
+        if self.only_mismatches and kind not in mismatch_sites:
             return
 
         chrom, pos, ref = key
@@ -562,6 +570,17 @@ def main():
             if args.partial_credit:
                 print("  partial_allele_concordance  NA (no comparable sites)")
 
+        identical_strict = (
+            res["missing_in_imputed_sites"] == 0
+            and res["extra_in_imputed_sites"] == 0
+            and res["gt_allele_mismatches"] == 0
+            and res["truth_missing_gt"] == 0
+            and res["imputed_missing_gt"] == 0
+            and res["both_missing_gt"] == 0
+            and res["gt_unparseable"] == 0
+        )
+        print(f"  IDENTICAL_STRICT            {str(identical_strict).upper()}")
+
         freq_bins = res["af_bins"]
         
         for i in range(len(freq_bins)-1):
@@ -587,20 +606,6 @@ def main():
             else: acc = None
 
             print("HET", low, high, acc, n)
-
-        print((sum(res["af_bin_total"]) + sum(res["het_bin_total"]) )== res["compared_sites"])
-
-        identical_strict = (
-            res["missing_in_imputed_sites"] == 0
-            and res["extra_in_imputed_sites"] == 0
-            and res["gt_allele_mismatches"] == 0
-            and res["truth_missing_gt"] == 0
-            and res["imputed_missing_gt"] == 0
-            and res["both_missing_gt"] == 0
-            and res["gt_unparseable"] == 0
-        )
-
-        print(f"  IDENTICAL_STRICT            {str(identical_strict).upper()}")
 
 #        if res["examples"]:
 #            print("\nExamples:")
