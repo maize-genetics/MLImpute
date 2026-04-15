@@ -1,5 +1,3 @@
-from cmath import phase
-
 import pytest
 from src.python.vcf_eval.accuracy import *
 
@@ -172,7 +170,27 @@ def test_compare_sorted():
     pass
 
 def test_initialize_counts():
-    pass
+    assert initialize_counts() == {
+        "truth_records": 0,
+        "imputed_records": 0,
+        "site_key_matches": 0,
+        "missing_in_imputed_sites": 0,
+        "extra_in_imputed_sites": 0,
+        "both_missing_gt": 0,
+        "truth_missing_gt": 0,
+        "imputed_missing_gt": 0,
+        "gt_unparseable": 0,
+        "compared_sites": 0,
+        "gt_allele_matches": 0,
+        "gt_allele_mismatches": 0,
+        "partial_credit_sum": 0.0,
+        "examples": [],
+        "af_bin_total": None,
+        "af_bin_correct": None,
+        "af_bins": None,
+        "het_bin_total": None,
+        "het_bin_correct": None,
+    }
 
 def test_write_sites():
     pass
@@ -187,7 +205,12 @@ def test_handle_matched_sites():
     pass
 
 def test_extract_allele_frequency():
-    pass
+    assert extract_allele_frequency(t_info="AN=10;AC=2") == (2, 10)
+    assert extract_allele_frequency(t_info="AC=2;AN=10") == (2, 10)
+    assert extract_allele_frequency(t_info="AN=10") == (None, 10)
+    assert extract_allele_frequency(t_info="AC=2") == (2, None)
+    assert extract_allele_frequency(t_info="AN=10AC=2") == (None, None)
+    assert extract_allele_frequency(t_info=".") == (None, None)
 
 def test_update_frequency_bins():
     pass
