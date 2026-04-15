@@ -222,8 +222,11 @@ def compare_sorted(
             i = next_or_none(i_iter)
 
     # Finalize results
-    finalize_counts(counts, bin_total, bin_correct, het_bin_total,
-                    het_bin_correct, freq_bins, NBINS)
+    counts["af_bin_total"] = bin_total
+    counts["af_bin_correct"] = bin_correct
+    counts["af_bins"] = freq_bins
+    counts["het_bin_total"] = het_bin_total
+    counts["het_bin_correct"] = het_bin_correct
 
     return counts
 
@@ -247,11 +250,11 @@ def initialize_counts() -> Dict:
         "examples": [],
         "af_bin_total": None,
         "af_bin_correct": None,
-        "af_bin_accuracy": None,
+        # "af_bin_accuracy": None,
         "af_bins": None,
         "het_bin_total": None,
         "het_bin_correct": None,
-        "het_bin_accuracy": None,
+        # "het_bin_accuracy": None,
     }
 
 
@@ -469,28 +472,6 @@ def handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt
     return True  # Both genotypes are valid
 
 
-def finalize_counts(counts, bin_total, bin_correct, het_bin_total,
-                    het_bin_correct, freq_bins, NBINS):
-    """Calculate final accuracy metrics and store in counts."""
-    bin_accuracy = [
-        (bin_correct[i] / bin_total[i]) if bin_total[i] > 0 else None
-        for i in range(NBINS)
-    ]
-
-    het_bin_accuracy = [
-        (het_bin_correct[i] / het_bin_total[i]) if het_bin_total[i] > 0 else None
-        for i in range(NBINS)
-    ]
-
-    counts["af_bin_total"] = bin_total
-    counts["af_bin_correct"] = bin_correct
-    counts["af_bin_accuracy"] = bin_accuracy
-    counts["af_bins"] = freq_bins
-    counts["het_bin_total"] = het_bin_total
-    counts["het_bin_correct"] = het_bin_correct
-    counts["het_bin_accuracy"] = het_bin_accuracy
-
-
 def next_or_none(it):
     """Helper function to get next item or None if exhausted."""
     try:
@@ -587,8 +568,10 @@ def main():
             low = freq_bins[i]
             high = freq_bins[i + 1]
 
-            acc = res["af_bin_accuracy"][i]
             n = res["af_bin_total"][i]
+            if n!=0:
+                acc = res["af_bin_correct"][i] / n
+            else: acc = None
 
             print(low, high, acc, n)
 
@@ -598,8 +581,10 @@ def main():
             low = res["af_bins"][i]
             high = res["af_bins"][i + 1] if i + 1 < len(res["af_bins"]) else 1.0
 
-            acc = res["het_bin_accuracy"][i]
             n = res["het_bin_total"][i]
+            if n!=0:
+                acc = res["het_bin_correct"][i] / n
+            else: acc = None
 
             print("HET", low, high, acc, n)
 
