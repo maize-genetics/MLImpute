@@ -1,5 +1,13 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const appVersion = JSON.parse(
+  readFileSync(join(__dirname, "package.json"), "utf-8"),
+).version as string;
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -7,6 +15,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
 
     // Prevent vite from obscuring rust errors
     clearScreen: false,
@@ -18,6 +30,8 @@ export default defineConfig(({ mode }) => {
         ignored: ["**/src-tauri/**"],
       },
     },
+
+    base: isWeb ? "./" : undefined,
 
     build: {
       ...(isWeb
