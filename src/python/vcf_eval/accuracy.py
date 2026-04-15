@@ -151,22 +151,29 @@ def gt_to_allele_multiset(
     return tuple(sorted(allele_strings))
 
 
-def allele_multiset_score(truth_alleles: Tuple[str, ...], imputed_alleles: Tuple[str, ...]) -> float:
-    """Return fractional concordance based on multiset allele overlap.
+def allele_multiset_score(
+        truth_alleles: Tuple[str, ...],
+        imputed_alleles: Tuple[str, ...],
+        phase_sensitive: bool = False
+) -> float:
+    """Return fractional concordance based on allele overlap.
 
-    Score = |intersection multiset| / len(truth_alleles).
-
-    For diploid truth genotypes, this gives:
-      - 1.0 for exact match
-      - 0.5 if exactly one allele matches (and one doesn't)
-      - 0.0 if none match
+    If phase_sensitive=True, compare alleles position by position.
+    If phase_sensitive=False, use multiset intersection (current behavior).
     """
     if not truth_alleles:
         return 0.0
-    t = Counter(truth_alleles)
-    i = Counter(imputed_alleles)
-    inter = sum((t & i).values())
-    return inter / float(len(truth_alleles))
+
+    if phase_sensitive:
+        # Position-wise comparison
+        matches = sum(1 for t, i in zip(truth_alleles, imputed_alleles) if t == i)
+        return matches / float(len(truth_alleles))
+    else:
+        # Multiset comparison (current logic)
+        t = Counter(truth_alleles)
+        i = Counter(imputed_alleles)
+        inter = sum((t & i).values())
+        return inter / float(len(truth_alleles))
 
 
 def iter_records(path: str) -> Iterator[Tuple[Key, VariantData]]:
@@ -333,10 +340,10 @@ def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive
             ac, an = extract_allele_frequency(t_info)
             update_frequency_bins(t_alleles, ref_alleles, ac, an, t_alt,
                                  bin_total, bin_correct, het_bin_total, het_bin_correct,
-                                 NBINS, partial_credit)
+                                 NBINS, partial_credit, phase_sensitive)
 
             if partial_credit:
-                counts["partial_credit_sum"] += allele_multiset_score(t_alleles, ref_alleles)
+                counts["partial_credit_sum"] += allele_multiset_score(t_alleles, ref_alleles, phase_sensitive)
 
             if t_alleles == ref_alleles:
                 counts["gt_allele_matches"] += 1
@@ -391,11 +398,11 @@ def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, part
     # Update frequency bins
     update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
                           bin_total, bin_correct, het_bin_total, het_bin_correct,
-                          NBINS, partial_credit)
+                          NBINS, partial_credit, phase_sensitive)
 
     # Update overall counts
     if partial_credit:
-        counts["partial_credit_sum"] += allele_multiset_score(t_alleles, i_alleles)
+        counts["partial_credit_sum"] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
 
     if t_alleles == i_alleles:
         counts["gt_allele_matches"] += 1
@@ -429,7 +436,7 @@ def extract_allele_frequency(t_info: str) -> tuple:
 
 def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
                           bin_total, bin_correct, het_bin_total, het_bin_correct,
-                          NBINS, partial_credit):
+                          NBINS, partial_credit, phase_sensitive):
     """Update frequency bins based on allele frequencies."""
     if ac is None or an is None or an == 0:
         print(f"Skipping frequency bin update: ac={ac}, an={an}")
@@ -445,7 +452,7 @@ def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
 
         bin_total[bin_idx] += 1
         if partial_credit:
-            bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles)
+            bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
         elif t_alleles == i_alleles:
             bin_correct[bin_idx] += 1
 
@@ -455,7 +462,7 @@ def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
         bin_idx = min(int(maf * 20), NBINS - 1)
 
         het_bin_total[bin_idx] += 1
-        het_bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles)
+        het_bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
 
 
 def handle_missing_genotypes(t_alleles, i_alleles, key, t_variant, i_variant,
