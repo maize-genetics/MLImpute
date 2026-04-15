@@ -24,6 +24,7 @@ Notes:
 import argparse
 import subprocess
 import sys
+import os
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -35,7 +36,7 @@ MISSING_GTS = {"./.", ".|.", "."}
 
 def write_query_tsv(vcf: str, out_tsv: str, sample: Optional[str], region: Optional[str]) -> None:
     """
-    Extract CHROM, POS, REF, ALT, GT from a VCF using bcftools query.
+    Extract CHROM, POS, REF, ALT, INFO, GT from a VCF using bcftools query.
     ALT may include commas; we keep it as one field.
     """
     fmt = r"%CHROM\t%POS\t%REF\t%ALT\t%INFO\t[%GT]\n"
@@ -57,11 +58,13 @@ def sort_tsv(in_tsv: str, out_tsv: str) -> None:
     """
     Sort by CHROM (version sort), POS (numeric), REF.
     """
-    cmd = ["bash", "-lc", f"LC_ALL=C sort -k1,1V -k2,2n -k3,3 {in_tsv} > {out_tsv}"]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if p.returncode != 0:
-        sys.stderr.write(p.stderr)
-        raise SystemExit(p.returncode)
+    with open(out_tsv, "w", encoding="utf-8") as out_f:
+        subprocess.run(
+            ["sort", "-k1,1V", "-k2,2n", "-k3,3", in_tsv],
+            env={**os.environ, "LC_ALL": "C"},
+            stdout=out_f,
+            check=True,
+        )
 
 
 def parse_gt(gt: str) -> Optional[List[str]]:
@@ -144,9 +147,9 @@ def allele_multiset_score(truth_alleles: Tuple[str, ...], imputed_alleles: Tuple
     inter = sum((t & i).values())
     return inter / float(len(truth_alleles))
 
-def iter_records(path: str) -> Iterator[Tuple[Key, str, str]]:
+def iter_records(path: str) -> Iterator[Tuple[Key, str, str, str]]:
     """
-    Yield (key=(CHROM,POS,REF), ALT, GT) from a sorted TSV.
+    Yield (key=(CHROM,POS,REF), ALT, INFO, GT) from a sorted TSV.
     """
     with open(path, "r") as f:
         for line in f:
@@ -260,7 +263,7 @@ class OutputWriter:
         self.only_mismatches = only_mismatches
         self.only_matched_sites = only_matched_sites
 
-    def write_site(self, kind: str, key, t_alt, t_gt, i_alt, i_gt):
+    def write_site(self, kind: str, key, t_alt, t_info, t_gt, i_alt, i_info, i_gt):
         if not self.out_fh:
             return
         if self.only_matched_sites and kind in {"MISSING_IN_IMPUTED_SITE", "EXTRA_IN_IMPUTED_SITE"}:
@@ -271,8 +274,8 @@ class OutputWriter:
         chrom, pos, ref = key
         self.out_fh.write(
             f"{kind}\t{chrom}\t{pos}\t{ref}\t"
-            f"{t_alt if t_alt is not None else '.'}\t{t_gt if t_gt is not None else '.'}\t"
-            f"{i_alt if i_alt is not None else '.'}\t{i_gt if i_gt is not None else '.'}\n"
+            f"{t_alt if t_alt is not None else '.'}\t{t_info if t_info is not None else '.'}\t{t_gt if t_gt is not None else '.'}\t"
+            f"{i_alt if i_alt is not None else '.'}\t{i_info if i_info is not None else '.'}\t{i_gt if i_gt is not None else '.'}\n"
         )
 
 
@@ -287,7 +290,7 @@ def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive
         truth_parts = parse_gt(t_gt)
         if truth_parts is None:
             counts["truth_missing_gt"] += 1
-            writer.write_site("TRUTH_MISSING_GT", key, t_alt, t_gt, None, None)
+            writer.write_site("TRUTH_MISSING_GT", key, t_alt, t_info, t_gt, None, None, None)
         else:
             ploidy = len(truth_parts)
             ref_alleles = tuple([key[2]] * ploidy)
@@ -296,7 +299,7 @@ def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive
             counts["compared_sites"] += 1
 
             # Extract allele frequency and update bins
-            ac, an = extract_allele_frequency(t_info, missing_as_ref)
+            ac, an = extract_allele_frequency(t_info)
             update_frequency_bins(t_alleles, ref_alleles, ac, an, t_alt,
                                  bin_total, bin_correct, het_bin_total, het_bin_correct,
                                  NBINS, partial_credit)
@@ -306,13 +309,13 @@ def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive
 
             if t_alleles == ref_alleles:
                 counts["gt_allele_matches"] += 1
-                writer.write_site("MATCH_ALLELE", key, t_alt, t_gt, None, None)
+                writer.write_site("MATCH_ALLELE", key, t_alt, t_info, t_gt, None, None, None)
             else:
                 counts["gt_allele_mismatches"] += 1
-                writer.write_site("MISMATCH_ALLELE", key, t_alt, t_gt, None, None)
+                writer.write_site("MISMATCH_ALLELE", key, t_alt, t_info, t_gt, None, None, None)
     else:
         counts["missing_in_imputed_sites"] += 1
-        writer.write_site("MISSING_IN_IMPUTED_SITE", key, t_alt, t_gt, None, None)
+        writer.write_site("MISSING_IN_IMPUTED_SITE", key, t_alt, t_info, t_gt, None, None, None)
 
 
 def handle_extra_in_imputed(i, counts, writer, max_report):
@@ -320,10 +323,10 @@ def handle_extra_in_imputed(i, counts, writer, max_report):
     key, i_alt, i_info, i_gt = i
     counts["imputed_records"] += 1
     counts["extra_in_imputed_sites"] += 1
-    writer.write_site("EXTRA_IN_IMPUTED_SITE", key, None, None, i_alt, i_gt)
+    writer.write_site("EXTRA_IN_IMPUTED_SITE", key, None, None, None, i_alt, i_info, i_gt)
 
     if len(counts["examples"]) < max_report:
-        counts["examples"].append(("EXTRA_IN_IMPUTED_SITE", key, None, None, i_alt, i_gt))
+        counts["examples"].append(("EXTRA_IN_IMPUTED_SITE", key, None, None, None, i_alt, i_info, i_gt))
 
 
 def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, partial_credit,
@@ -341,7 +344,7 @@ def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, part
     i_alleles = gt_to_allele_multiset(key[2], i_alt, i_gt, phase_sensitive=phase_sensitive)
 
     # Handle missing/unparseable genotypes
-    if not handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt, t_info,
+    if not handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt, t_info, i_info,
                                      counts, writer, missing_as_ref, phase_sensitive, partial_credit,
                                      bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
         return  # Early return if genotypes were missing/unparseable
@@ -350,7 +353,7 @@ def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, part
     counts["compared_sites"] += 1
 
     # Extract allele frequency info with missing_as_ref logic
-    ac, an = extract_allele_frequency(t_info, missing_as_ref)
+    ac, an = extract_allele_frequency(t_info)
 
     # Update frequency bins
     update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
@@ -363,16 +366,16 @@ def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, part
 
     if t_alleles == i_alleles:
         counts["gt_allele_matches"] += 1
-        writer.write_site("MATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
+        writer.write_site("MATCH_ALLELE", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
     else:
         counts["gt_allele_mismatches"] += 1
-        writer.write_site("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt)
+        writer.write_site("MISMATCH_ALLELE", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
         if len(counts["examples"]) < max_report:
-            counts["examples"].append(("MISMATCH_ALLELE", key, t_alt, t_gt, i_alt, i_gt))
+            counts["examples"].append(("MISMATCH_ALLELE", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt))
 
 
-def extract_allele_frequency(t_info: str, missing_as_ref: bool = False) -> tuple:
-    """Extract AC and AN from INFO field, adjusting for missing_as_ref if needed."""
+def extract_allele_frequency(t_info: str) -> tuple:
+    """Extract AC and AN from INFO field."""
     ac = None
     an = None
 
@@ -422,7 +425,7 @@ def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
         het_bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles)
 
 
-def handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt, t_info,
+def handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt, t_info, i_info,
                              counts, writer, missing_as_ref, phase_sensitive, partial_credit,
                              bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
     """Handle cases where one or both genotypes are missing/unparseable. Returns False if handled."""
@@ -432,19 +435,19 @@ def handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt
     if t_alleles is None and i_alleles is None:
         if t_missing and i_missing:
             counts["both_missing_gt"] += 1
-            writer.write_site("BOTH_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
+            writer.write_site("BOTH_MISSING_GT", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
         else:
             counts["gt_unparseable"] += 1
-            writer.write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
+            writer.write_site("GT_UNPARSEABLE", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
         return False
 
     elif t_alleles is None:
         if t_missing:
             counts["truth_missing_gt"] += 1
-            writer.write_site("TRUTH_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
+            writer.write_site("TRUTH_MISSING_GT", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
         else:
             counts["gt_unparseable"] += 1
-            writer.write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
+            writer.write_site("GT_UNPARSEABLE", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
         return False
 
     elif i_alleles is None:
@@ -457,10 +460,10 @@ def handle_missing_genotypes(t_alleles, i_alleles, t_gt, i_gt, key, t_alt, i_alt
         else:
             if i_missing:
                 counts["imputed_missing_gt"] += 1
-                writer.write_site("IMPUTED_MISSING_GT", key, t_alt, t_gt, i_alt, i_gt)
+                writer.write_site("IMPUTED_MISSING_GT", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
             else:
                 counts["gt_unparseable"] += 1
-                writer.write_site("GT_UNPARSEABLE", key, t_alt, t_gt, i_alt, i_gt)
+                writer.write_site("GT_UNPARSEABLE", key, t_alt, t_info, t_gt, i_alt, i_info, i_gt)
             return False
 
     return True  # Both genotypes are valid
@@ -521,7 +524,7 @@ def main():
     out_fh = None
     if args.out_sites:
         out_fh = open(args.out_sites, "w")
-        out_fh.write("TYPE\tCHROM\tPOS\tREF\tTRUTH_ALT\tTRUTH_GT\tIMPUTED_ALT\tIMPUTED_GT\n")
+        out_fh.write("TYPE\tCHROM\tPOS\tREF\tTRUTH_ALT\tTRUTH_INFO\tTRUTH_GT\tIMPUTED_ALT\tIMPUTED_INFO\tIMPUTED_GT\n")
 
     try:
         with tempfile.TemporaryDirectory() as td:
@@ -590,7 +593,7 @@ def main():
             print(low, high, acc, n)
 
 
-
+        # for het sites, only need to iterate through minor AF (<=0.5)
         for i in range(len(freq_bins)-10):
             low = res["af_bins"][i]
             high = res["af_bins"][i + 1] if i + 1 < len(res["af_bins"]) else 1.0
