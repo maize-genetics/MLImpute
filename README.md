@@ -1,5 +1,5 @@
-# MLImpute
-Simple tool to run Machine Learning based imputation techniques
+# GRITS
+**G**enetic **R**ecombination **I**mputation **T**ool **S**et
 
 ## Prerequisites
 
@@ -14,8 +14,8 @@ Simple tool to run Machine Learning based imputation techniques
 **Retrieve project code**
 
 ```bash
-git clone https://github.com/maize-genetics/MLImpute.git
-cd MLImpute
+git clone https://github.com/maize-genetics/grits.git
+cd grits
 ```
 
 **Option A (_preferred_) - set up virtual environment (pixi)**
