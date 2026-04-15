@@ -107,7 +107,7 @@ def parse_args():
     parser.add_argument("--step-size", "-s", type=int, default=128, help="distance between the start points of each training window")
     parser.add_argument("--embedding-dim", type=int, default=12, help="embedding dimension")
     parser.add_argument("--hidden-dim", type=int, default=24, help="hidden dimension")
-    parser.add_argument("--force-preds", type=bool, default=False, help="forces predictions / disables unknown option")
+    parser.add_argument("--force-preds", action="store_true", help="forces predictions / disables unknown option")
     args = parser.parse_args()
     return args
 

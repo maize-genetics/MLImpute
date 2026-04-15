@@ -160,7 +160,7 @@ def parse_args():
     parser.add_argument("--step-size", "-s", type=int, default=256)
     parser.add_argument("--embedding-dim", type=int, default=12)
     parser.add_argument("--hidden-dim", type=int, default=24)
-    parser.add_argument("--force-preds", type=bool, default=False)
+    parser.add_argument("--force-preds", action="store_true", help="forces predictions / disables unknown option")
 
     return parser.parse_args()
 
