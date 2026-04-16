@@ -1,4 +1,5 @@
 import pytest
+import io
 from src.python.vcf_eval.accuracy import *
 
 
@@ -193,7 +194,154 @@ def test_initialize_counts():
     }
 
 def test_write_sites():
-    pass
+    """Test basic site writing functionality"""
+    output = io.StringIO()
+    writer = OutputWriter(output, only_mismatches=False, only_matched_sites=False)
+
+    # Test data
+    key = ("chr1", 100, "A")
+    t_variant = ("T", "AF=0.5", "0/1")
+    i_variant = ("T", "AF=0.6", "1/1")
+
+    writer.write_site(SiteKind.MATCH, key, t_variant, i_variant)
+
+    assert output.getvalue() == "MATCH\tchr1\t100\tA\tT\tAF=0.5\t0/1\tT\tAF=0.6\t1/1\n"
+
+    """Test writing with None values (converts to dots)"""
+    key = ("chr1", 200, "G")
+    t_variant = (None, None, None)  # Missing truth data
+    i_variant = ("C", "AF=0.3", "./.")
+
+    writer.write_site(SiteKind.EXTRA_IN_IMPUTED_SITE, key, t_variant, i_variant)
+
+    assert output.getvalue().strip().split('\n')[-1] == "EXTRA_IN_IMPUTED_SITE\tchr1\t200\tG\t.\t.\t.\tC\tAF=0.3\t./."
+
+    """Test writing with some None values"""
+    key = ("chrX", 500, "AT")
+    t_variant = ("A", None, "0/1")  # Missing info
+    i_variant = ("A", "TYPE=DEL", None)  # Missing GT
+
+    writer.write_site(SiteKind.MISMATCH_GT, key, t_variant, i_variant)
+
+    assert output.getvalue().strip().split('\n')[-1] == "MISMATCH_GT\tchrX\t500\tAT\tA\t.\t0/1\tA\tTYPE=DEL\t."
+
+    """Test with no filters - should write everything"""
+    output = io.StringIO()
+    writer = OutputWriter(output, only_mismatches=False, only_matched_sites=False)
+
+    key = ("chr1", 100, "A")
+    t_variant = ("T", "AF=0.5", "0/1")
+    i_variant = ("T", "AF=0.6", "1/1")
+
+    all_kinds = [
+        SiteKind.MATCH,
+        SiteKind.MISMATCH_ALLELE,
+        SiteKind.MISSING_IN_IMPUTED_SITE,
+        SiteKind.EXTRA_IN_IMPUTED_SITE,
+        SiteKind.MISMATCH_GT,
+        SiteKind.MATCH_ALLELE,
+    ]
+
+    for kind in all_kinds:
+        writer.write_site(kind, key, t_variant, i_variant)
+
+    result = output.getvalue()
+    lines = result.strip().split('\n')
+    assert len(lines) == len(all_kinds)
+
+    """Test only_matched_sites=True filtering"""
+    output = io.StringIO()
+    writer = OutputWriter(output, only_mismatches=False, only_matched_sites=True)
+    key = ("chr1", 100, "A")
+    t_variant = ("T", "AF=0.5", "0/1")
+    i_variant = ("T", "AF=0.6", "1/1")
+
+    # Should write - not an unmatched site
+    writer.write_site(SiteKind.MATCH, key, t_variant, i_variant)
+    writer.write_site(SiteKind.MISMATCH_ALLELE, key, t_variant, i_variant)
+    writer.write_site(SiteKind.MISMATCH_GT, key, t_variant, i_variant)
+
+    # Should NOT write - unmatched sites
+    writer.write_site(SiteKind.MISSING_IN_IMPUTED_SITE, key, t_variant, i_variant)
+    writer.write_site(SiteKind.EXTRA_IN_IMPUTED_SITE, key, t_variant, i_variant)
+
+    result = output.getvalue()
+    lines = result.strip().split('\n')
+    assert len(lines) == 3  # Only 3 lines should be written
+    assert "MATCH" in lines[0]
+    assert "MISMATCH_ALLELE" in lines[1]
+    assert "MISMATCH_GT" in lines[2]
+
+    """Test only_mismatches=True filtering"""
+    output = io.StringIO()
+    writer = OutputWriter(output, only_mismatches=True, only_matched_sites=False)
+
+    key = ("chr1", 100, "A")
+    t_variant = ("T", "AF=0.5", "0/1")
+    i_variant = ("T", "AF=0.6", "1/1")
+
+    # Should write - mismatch sites
+    writer.write_site(SiteKind.MISMATCH_ALLELE, key, t_variant, i_variant)
+    writer.write_site(SiteKind.MISSING_IN_IMPUTED_SITE, key, t_variant, i_variant)
+    writer.write_site(SiteKind.EXTRA_IN_IMPUTED_SITE, key, t_variant, i_variant)
+
+    # Should NOT write - matches
+    writer.write_site(SiteKind.MATCH, key, t_variant, i_variant)
+    writer.write_site(SiteKind.MATCH_ALLELE, key, t_variant, i_variant)
+
+    result = output.getvalue()
+    lines = result.strip().split('\n')
+    assert len(lines) == 3  # Only 3 lines should be written
+    assert "MISMATCH_ALLELE" in lines[0]
+    assert "MISSING_IN_IMPUTED_SITE" in lines[1]
+    assert "EXTRA_IN_IMPUTED_SITE" in lines[2]
+
+    """Test both only_matched_sites=True and only_mismatches=True (conflicting)"""
+    output = io.StringIO()
+    writer = OutputWriter(output, only_mismatches=True, only_matched_sites=True)
+
+    key = ("chr1", 100, "A")
+    t_variant = ("T", "AF=0.5", "0/1")
+    i_variant = ("T", "AF=0.6", "1/1")
+
+    # Should write - mismatch but not unmatched
+    writer.write_site(SiteKind.MISMATCH_ALLELE, key, t_variant, i_variant)
+
+    # Should NOT write - unmatched (filtered by only_matched_sites)
+    writer.write_site(SiteKind.MISSING_IN_IMPUTED_SITE, key, t_variant, i_variant)
+    writer.write_site(SiteKind.EXTRA_IN_IMPUTED_SITE, key, t_variant, i_variant)
+
+    # Should NOT write - matches (filtered by only_mismatches)
+    writer.write_site(SiteKind.MATCH, key, t_variant, i_variant)
+
+    result = output.getvalue()
+    lines = result.strip().split('\n')
+    assert len(lines) == 1  # Only MISMATCH_ALLELE should be written
+    assert "MISMATCH_ALLELE" in lines[0]
+
+    """Test with None output handle"""
+    writer = OutputWriter(None, only_mismatches=False, only_matched_sites=False)
+
+    key = ("chr1", 100, "A")
+    t_variant = ("T", "AF=0.5", "0/1")
+    i_variant = ("T", "AF=0.6", "1/1")
+
+    # Should not crash, should do nothing
+    writer.write_site(SiteKind.MATCH, key, t_variant, i_variant)
+    # No assert needed - just checking it doesn't crash
+
+    """Test with complex real-world data"""
+    output = io.StringIO()
+    writer = OutputWriter(output, only_mismatches=False, only_matched_sites=False)
+
+    # Multi-allelic site
+    key = ("chr2", 12345, "ATCG")
+    t_variant = ("A,AT", "AF=0.3,0.2;AC=30,20;AN=100", "1/2")
+    i_variant = ("A,ATCGGG", "AF=0.25,0.15;AC=25,15;AN=100", "2/1")
+
+    writer.write_site(SiteKind.MISMATCH_ALLELE, key, t_variant, i_variant)
+
+    assert output.getvalue() == "MISMATCH_ALLELE\tchr2\t12345\tATCG\tA,AT\tAF=0.3,0.2;AC=30,20;AN=100\t1/2\tA,ATCGGG\tAF=0.25,0.15;AC=25,15;AN=100\t2/1\n"
 
 def test_handle_missing_in_imputed():
     pass
