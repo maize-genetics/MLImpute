@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Iterator
 from enum import Enum
 from typing import NamedTuple
+import numpy as np
+from sklearn.metrics import r2_score
 
 class Key(NamedTuple):
     chr: str
@@ -120,7 +122,6 @@ def gt_to_allele_multiset(
     phase_sensitive: bool = False,
 ) -> Optional[Tuple[str, ...]]:
     """
-    Convert GT to a multiset (sorted tuple) of allele strings using REF/ALT strings.
     If phase_sensitive=True, preserve within-genotype order; otherwise sort alleles to ignore phase.
     Returns None for missing/unparseable GT.
     """
@@ -211,12 +212,6 @@ def compare_sorted(
 
     # Initialize counters and bins
     counts = initialize_counts()
-    freq_bins = [i / 20 for i in range(21)]
-    NBINS = len(freq_bins) - 1
-    bin_total = [0] * NBINS
-    bin_correct = [0] * NBINS
-    het_bin_total = [0] * NBINS
-    het_bin_correct = [0] * NBINS
 
     # Create output writer
     writer = OutputWriter(out_fh, only_mismatches, only_matched_sites)
@@ -231,8 +226,7 @@ def compare_sorted(
     while t is not None or i is not None:
         if t is not None and (i is None or t[0] < i[0]):
             # Truth site missing in imputed
-            handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive, partial_credit,
-                                      bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS)
+            handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive, partial_credit)
             t = next_or_none(t_iter)
 
         elif i is not None and (t is None or i[0] < t[0]):
@@ -242,26 +236,16 @@ def compare_sorted(
 
         else:
             # Sites match - this is where the main comparison happens
-            handle_matched_sites(
-                t, i, counts, writer, max_report, phase_sensitive, partial_credit,
-                missing_as_ref, bin_total, bin_correct, het_bin_total,
-                het_bin_correct, NBINS
-            )
+            handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, partial_credit, missing_as_ref)
             t = next_or_none(t_iter)
             i = next_or_none(i_iter)
-
-    # Finalize results
-    counts["af_bin_total"] = bin_total
-    counts["af_bin_correct"] = bin_correct
-    counts["af_bins"] = freq_bins
-    counts["het_bin_total"] = het_bin_total
-    counts["het_bin_correct"] = het_bin_correct
 
     return counts
 
 
 def initialize_counts() -> Dict:
     """Initialize the counts dictionary."""
+    NBINS = 20  # freq_bins = [i / 20 for i in range(21)] gives 20 bins
     return {
         "truth_records": 0,
         "imputed_records": 0,
@@ -277,11 +261,19 @@ def initialize_counts() -> Dict:
         "gt_allele_mismatches": 0,
         "partial_credit_sum": 0.0,
         "examples": [],
-        "af_bin_total": None,
-        "af_bin_correct": None,
-        "af_bins": None,
-        "het_bin_total": None,
-        "het_bin_correct": None,
+
+        # Frequency bins - initialize here
+        "af_bins": [i / 20 for i in range(21)],  # Move here too
+        "af_bin_total": [0] * NBINS,
+        "af_bin_correct": [0] * NBINS,
+
+        # Heterozygous frequency bins
+        "het_bin_total": [0] * NBINS,
+        "het_bin_correct": [0] * NBINS,
+
+        # R2 frequency bins
+        "af_bin_true_alt_counts": [[] for _ in range(NBINS)],  # For R²
+        "af_bin_imp_alt_counts": [[] for _ in range(NBINS)],  # For R²
     }
 
 
@@ -315,8 +307,7 @@ class OutputWriter:
         )
 
 
-def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive, partial_credit,
-                             bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
+def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive, partial_credit):
     """Handle sites present in truth but missing in imputed."""
     key, t_variant = t
     t_alt, t_info, t_gt = t_variant
@@ -338,9 +329,7 @@ def handle_missing_in_imputed(t, counts, writer, missing_as_ref, phase_sensitive
 
             # Extract allele frequency and update bins
             ac, an = extract_allele_frequency(t_info)
-            update_frequency_bins(t_alleles, ref_alleles, ac, an, t_alt,
-                                 bin_total, bin_correct, het_bin_total, het_bin_correct,
-                                 NBINS, partial_credit, phase_sensitive)
+            update_frequency_bins(t_alleles, ref_alleles, ac, an, t_alt, counts, partial_credit, phase_sensitive)
 
             if partial_credit:
                 counts["partial_credit_sum"] += allele_multiset_score(t_alleles, ref_alleles, phase_sensitive)
@@ -368,9 +357,7 @@ def handle_extra_in_imputed(i, counts, writer, max_report):
         counts["examples"].append((SiteKind.EXTRA_IN_IMPUTED_SITE, key, t_variant, i_variant))
 
 
-def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, partial_credit,
-                         missing_as_ref, bin_total, bin_correct, het_bin_total,
-                         het_bin_correct, NBINS):
+def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, partial_credit, missing_as_ref):
     """Handle sites where truth and imputed keys match."""
     key, t_variant = t
     t_alt, t_info, t_gt = t_variant
@@ -386,7 +373,7 @@ def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, part
 
     # Handle missing/unparseable genotypes
     if not handle_missing_genotypes(t_alleles, i_alleles, key, t_variant, i_variant, counts, writer, missing_as_ref,
-                                    phase_sensitive, partial_credit, bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
+                                    phase_sensitive, partial_credit):
         return  # Early return if genotypes were missing/unparseable
 
     # Both genotypes are valid - do the comparison
@@ -396,9 +383,7 @@ def handle_matched_sites(t, i, counts, writer, max_report, phase_sensitive, part
     ac, an = extract_allele_frequency(t_info)
 
     # Update frequency bins
-    update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
-                          bin_total, bin_correct, het_bin_total, het_bin_correct,
-                          NBINS, partial_credit, phase_sensitive)
+    update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt, counts, partial_credit, phase_sensitive)
 
     # Update overall counts
     if partial_credit:
@@ -434,40 +419,51 @@ def extract_allele_frequency(t_info: str) -> tuple:
     return ac, an
 
 
-def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt,
-                          bin_total, bin_correct, het_bin_total, het_bin_correct,
-                          NBINS, partial_credit, phase_sensitive):
+def update_frequency_bins(t_alleles, i_alleles, ac, an, t_alt, counts, partial_credit, phase_sensitive):
     """Update frequency bins based on allele frequencies."""
     if ac is None or an is None or an == 0:
         print(f"Skipping frequency bin update: ac={ac}, an={an}")
         return
 
     alt_freq = ac / an
+    ref_freq = 1 - alt_freq
+    maf = min(alt_freq, ref_freq)
+    af = alt_freq if t_alt in t_alleles else ref_freq
+    NBINS = len(counts["af_bin_total"])
+
+    # Calculate ALT allele counts for this site
+    if not t_alt or t_alt == ".":
+        truth_alt_count = 0
+        imputed_alt_count = 0
+    else:
+        alt_alleles = t_alt.split(",")
+        truth_alt_count = sum(1 for allele in t_alleles if allele in alt_alleles)
+        imputed_alt_count = sum(1 for allele in i_alleles if allele in alt_alleles)
 
     # Homozygous sites
     if len(set(t_alleles)) == 1:
-        ref_freq = 1 - alt_freq
-        af = alt_freq if t_alt in t_alleles else ref_freq
         bin_idx = min(int(af * 20), NBINS - 1)
 
-        bin_total[bin_idx] += 1
+        counts["af_bin_total"][bin_idx] += 1
         if partial_credit:
-            bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
+            counts["af_bin_correct"][bin_idx] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
         elif t_alleles == i_alleles:
-            bin_correct[bin_idx] += 1
+            counts["af_bin_correct"][bin_idx] += 1
+        counts["af_bin_true_alt_counts"][min(int(af * 20), NBINS - 1)].append(truth_alt_count)
+        counts["af_bin_imp_alt_counts"][min(int(af * 20), NBINS - 1)].append(imputed_alt_count)
 
     # Heterozygous sites
     else:
-        maf = min(alt_freq, 1 - alt_freq)
         bin_idx = min(int(maf * 20), NBINS - 1)
 
-        het_bin_total[bin_idx] += 1
-        het_bin_correct[bin_idx] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
+        counts["het_bin_total"][bin_idx] += 1
+        counts["het_bin_correct"][bin_idx] += allele_multiset_score(t_alleles, i_alleles, phase_sensitive)
+        counts["af_bin_true_alt_counts"][min(int(maf * 20), NBINS - 1)].append(truth_alt_count)
+        counts["af_bin_imp_alt_counts"][min(int(maf * 20), NBINS - 1)].append(imputed_alt_count)
 
 
 def handle_missing_genotypes(t_alleles, i_alleles, key, t_variant, i_variant,
-                             counts, writer, missing_as_ref, phase_sensitive, partial_credit,
-                             bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS):
+                             counts, writer, missing_as_ref, phase_sensitive, partial_credit):
     """Handle cases where one or both genotypes are missing/unparseable. Returns False if handled."""
     t_alt, t_info, t_gt = t_variant
     i_alt, i_info, i_gt = i_variant
@@ -497,8 +493,7 @@ def handle_missing_genotypes(t_alleles, i_alleles, key, t_variant, i_variant,
         if i_missing and missing_as_ref:
             # Reuse the missing_in_imputed logic - construct the truth record format
             t_record = (key, t_variant)
-            handle_missing_in_imputed(t_record, counts, writer, missing_as_ref, phase_sensitive, partial_credit,
-                                     bin_total, bin_correct, het_bin_total, het_bin_correct, NBINS)
+            handle_missing_in_imputed(t_record, counts, writer, missing_as_ref, phase_sensitive, partial_credit)
             return False
         else:
             if i_missing:
@@ -614,7 +609,9 @@ def main():
         print(f"  IDENTICAL_STRICT            {str(identical_strict).upper()}")
 
         freq_bins = res["af_bins"]
-        
+
+        print("\nACCURACY OF HOMOZYGOUS TRUTH SITES BY TRUTH ALLELE FREQUENCY\n")
+        print("LOW\tHIGH\tACCURACY\tCOUNT")
         for i in range(len(freq_bins)-1):
             low = freq_bins[i]
             high = freq_bins[i + 1]
@@ -626,7 +623,8 @@ def main():
 
             print(low, high, acc, n)
 
-
+        print("\nACCURACY OF HETEROZYGOUS TRUTH SITES BY MINOR ALLELE FREQUENCY\n")
+        print("LOW\tHIGH\tACCURACY\tCOUNT")
         # for het sites, only need to iterate through minor AF (<=0.5)
         for i in range(len(freq_bins)-10):
             low = res["af_bins"][i]
@@ -637,7 +635,21 @@ def main():
                 acc = res["het_bin_correct"][i] / n
             else: acc = None
 
-            print("HET", low, high, acc, n)
+            print(low, high, acc, n)
+
+        print("\nR2 OF ALL TRUTH SITES BY TRUTH ALLELE FREQUENCY\n")
+        print("LOW\tHIGH\tR2")
+        # iterate through MAF bins
+        for i in range(len(freq_bins) - 1):
+            low = res["af_bins"][i]
+            high = res["af_bins"][i + 1] if i + 1 < len(res["af_bins"]) else 1.0
+
+            if len(res["af_bin_true_alt_counts"][i]) != 0 and len(res["af_bin_imp_alt_counts"][i]) != 0:
+                r2 = r2_score(y_true=res["af_bin_true_alt_counts"][i], y_pred=res["af_bin_imp_alt_counts"][i])
+            else:
+                r2 = None
+
+            print(low, high, r2)
 
 #        if res["examples"]:
 #            print("\nExamples:")
