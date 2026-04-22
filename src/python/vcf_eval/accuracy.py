@@ -32,7 +32,6 @@ from typing import Optional, Tuple, List, Dict, Iterator
 from enum import Enum
 from typing import NamedTuple
 import numpy as np
-from sklearn.metrics import r2_score
 
 class Key(NamedTuple):
     chr: str
@@ -644,8 +643,14 @@ def main():
             low = res["af_bins"][i]
             high = res["af_bins"][i + 1] if i + 1 < len(res["af_bins"]) else 1.0
 
-            if len(res["af_bin_true_alt_counts"][i]) != 0 and len(res["af_bin_imp_alt_counts"][i]) != 0:
-                r2 = r2_score(y_true=res["af_bin_true_alt_counts"][i], y_pred=res["af_bin_imp_alt_counts"][i])
+            true_vals = res["af_bin_true_alt_counts"][i]
+            pred_vals = res["af_bin_imp_alt_counts"][i]
+            n = len(true_vals)
+
+            if n > 1 and len(set(true_vals)) > 1 and len(set(pred_vals)) > 1:
+                corr_matrix = np.corrcoef(true_vals, pred_vals)
+                r = corr_matrix[0, 1]
+                r2 = r ** 2
             else:
                 r2 = None
 
