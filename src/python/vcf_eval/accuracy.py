@@ -520,7 +520,7 @@ def main():
     )
     ap.add_argument("--truth", required=True, help="Truth VCF (.vcf/.vcf.gz)")
     ap.add_argument("--imputed", required=True, help="Imputed VCF (.vcf/.vcf.gz)")
-    ap.add_argument("-s", "--sample", default=None, help="Sample name to compare (recommended if multi-sample)")
+    ap.add_argument("-s", "--samples", help="Comma-separated list of sample names (do not add spaces)")
     ap.add_argument("-r", "--region", default=None, help="Optional region restriction, e.g. chr1:1000000-2000000")
     ap.add_argument("--phase-sensitive", action="store_true",
                     help="If set, treat phased order as meaningful (0|1 != 1|0). Default ignores phase.")
@@ -541,6 +541,11 @@ def main():
         out_fh = open(args.out_sites, "w")
         out_fh.write("TYPE\tCHROM\tPOS\tREF\tTRUTH_ALT\tTRUTH_INFO\tTRUTH_GT\tIMPUTED_ALT\tIMPUTED_INFO\tIMPUTED_GT\n")
 
+    if args.samples:
+        samples = [s.strip() for s in args.samples.split(',')]
+    else:
+        samples = None
+
     try:
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
@@ -549,23 +554,54 @@ def main():
             t_sorted = str(td / "truth.sorted.tsv")
             i_sorted = str(td / "imputed.sorted.tsv")
 
-            write_query_tsv(args.truth, t_raw, args.sample, args.region)
-            write_query_tsv(args.imputed, i_raw, args.sample, args.region)
+            res = initialize_counts()
 
-            sort_tsv(t_raw, t_sorted)
-            sort_tsv(i_raw, i_sorted)
+            for sample in samples:
+                write_query_tsv(args.truth, t_raw, sample, args.region)
+                write_query_tsv(args.imputed, i_raw, sample, args.region)
 
-            res = compare_sorted(
-                t_sorted,
-                i_sorted,
-                args.max_report,
-                args.phase_sensitive,
-                args.partial_credit,
-                out_fh=out_fh,
-                only_mismatches=args.only_mismatches,
-                only_matched_sites=args.only_matched_sites,
-                missing_as_ref=args.missing_as_ref,
-            )
+                sort_tsv(t_raw, t_sorted)
+                sort_tsv(i_raw, i_sorted)
+
+                counts = compare_sorted(
+                    t_sorted,
+                    i_sorted,
+                    args.max_report,
+                    args.phase_sensitive,
+                    args.partial_credit,
+                    out_fh=out_fh,
+                    only_mismatches=args.only_mismatches,
+                    only_matched_sites=args.only_matched_sites,
+                    missing_as_ref=args.missing_as_ref,
+                )
+
+                res["truth_records"] += counts["truth_records"]
+                res["imputed_records"] += counts["imputed_records"]
+                res["site_key_matches"] += counts["site_key_matches"]
+                res["missing_in_imputed_sites"] += counts["missing_in_imputed_sites"]
+                res["extra_in_imputed_sites"] += counts["extra_in_imputed_sites"]
+                res["both_missing_gt"] += counts["both_missing_gt"]
+                res["truth_missing_gt"] += counts["truth_missing_gt"]
+                res["imputed_missing_gt"] += counts["imputed_missing_gt"]
+                res["gt_unparseable"] += counts["gt_unparseable"]
+                res["compared_sites"] += counts["compared_sites"]
+                res["gt_allele_matches"] += counts["gt_allele_matches"]
+                res["gt_allele_mismatches"] += counts["gt_allele_mismatches"]
+                res["partial_credit_sum"] += counts["partial_credit_sum"]
+                res["examples"] = res["examples"] + counts["examples"]
+                res["af_bin_total"]  = np.add(counts["af_bin_total"], res["af_bin_total"])
+                res["af_bin_correct"] = np.add(counts["af_bin_correct"], res["af_bin_correct"])
+                res["het_bin_total"] = np.add(counts["het_bin_total"], res["het_bin_total"])
+                res["het_bin_correct"] = np.add(counts["het_bin_correct"], res["het_bin_correct"])
+                res["af_bin_true_alt_counts"] = [
+                    res_bin + counts_bin
+                    for res_bin, counts_bin in zip(res["af_bin_true_alt_counts"], counts["af_bin_true_alt_counts"])
+                ]
+                res["af_bin_imp_alt_counts"] = [
+                    res_bin + counts_bin
+                    for res_bin, counts_bin in zip(res["af_bin_imp_alt_counts"], counts["af_bin_imp_alt_counts"])
+                ]
+
 
         # Summary
         print("VCF allele-aware GT compare (key = CHROM,POS,REF; ALT may differ; ./. missing)")
