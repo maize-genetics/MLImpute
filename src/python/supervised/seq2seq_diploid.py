@@ -414,6 +414,7 @@ def main():
                    "Epoch": epoch})
 
         if test_loss < best_loss:
+            best_loss = test_loss
             torch.save(model.state_dict(), args.save_model_path)
 
     wandb.finish()

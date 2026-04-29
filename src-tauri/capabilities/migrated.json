@@ -12,6 +12,18 @@
     "os:default",
     "dialog:default",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "fs:default",
+    "fs:write-all",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$HOME/**",
+        "$DOWNLOAD/**",
+        "$DESKTOP/**",
+        "$DOCUMENT/**",
+        "$PICTURE/**"
+      ]
+    }
   ]
 }

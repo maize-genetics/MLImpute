@@ -1,4 +1,4 @@
-This comprehensive guide covers the command-line interface (CLI) for MLImpute, a machine learning-based haplotype imputation tool that combines multiple approaches including BiMamba, ModernBERT, HMM-based methods, and K-Nearest Neighbors.
+This comprehensive guide covers the command-line interface (CLI) for GRITS, a machine learning-based haplotype imputation tool that combines multiple approaches including BiMamba, ModernBERT, HMM-based methods, and K-Nearest Neighbors.
 
 ## Installation
 
@@ -11,8 +11,8 @@ This comprehensive guide covers the command-line interface (CLI) for MLImpute, a
 
 ```bash
 # Clone the repository
-git clone https://github.com/maize-genetics/MLImpute.git
-cd MLImpute
+git clone https://github.com/maize-genetics/grits.git
+cd grits
 
 # CPU-only installation
 pixi install

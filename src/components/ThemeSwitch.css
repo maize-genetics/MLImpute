@@ -1,0 +1,112 @@
+/* MD3-style toggle switch for theme */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+.theme-toggle:focus-visible .theme-toggle-track {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* Track */
+.theme-toggle-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 42px;
+  height: 20px;
+  border-radius: 10px;
+  background: #555;
+  border: 2px solid transparent;
+  box-sizing: border-box;
+  transition: background var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard),
+              border-color var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+}
+
+.theme-toggle.dark .theme-toggle-track {
+  background: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+}
+
+/* Icons positioned inside the track */
+.theme-toggle-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  z-index: 1;
+  transition: opacity var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard),
+              color var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+}
+
+.theme-toggle-icon.sun {
+  left: 4px;
+  color: #fff;
+  opacity: 1;
+}
+
+.theme-toggle-icon.moon {
+  right: 4px;
+  color: #fff;
+  opacity: 1;
+}
+
+.theme-toggle.dark .theme-toggle-icon.sun {
+  color: #444;
+}
+
+/* Hide the icon that's behind the thumb */
+.theme-toggle.light .theme-toggle-icon.sun {
+  opacity: 0;
+}
+
+.theme-toggle.dark .theme-toggle-icon.moon {
+  opacity: 0;
+}
+
+/* Thumb */
+.theme-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #88d5b9;
+  transform: translateY(-50%);
+  transition: left var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized),
+              width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+              height var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+              background var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+  z-index: 2;
+}
+
+.theme-toggle.dark .theme-toggle-thumb {
+  left: calc(100% - 16px);
+  background: var(--md-sys-color-on-primary);
+}
+
+/* Hover: slightly enlarge thumb */
+.theme-toggle:hover .theme-toggle-thumb {
+  width: 15px;
+  height: 15px;
+}
+
+.theme-toggle.light:hover .theme-toggle-thumb {
+  left: 1.5px;
+}
+
+.theme-toggle.dark:hover .theme-toggle-thumb {
+  left: calc(100% - 16.5px);
+}

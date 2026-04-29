@@ -1,68 +1,10 @@
-/* MD3 System Settings Styles */
+/* MD3 System Specs Styles */
 .system-settings {
-  margin-bottom: 1.5rem;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-large);
-  background: var(--md-sys-color-surface-container);
   overflow: hidden;
 }
 
-.system-settings-header {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 1rem 1.25rem;
-  cursor: pointer;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-  border-radius: var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0 0;
-  position: relative;
-  transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-}
-
-.system-settings-header::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--md-sys-color-on-surface);
-  opacity: 0;
-  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-  border-radius: inherit;
-}
-
-.system-settings-header:hover::before {
-  opacity: var(--md-sys-state-hover-opacity);
-}
-
-.system-settings-header h4 {
-  margin: 0;
-  font-family: var(--md-sys-typescale-title-small-font);
-  font-size: var(--md-sys-typescale-title-small-size);
-  font-weight: var(--md-sys-typescale-title-small-weight);
-  letter-spacing: var(--md-sys-typescale-title-small-tracking);
-  color: var(--md-sys-color-on-surface);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  position: relative;
-  z-index: 1;
-}
-
-.expand-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-.expand-icon.expanded {
-  transform: rotate(180deg);
-}
-
 .system-settings-content {
-  padding: 1.25rem;
-  background: var(--md-sys-color-surface-container-low);
+  padding: 1.25rem 1.5rem;
 }
 
 .loading-message {

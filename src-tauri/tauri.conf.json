@@ -13,7 +13,7 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
+      "icons/ml_imp.icns",
       "icons/icon.ico"
     ],
     "resources": [
@@ -31,10 +31,10 @@
       "signingIdentity": "-"
     }
   },
-  "productName": "ml-impute",
-  "mainBinaryName": "ml-impute",
+  "productName": "GRITS",
+  "mainBinaryName": "grits",
   "version": "0.1.0",
-  "identifier": "net.maizegenetics.mlimpute",
+  "identifier": "net.maizegenetics.grits",
   "plugins": {},
   "app": {
     "security": {
@@ -42,9 +42,9 @@
     },
     "windows": [
       {
-        "title": "ML Impute",
-        "width": 1000,
-        "height": 800,
+        "title": "GRITS",
+        "width": 1200,
+        "height": 900,
         "useHttpsScheme": true
       }
     ]

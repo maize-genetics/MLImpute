@@ -1,5 +1,5 @@
 [workspace]
-name      = "ml-impute-env-pixi"
+name      = "grits-env-pixi"
 channels  = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "win-64"]
 

@@ -23,8 +23,16 @@ def convert_ps4g(ps4g_file, weight_strat, collapse):
     logging.info(f"Converted PS4G file {ps4g_file} with weight '{weight_strat}' and collapse={collapse}.")
     return input_matrix,weights
 
-
-
+def decode_position(encoded_pos):
+    """
+    Decode a 32-bit integer that packs:
+      • the upper-8 bits → an index (0-255)
+      • the lower-24 bits → a position, but quantised in bins of 256 bp
+    This is lossy because we multiplied by 256 during encoding.
+    """
+    idx = (encoded_pos >> 24) & 0xFF           # top-byte index (unsigned)
+    pos = (encoded_pos & 0x0FFFFFF) * 256      # restore to bp units
+    return idx, pos
 
 def load_ps4g_file(ps4g_file):
     """
@@ -131,7 +139,6 @@ def create_multihot_matrix(ps4g, gamete_data, weight_strat, collapse):
 
     return input_matrix, weights
 
-
 def process_global_weight_mode(X_multihot, gamete_data, num_classes):
     """
     Process the global weight mode for the multihot encoded matrix.
@@ -149,8 +156,6 @@ def process_global_weight_mode(X_multihot, gamete_data, num_classes):
     global_weights = np.array([index_to_weight.get(i, 0.0) for i in range(num_classes)], dtype=np.float32)
 
     return X_multihot, global_weights
-
-
 
 def collapse_ps4g(num_classes, ps4g, unique_positions):
     """ Collapse the PS4G DataFrame by position and aggregate gamete sets.
@@ -173,7 +178,6 @@ def collapse_ps4g(num_classes, ps4g, unique_positions):
     for i, indices in enumerate(collapsed_df['gameteSet']):
         X_multihot[i, indices] = 1  # vectorized assignment
     return X_multihot, collapsed_df
-
 
 def build_index_lookup(ps4g_file):
     with open(ps4g_file, 'r') as file:

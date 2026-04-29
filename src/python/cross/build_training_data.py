@@ -8,7 +8,7 @@ import logging
 
 def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key1, answer_key2=None):
     """
-    Create a multihot encoded matrix [# entries, num_gametes + 1] from the PS4G data.
+    Create a multihot encoded matrix [# entries, num_gametes + 1 (or 2)] from the PS4G data.
     0 = miss
     Read count = hit
     Last position represents the label
@@ -123,7 +123,10 @@ def include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, answer_key1, an
     '''
     Adds unlabelled bins to the collapsed matrix with -1 labels
     '''
-    last_bin = min(len(answer_key1), len(answer_key2))
+    if answer_key2 is None:
+        last_bin = len(answer_key1)
+    else:
+        last_bin = min(len(answer_key1), len(answer_key2))
 
     all_pos_matrix = np.zeros((last_bin, collapsed_matrix.shape[1]), dtype=np.int8)
     labels_1 = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key1], dtype=np.int8)

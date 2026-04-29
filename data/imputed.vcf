@@ -1,0 +1,35 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=AD,Number=3,Type=Integer,Description="Allelic depths for the ref and alt alleles in the order listed">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth (only filtered reads used for calling)">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification">
+##INFO=<ID=AF,Number=3,Type=Integer,Description="Allele Frequency">
+##INFO=<ID=ASM_Chr,Number=1,Type=String,Description="Assembly chromosome">
+##INFO=<ID=ASM_End,Number=1,Type=Integer,Description="Assembly end position">
+##INFO=<ID=ASM_Start,Number=1,Type=Integer,Description="Assembly start position">
+##INFO=<ID=ASM_Strand,Number=1,Type=String,Description="Assembly strand">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+##INFO=<ID=END,Number=1,Type=Integer,Description="Stop position of the interval">
+##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">
+#CHROM  POS ID  REF ALT QUAL    FILTER  INFO    FORMAT  SampleA SampleB SampleC SampleD SampleE
+chr1    1   .   A   T   .       .       .       GT      1/0     0/0     0/0     0/1     0/0
+chr1    3   .   T   C   .       .       .       GT      1/1     1/0     0/1     0/1     0/0
+chr1    5   .   A   G   .       .       .       GT      0/0     1/1     0/0     0/0     0/0
+chr1    6   .   G   C   .       .       .       GT      0/0     0/0     0/0     0/0     1/0
+chr1    10  .   G   C   .       .       .       GT      0/0     0/1     1/1     0/1     0/0
+chr1    12  .   A   T   .       .       .       GT      ./1     0/1     1/0     0/0     0/0
+chr1    13  .   A   C   .       .       .       GT      1/1     0/0     1/0     1/1     1/1
+chr1    14  .   C   T   .       .       .       GT      0/0     0/0     0/0     0/0     0/1
+chr2    2   .   G   T   .       .       .       GT      1/0     ./.     0/0     0/1     0/0
+chr2    3   .   G   T   .       .       .       GT      0/0     1/1     0/1     1/1     0/0
+chr2    6   .   A   C   .       .       .       GT      1/0     1/1     1/.     0/0     1/0
+chr2    11  .   C   G   .       .       .       GT      1/1     0/0     0/0     0/0     0/0
+chr2    15  .   T   G   .       .       .       GT      0/0     1/1     0/0     0/0     0/1
+chr2    17  .   T   C   .       .       .       GT      0/0     0/0     0/0     1/1     1/1
+chr3    3   .   T   A   .       .       .       GT      0/0     0/0     1/0     0/0     0/0
+chr3    4   .   A   G   .       .       .       GT      0/0     0/0     0/0     1/0     1/1
+chr3    9   .   G   T   .       .       .       GT      ./.     ./0     1/0     0/1     0/0
+chr3    13  .   C   A   .       .       .       GT      1/1     0/0     0/1     1/1     1/0
+chr3    18  .   A   T   .       .       .       GT      1/0     0/1     0/0     0/0     0/0
+chr3    20  .   C   T   .       .       .       GT      1/0     0/0     0/0     0/0     0/0

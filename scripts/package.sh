@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Main packaging script for "MLImpute" Tauri app
+# Main packaging script for "GRITS" Tauri app
 # This script orchestrates the complete packaging process including:
 # 1. Download Python runtime for target platform
 # 2. Build Python wheelhouse
@@ -98,7 +98,7 @@ if [[ "$BUILD_MODE" != "debug" && "$BUILD_MODE" != "release" ]]; then
     exit 1
 fi
 
-print_status "Starting ML Impute packaging..."
+print_status "Starting GRITS packaging..."
 print_status "Build mode: $BUILD_MODE"
 print_status "Target platform: $TARGET_PLATFORM"
 print_status "GPU support: $GPU_SUPPORT"
