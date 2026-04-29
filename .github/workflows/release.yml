@@ -1,0 +1,190 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create-release.outputs.result }}
+      release_upload_url: ${{ steps.create-release.outputs.upload_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release
+        id: create-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: context.ref.replace('refs/tags/', ''),
+              name: `Release ${context.ref.replace('refs/tags/', '')}`,
+              body: 'Cross-platform release for GRITS application',
+              draft: false,
+              prerelease: false,
+            })
+            return data.id
+
+  build-tauri:
+    needs: create-release
+    permissions:
+      contents: write
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target universal-apple-darwin'
+            python_arch: 'universal2'
+            package_suffix: 'cpu'
+          - platform: 'windows-latest'
+            args: ''
+            python_arch: 'x86_64'
+            package_suffix: 'cpu'
+#          - platform: 'windows-latest'
+#            args: ''
+#            python_arch: 'x86_64'
+#            package_suffix: 'gpu'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: Install Node.js dependencies
+        run: npm install
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.9.0
+        with:
+          pixi-version: latest
+          locked: false
+
+      - name: Install pixi environment
+        run: pixi install
+        env:
+          CONDA_OVERRIDE_CUDA: ${{ matrix.package_suffix == 'gpu' && '12.0' || '' }}
+
+      - name: Build Python wheelhouse (CPU)
+        if: matrix.package_suffix == 'cpu'
+        run: npm run package
+        shell: bash
+
+      - name: Build Python wheelhouse (GPU)
+        if: matrix.package_suffix == 'gpu'
+        run: npm run package:gpu
+        shell: bash
+        env:
+          CONDA_OVERRIDE_CUDA: "12.0"
+
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Release ${{ github.ref_name }}'
+          releaseBody: 'Cross-platform release for GRITS application'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './crates/parser-wasm -> target'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: Install Node.js dependencies
+        run: npm install
+
+      - name: Build static web app
+        run: npm run build:web
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  cleanup-release:
+    needs: [create-release, build-tauri]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Delete release if builds failed
+        if: needs.build-tauri.result == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.deleteRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.create-release.outputs.release_id }}
+            })

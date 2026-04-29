@@ -1,0 +1,113 @@
+/* MD3 System Specs Styles */
+.system-settings {
+  overflow: hidden;
+}
+
+.system-settings-content {
+  padding: 1.25rem 1.5rem;
+}
+
+.loading-message {
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  padding: 1.25rem 0;
+}
+
+.error-message {
+  background: var(--md-sys-color-error-container);
+  border: 1px solid var(--md-sys-color-error);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 1rem;
+  color: var(--md-sys-color-on-error-container);
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.error-message p {
+  margin: 0 0 0.5rem 0;
+}
+
+/* System info key-value pairs */
+.system-info {
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  color: var(--md-sys-color-on-surface-variant);
+  min-width: 40%;
+}
+
+.info-value {
+  color: var(--md-sys-color-on-surface);
+  text-align: right;
+  word-break: break-word;
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+/* GPU adapter sections */
+.gpu-adapters {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  padding-top: 1.25rem;
+}
+
+.gpu-adapter {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.gpu-adapter:last-child {
+  margin-bottom: 0;
+}
+
+.adapter-header {
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  color: var(--md-sys-color-on-surface);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.gpu-adapter .info-item {
+  padding: 0.375rem 0;
+}
+
+.gpu-adapter .info-label {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  color: var(--md-sys-color-on-surface-variant);
+  min-width: 35%;
+}
+
+.gpu-adapter .info-value {
+  font-size: var(--md-sys-typescale-body-small-size);
+  color: var(--md-sys-color-on-surface);
+}

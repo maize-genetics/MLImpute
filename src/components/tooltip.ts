@@ -19,9 +19,9 @@ export const createTooltip = () => {
     .style("z-index", 1000);
 };
 
-export const showTooltip = (tooltip: d3.Selection<HTMLDivElement, unknown, HTMLElement, any>, dataPoint: DataPoint) => {
+export const showTooltip = (tooltip: d3.Selection<d3.BaseType, unknown, HTMLElement, any>, dataPoint: DataPoint) => {
   tooltip
-    .html(`Sample: ${dataPoint.row}<br/>Position: ${dataPoint.col}<br/>Value: ${dataPoint.value}`)
+    .html(`<strong>Sample:</strong> ${dataPoint.row}<br/><strong>Position:</strong> ${dataPoint.col}`)
     .style("visibility", "visible")
     .transition()
     .duration(200)
@@ -29,13 +29,13 @@ export const showTooltip = (tooltip: d3.Selection<HTMLDivElement, unknown, HTMLE
     .style("z-index", 1001);
 };
 
-export const moveTooltip = (tooltip: d3.Selection<HTMLDivElement, unknown, HTMLElement, any>, event: MouseEvent) => {
+export const moveTooltip = (tooltip: d3.Selection<d3.BaseType, unknown, HTMLElement, any>, event: MouseEvent) => {
   tooltip
     .style("top", `${event.pageY + 10}px`)
     .style("left", `${event.pageX + 10}px`);
 };
 
-export const hideTooltip = (tooltip: d3.Selection<HTMLDivElement, unknown, HTMLElement, any>) => {
+export const hideTooltip = (tooltip: d3.Selection<d3.BaseType, unknown, HTMLElement, any>) => {
   tooltip
     .transition()
     .duration(200)

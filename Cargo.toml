@@ -1,0 +1,3 @@
+[workspace]
+members = ["src-tauri", "crates/parser-core", "crates/parser-wasm"]
+resolver = "2"

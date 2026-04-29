@@ -1,0 +1,247 @@
+/* MD3 Range Sliders Styles */
+.range-sliders {
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 1.25rem;
+  margin: 1rem 0;
+  max-width: 100%;
+}
+
+.range-section {
+  margin-bottom: 1.5rem;
+}
+
+.range-section:last-child {
+  margin-bottom: 0;
+}
+
+.range-section h4 {
+  margin: 0 0 0.75rem 0;
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  color: var(--md-sys-color-on-surface);
+}
+
+.range-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.range-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-family: var(--md-sys-typescale-body-small-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.range-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.range-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 200px;
+}
+
+.range-input-group label {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 500;
+  letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+  color: var(--md-sys-color-on-surface);
+  min-width: 35px;
+}
+
+/* MD3 Slider */
+.range-slider {
+  flex: 1;
+  height: 4px;
+  background: var(--md-sys-color-surface-variant);
+  border-radius: var(--md-sys-shape-corner-full);
+  outline: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  background: var(--md-sys-color-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--md-sys-elevation-level1);
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 8px rgba(26, 107, 82, 0.12);
+  transform: scale(1.1);
+}
+
+.range-slider::-webkit-slider-thumb:active {
+  box-shadow: 0 0 0 12px rgba(26, 107, 82, 0.16);
+}
+
+.range-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: var(--md-sys-color-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: var(--md-sys-elevation-level1);
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.range-slider::-moz-range-thumb:hover {
+  box-shadow: 0 0 0 8px rgba(26, 107, 82, 0.12);
+  transform: scale(1.1);
+}
+
+.range-slider::-moz-range-track {
+  background: var(--md-sys-color-surface-variant);
+  height: 4px;
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+.range-value {
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-label-medium-size);
+  color: var(--md-sys-color-on-surface);
+  font-weight: 500;
+  min-width: 40px;
+  text-align: center;
+  background: var(--md-sys-color-surface-container-high);
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--md-sys-shape-corner-small);
+}
+
+/* MD3 Tonal Button */
+.reset-button {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  padding: 0.5rem 1rem;
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 500;
+  letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.reset-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-secondary-container);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.reset-button:hover::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.reset-button:active::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+/* D3 Range Slider specific styles */
+.d3-range-slider {
+  width: 100%;
+  margin: 0.75rem 0;
+  overflow: visible;
+}
+
+.d3-range-slider .brush .selection {
+  stroke: var(--md-sys-color-primary);
+  stroke-width: 2px;
+  fill: var(--md-sys-color-primary);
+  fill-opacity: 0.16;
+}
+
+.d3-range-slider .brush .handle {
+  fill: var(--md-sys-color-primary);
+  stroke: var(--md-sys-color-surface);
+  stroke-width: 2px;
+  cursor: ew-resize;
+}
+
+.d3-range-slider .brush .handle:hover {
+  fill: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 8px rgba(26, 107, 82, 0.12);
+}
+
+.d3-range-slider .axis {
+  font-family: 'Roboto', sans-serif;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.d3-range-slider .axis .domain {
+  stroke: var(--md-sys-color-outline-variant);
+}
+
+.d3-range-slider .axis .tick line {
+  stroke: var(--md-sys-color-outline-variant);
+}
+
+.d3-range-slider .track-background {
+  fill: var(--md-sys-color-surface-variant);
+}
+
+.d3-range-slider .range-label {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: 12px;
+  font-weight: 500;
+  fill: var(--md-sys-color-on-surface);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .range-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  
+  .range-input-group {
+    min-width: unset;
+  }
+
+  .d3-range-slider {
+    width: 100%;
+  }
+  
+  .range-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .range-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}

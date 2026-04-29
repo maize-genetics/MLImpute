@@ -1,4 +1,4 @@
-name: ml-impute-env
+name: grits-env
 channels:
   - conda-forge
   - defaults
@@ -12,3 +12,5 @@ dependencies:
   - pip
   - pip:
       - mamba-ssm  # if using a pip-only Mamba2 variant
+      - pytest
+      - pytest-cov

@@ -1,0 +1,305 @@
+/* MD3 HMMImputeInterface Styles */
+.hmm-impute-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.form-section {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.form-section h2 {
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+  font-family: var(--md-sys-typescale-title-large-font);
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 400;
+  line-height: var(--md-sys-typescale-title-large-line-height);
+  color: var(--md-sys-color-on-surface);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  padding-bottom: 0.75rem;
+}
+
+.file-input-group {
+  margin-bottom: 1.25rem;
+}
+
+.file-input-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.file-input-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.file-input-row input {
+  flex: 1;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-small);
+  font-family: 'Roboto', sans-serif;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.file-input-row input:focus {
+  outline: none;
+  border-color: var(--md-sys-color-primary);
+  border-width: 2px;
+  padding: calc(0.875rem - 1px) calc(1rem - 1px);
+}
+
+/* MD3 Filled Button */
+.file-input-row button {
+  padding: 0.875rem 1.5rem;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.file-input-row button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-primary);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.file-input-row button:hover:not(:disabled)::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.file-input-row button:hover:not(:disabled) {
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+.file-input-row button:active:not(:disabled)::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.file-input-row button:disabled {
+  background: var(--md-sys-color-on-surface);
+  opacity: 0.12;
+  color: var(--md-sys-color-on-surface);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.checkbox-group {
+  margin: 1.25rem 0;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  font-weight: 400;
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+  margin-right: 0.5rem;
+  transform: scale(1.1);
+  accent-color: var(--md-sys-color-primary);
+}
+
+.button-group {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* MD3 Filled Button */
+.run-button {
+  flex: 1;
+  padding: 1rem 1.5rem;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.run-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-primary);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.run-button:hover:not(:disabled)::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.run-button:hover:not(:disabled) {
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+.run-button:active:not(:disabled)::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.run-button:disabled {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* MD3 Tonal Button */
+.reset-button {
+  padding: 1rem 1.5rem;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  position: relative;
+  overflow: hidden;
+}
+
+.reset-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-secondary-container);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.reset-button:hover:not(:disabled)::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.reset-button:active:not(:disabled)::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.reset-button:disabled {
+  background: var(--md-sys-color-on-surface);
+  opacity: 0.12;
+  color: var(--md-sys-color-on-surface);
+  cursor: not-allowed;
+}
+
+.result-section {
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.result-section.success {
+  background-color: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  border: 1px solid var(--md-sys-color-primary);
+}
+
+.result-section.error {
+  background-color: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  border: 1px solid var(--md-sys-color-error);
+}
+
+.result-section h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-family: var(--md-sys-typescale-title-medium-font);
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  letter-spacing: var(--md-sys-typescale-title-medium-tracking);
+}
+
+.result-message {
+  background: var(--md-sys-color-surface);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.result-message pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 1.4;
+  color: var(--md-sys-color-on-surface);
+}
+
+.output-file {
+  padding: 0.75rem;
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-medium);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--md-sys-typescale-body-small-size);
+  word-break: break-all;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+@media (max-width: 768px) {
+  .hmm-impute-container {
+    padding: 1rem;
+  }
+  
+  .file-input-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .button-group {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .run-button {
+    margin-bottom: 0;
+  }
+}

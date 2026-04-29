@@ -1,0 +1,205 @@
+// ============================================================================
+// Shared type definitions mirroring the Rust parser-core types
+// ============================================================================
+
+export interface GameteInfo {
+  gamete: string;
+  gamete_index: number;
+  read_count: number;
+  weight: number;
+}
+
+export interface PS4GDataRow {
+  gamete_set: number[];
+  ref_contig: string;
+  ref_pos_binned: number;
+  count: number;
+}
+
+export interface PS4GMetadata {
+  version: string | null;
+  command: string | null;
+  total_unique_counts: number | null;
+  gametes: GameteInfo[];
+}
+
+export interface PS4GSummary {
+  total_rows: number;
+  unique_positions: number;
+  chromosomes: string[];
+  chromosome_counts: Record<string, number>;
+  gamete_count: number;
+  position_range: Record<string, [number, number]>;
+}
+
+export interface PS4GProgress {
+  rows_processed: number;
+  bytes_processed: number;
+  total_bytes: number;
+  percent: number;
+}
+
+export interface PS4GParseResult {
+  success: boolean;
+  metadata: PS4GMetadata;
+  summary: PS4GSummary;
+  data_preview: PS4GDataRow[];
+  error: string | null;
+}
+
+export interface ChromosomeMatrixResult {
+  success: boolean;
+  chromosome: string;
+  matrix: number[][];
+  positions: number[];
+  gamete_names: string[];
+  num_gametes: number;
+  num_positions: number;
+  position_range: [number, number];
+  error: string | null;
+}
+
+export interface ChromosomeMatrixProgress {
+  rows_processed: number;
+  chromosome: string;
+  percent: number;
+}
+
+export interface BEDDataRow {
+  chrom: string;
+  start: number;
+  end: number;
+  parent1: string;
+  parent2: string;
+}
+
+export interface ParentStats {
+  parent_id: string;
+  regions_as_parent1: number;
+  regions_as_parent2: number;
+  total_regions: number;
+  coverage_bp_as_parent1: number;
+  coverage_bp_as_parent2: number;
+  total_coverage_bp: number;
+  chromosome_count: number;
+}
+
+export interface BEDSummary {
+  total_rows: number;
+  chromosomes: string[];
+  chromosome_counts: Record<string, number>;
+  position_range: Record<string, [number, number]>;
+  total_coverage_bp: number;
+  avg_region_size_bp: number;
+  unique_parents: string[];
+  unique_parent_pairs: number;
+  parent_stats: ParentStats[];
+}
+
+export interface BEDProgress {
+  rows_processed: number;
+  bytes_processed: number;
+  total_bytes: number;
+  percent: number;
+}
+
+export interface BEDParseResult {
+  success: boolean;
+  summary: BEDSummary;
+  data_preview: BEDDataRow[];
+  error: string | null;
+}
+
+export interface BEDRegion {
+  start: number;
+  end: number;
+}
+
+export interface BEDMatrixProgress {
+  rows_processed: number;
+  chromosome: string;
+  percent: number;
+}
+
+export interface BEDChromosomeMatrixResult {
+  success: boolean;
+  chromosome: string;
+  matrix: number[][];
+  parent_names: string[];
+  regions: BEDRegion[];
+  num_parents: number;
+  num_regions: number;
+  parent1_path: number[];
+  parent2_path: number[];
+  error: string | null;
+}
+
+export interface NpyOverlayResult {
+  success: boolean;
+  true_paths: number[][];
+  predicted_paths: number[][];
+  num_positions: number;
+  is_diploid_true: boolean;
+  is_diploid_predicted: boolean;
+  error: string | null;
+}
+
+// ============================================================================
+// Platform abstraction
+// ============================================================================
+
+export type ProgressCallback<T> = (progress: T) => void;
+
+export type FileInput = string | File;
+
+export interface OpenFileOptions {
+  title?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+  multiple?: boolean;
+}
+
+export interface SaveFileOptions {
+  defaultName?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}
+
+/**
+ * Opaque handle representing a parsed file that can be queried for
+ * chromosome-level data without re-parsing.
+ */
+export type FileHandle = string | object;
+
+export interface PlatformBackend {
+  parsePS4GFile(
+    file: FileInput,
+    onProgress?: ProgressCallback<PS4GProgress>,
+  ): Promise<{ result: PS4GParseResult; handle: FileHandle }>;
+
+  getChromosomeMatrix(
+    handle: FileHandle,
+    chromosome: string,
+    onProgress?: ProgressCallback<ChromosomeMatrixProgress>,
+  ): Promise<ChromosomeMatrixResult>;
+
+  parseBEDFile(
+    file: FileInput,
+    onProgress?: ProgressCallback<BEDProgress>,
+  ): Promise<{ result: BEDParseResult; handle: FileHandle }>;
+
+  getBEDChromosomeMatrix(
+    handle: FileHandle,
+    chromosome: string,
+    onProgress?: ProgressCallback<BEDMatrixProgress>,
+  ): Promise<BEDChromosomeMatrixResult>;
+
+  loadNpyOverlay(
+    observed: FileInput | null,
+    predictions: FileInput | null,
+    expectedNumPositions: number,
+    expectedNumGametes: number,
+  ): Promise<NpyOverlayResult>;
+
+  openFile(options?: OpenFileOptions): Promise<FileInput | null>;
+
+  saveFile(data: Uint8Array, options?: SaveFileOptions): Promise<void>;
+}

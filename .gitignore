@@ -153,8 +153,14 @@ __marimo__/
 # =========================================
 node_modules/
 dist/
+dist-web/
 dist-ssr/
 *.local
+
+# =========================================
+# WASM Build Output
+# =========================================
+src/wasm/pkg/
 
 # Logs
 logs/
@@ -164,3 +170,69 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# =========================================
+# ML/LLM metadata
+# =========================================
+CLAUDE.md
+.claude/
+modernbert.pth
+*.pth
+src/python/supervised/data/
+src/python/supervised/models/
+src/python/supervised/wandb/
+src/python/cross/matrices/
+src/python/cross/misc_data/
+src/python/cross/model_preds/
+src/python/cross/ps4g/
+temp/
+
+# =========================================
+# Tauri Packaging Resources
+# =========================================
+# Bundled Python runtime and wheels - generated at build time
+src-tauri/resources/python-runtime/
+src-tauri/resources/wheelhouse/
+
+# =========================================
+# Kotlin / JVM
+# =========================================
+# Compiled class files
+*.class
+
+# Kotlin compiler
+.kotlin/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+gradle-app.setting
+!gradle-wrapper.properties
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Kotlin/Native
+*.klib
+*.knm
+
+# Kotlin Multiplatform / CLI builds
+kotlin-js-store/
+src/kotlin/bin/
+
+# =========================================
+# Misc
+# =========================================
+
+src/python/cross/*.txt
+src/python/cross/*.json
+src/python/cross/*.fa
+src/python/cross/*.pth
+src/python/cross/*.maf
+data/local/

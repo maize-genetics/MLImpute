@@ -43,16 +43,13 @@ export const renderFocusChart = (
     .domain(focusRows)
     .range([0, innerHeight])
     .padding(0);
-  const colorScale = d3
-    .scaleOrdinal<string>()
-    .domain(["0", "1"])
-    .range(["#d3d3d3", "#4a4a4a"]);
+  // Color scale removed - using highlight-based coloring instead
 
   const nCols = focusCols.length;
   const nRows = focusRows.length;
 
   // Grid lines
-  renderGridLines(focusG, nRows, nCols, cellSize, innerWidth, innerHeight);
+  renderGridLines(focusG, focusRows, focusCols, xScale, yScale, innerWidth, innerHeight);
 
   // Cells
   const flat = focusData.flatMap((row, i) =>
@@ -63,115 +60,120 @@ export const renderFocusChart = (
     }))
   );
 
-  // Create highlight lookup for faster checking
-  const highlightSet = new Set<string>();
+  // Create highlight lookup for faster checking with parent information
+  const highlightMap = new Map<string, 'parent1' | 'parent2' | 'both'>();
   if (highlightData) {
-    highlightData.forEach(h => highlightSet.add(`${h.row}:${h.col}`));
+    highlightData.forEach(h => {
+      const key = `${h.row}:${h.col}`;
+      const existing = highlightMap.get(key);
+      if (existing && existing !== h.parent) {
+        highlightMap.set(key, 'both');
+      } else {
+        highlightMap.set(key, h.parent || 'parent1');
+      }
+    });
   }
 
   const cells = focusG
     .append("g")
-    .selectAll("rect")
+    .selectAll<SVGRectElement, DataPoint>("rect")
     .data(flat)
     .join("rect")
     .attr("x", (d: DataPoint) => xScale(d.col)!)
     .attr("y", (d: DataPoint) => yScale(d.row)!)
-    .attr("width", innerWidth / nCols)
-    .attr("height", innerHeight / nRows)
+    .attr("width", xScale.bandwidth())
+    .attr("height", yScale.bandwidth())
     .attr("fill", (d: DataPoint) => {
-      const isHighlighted = highlightSet.has(`${d.row}:${d.col}`);
-      if (isHighlighted) {
-        return "#FF6B35"; // Bright orange for highlighted cells
+      const parent = highlightMap.get(`${d.row}:${d.col}`);
+      if (parent === 'parent1') {
+        return "#FFAB91"; // Pale orange
+      } else if (parent === 'parent2') {
+        return "#81D4FA"; // Pale blue
+      } else if (parent === 'both') {
+        return "#CE93D8"; // Pale purple
       }
-      return colorScale(String(d.value));
+      return "#F0F0F0"; // Light grey
     })
     .attr("stroke", "#fff")
     .attr("stroke-width", 0.5);
 
-  // Path connecting highlighted cells
+  // Paths connecting highlighted cells for each parent
   if (highlightData && highlightData.length > 0) {
-    renderHighlightPath(focusG, highlightData, xScale, yScale, innerWidth, innerHeight, nCols, nRows, focusCols);
+    renderParentPaths(focusG, highlightData, xScale, yScale, innerWidth, innerHeight, nCols, nRows, focusCols);
   }
 
   // Axes
-  renderAxes(focusG, xScale, yScale, nCols, nRows);
+  renderAxes(focusG, xScale, yScale);
 
   // Hover interactions
-  addHoverInteractions(focusG, cells, xScale, yScale, innerWidth, innerHeight, nCols, nRows, neon);
+  addHoverInteractions(focusG, cells, xScale, yScale, neon);
 };
 
 const renderGridLines = (
   focusG: d3.Selection<SVGGElement, unknown, null, undefined>,
-  nRows: number,
-  nCols: number,
-  cellSize: number,
+  focusRows: string[],
+  focusCols: string[],
+  xScale: d3.ScaleBand<string>,
+  yScale: d3.ScaleBand<string>,
   innerWidth: number,
   innerHeight: number
 ) => {
-  // Horizontal lines
+  // Horizontal lines - at the boundaries between rows
+  const rowPositions = [0, ...focusRows.map(row => yScale(row)! + yScale.bandwidth()), innerHeight];
   focusG
     .append("g")
     .attr("stroke", "#fff")
     .attr("stroke-width", 0.5)
     .selectAll("line.h")
-    .data(d3.range(nRows + 1))
+    .data(rowPositions)
     .join("line")
     .attr("x1", 0)
-    .attr("y1", (d: number) => d * cellSize)
+    .attr("y1", (d: number) => d)
     .attr("x2", innerWidth)
-    .attr("y2", (d: number) => d * cellSize);
+    .attr("y2", (d: number) => d);
 
-  // Vertical lines
+  // Vertical lines - at the boundaries between columns
+  const colPositions = [0, ...focusCols.map(col => xScale(col)! + xScale.bandwidth()), innerWidth];
   focusG
     .append("g")
     .attr("stroke", "#fff")
     .attr("stroke-width", 0.5)
     .selectAll("line.v")
-    .data(d3.range(nCols + 1))
+    .data(colPositions)
     .join("line")
-    .attr("x1", (d: number) => d * (innerWidth / nCols))
+    .attr("x1", (d: number) => d)
     .attr("y1", 0)
-    .attr("x2", (d: number) => d * (innerWidth / nCols))
+    .attr("x2", (d: number) => d)
     .attr("y2", innerHeight);
 };
 
 const renderAxes = (
   focusG: d3.Selection<SVGGElement, unknown, null, undefined>,
   xScale: d3.ScaleBand<string>,
-  yScale: d3.ScaleBand<string>,
-  nCols: number,
-  nRows: number
+  yScale: d3.ScaleBand<string>
 ) => {
-  // X axis
+  // X axis - show all labels with monospaced font
   focusG
     .append("g")
+    .attr("class", "axis x-axis")
     .call(
       d3
         .axisTop(xScale)
         .tickSize(0)
-        .tickValues(
-          xScale
-            .domain()
-            .filter((_, i) => i % Math.ceil(nCols / 10) === 0)
-        )
     )
     .selectAll("text")
     .attr("transform", "translate(5,-5) rotate(-90)")
     .style("text-anchor", "start")
     .style("font-size", "10px");
 
-  // Y axis
+  // Y axis - show all labels
   focusG
     .append("g")
+    .attr("class", "axis y-axis")
     .call(
       d3
         .axisLeft(yScale)
         .tickSize(0)
-        .tickValues(
-          yScale
-            .domain()
-            .filter((_, i) => i % Math.ceil(nRows / 10) === 0)
-        )
     )
     .selectAll("text")
     .style("font-size", "10px");
@@ -182,10 +184,6 @@ const addHoverInteractions = (
   cells: d3.Selection<SVGRectElement, DataPoint, SVGGElement, unknown>,
   xScale: d3.ScaleBand<string>,
   yScale: d3.ScaleBand<string>,
-  innerWidth: number,
-  innerHeight: number,
-  nCols: number,
-  nRows: number,
   neon: string
 ) => {
   const tooltip = d3.select("body").select(".matrix-tooltip");
@@ -199,8 +197,8 @@ const addHoverInteractions = (
         .append("rect")
         .attr("x", xScale(dataPoint.col)!)
         .attr("y", yScale(dataPoint.row)!)
-        .attr("width", innerWidth / nCols)
-        .attr("height", innerHeight / nRows)
+        .attr("width", xScale.bandwidth())
+        .attr("height", yScale.bandwidth())
         .attr("fill", "none")
         .attr("stroke", neon)
         .attr("stroke-width", 1.5)
@@ -209,6 +207,56 @@ const addHoverInteractions = (
         .duration(200)
         .style("opacity", 1);
       hoverLayer.raise();
+      
+      // Show and highlight corresponding axis labels
+      const xAxis = focusG.select(".x-axis");
+      const yAxis = focusG.select(".y-axis");
+      
+      // Find or create the specific row and column labels if they don't exist
+      let colLabel = xAxis.selectAll<SVGTextElement, unknown>("text").filter(function() {
+        return d3.select(this).text() === dataPoint.col;
+      });
+      
+      let rowLabel = yAxis.selectAll<SVGTextElement, unknown>("text").filter(function() {
+        return d3.select(this).text() === dataPoint.row;
+      });
+      
+      // If column label doesn't exist (was filtered out), create it temporarily
+      if (colLabel.empty()) {
+        const colPosition = xScale(dataPoint.col)! + xScale.bandwidth()/2;
+        colLabel = xAxis.append("text")
+          .attr("class", "temp-label")
+          .text(dataPoint.col)
+          .attr("x", colPosition)
+          .attr("y", -10)
+          .attr("transform", `rotate(-90, ${colPosition}, -10)`)
+          .style("text-anchor", "end")
+          .style("font-size", "10px")
+          .style("font-weight", "bold");
+      }
+      
+      // If row label doesn't exist (was filtered out), create it temporarily  
+      if (rowLabel.empty()) {
+        const rowPosition = yScale(dataPoint.row)! + yScale.bandwidth()/2;
+        rowLabel = yAxis.append("text")
+          .attr("class", "temp-label")
+          .text(dataPoint.row)
+          .attr("x", -10)
+          .attr("y", rowPosition)
+          .attr("dy", "0.32em")
+          .style("text-anchor", "end")
+          .style("font-size", "10px")
+          .style("font-weight", "bold");
+      }
+      
+      // Make existing labels bold (temporary labels are already bold)
+      if (!colLabel.classed("temp-label")) {
+        colLabel.style("font-weight", "bold");
+      }
+      if (!rowLabel.classed("temp-label")) {
+        rowLabel.style("font-weight", "bold");
+      }
+      
       showTooltip(tooltip, dataPoint);
     })
     .on("mousemove", (event) => {
@@ -221,11 +269,19 @@ const addHoverInteractions = (
         .duration(200)
         .style("opacity", 0)
         .remove();
+      
+      // Reset axis labels to default styling and remove temporary labels
+      focusG.selectAll(".axis text")
+        .style("font-weight", "normal");
+      
+      // Remove temporary labels
+      focusG.selectAll(".temp-label").remove();
+      
       hideTooltip(tooltip);
     });
 };
 
-const renderHighlightPath = (
+const renderParentPaths = (
   focusG: d3.Selection<SVGGElement, unknown, null, undefined>,
   highlightData: HighlightData[],
   xScale: d3.ScaleBand<string>,
@@ -236,59 +292,109 @@ const renderHighlightPath = (
   nRows: number,
   focusCols: string[]
 ) => {
-  // Filter highlights to only include those visible in current focus
-  const visibleHighlights = highlightData.filter(h => 
+  focusG.selectAll(".parent-path").remove();
+  focusG.selectAll(".parent-point").remove();
+
+  const parent1Highlights = highlightData.filter(h => h.parent === 'parent1');
+  const parent2Highlights = highlightData.filter(h => h.parent === 'parent2');
+
+  const cellW = innerWidth / nCols;
+  const adaptiveStrokeWidth = Math.max(1, Math.min(3, cellW * 0.4));
+  const dashScale = Math.max(0.3, Math.min(1, cellW / 8));
+
+  renderSingleParentPath(focusG, parent1Highlights, xScale, yScale, innerWidth, innerHeight, nCols, nRows, focusCols, {
+    color: '#B81D00',
+    className: 'parent1-path',
+    strokeWidth: adaptiveStrokeWidth,
+    strokeDash: `${8 * dashScale},${4 * dashScale}`,
+    cellWidth: cellW,
+  });
+
+  renderSingleParentPath(focusG, parent2Highlights, xScale, yScale, innerWidth, innerHeight, nCols, nRows, focusCols, {
+    color: '#0B4F6C',
+    className: 'parent2-path',
+    strokeWidth: adaptiveStrokeWidth,
+    strokeDash: `${4 * dashScale},${8 * dashScale}`,
+    cellWidth: cellW,
+  });
+};
+
+const renderSingleParentPath = (
+  focusG: d3.Selection<SVGGElement, unknown, null, undefined>,
+  highlights: HighlightData[],
+  xScale: d3.ScaleBand<string>,
+  yScale: d3.ScaleBand<string>,
+  innerWidth: number,
+  innerHeight: number,
+  nCols: number,
+  nRows: number,
+  focusCols: string[],
+  style: { color: string; className: string; strokeWidth: number; strokeDash: string; cellWidth: number }
+) => {
+  const visibleHighlights = highlights.filter(h =>
     focusCols.includes(h.col) && yScale.domain().includes(h.row)
   );
 
-  // Sort by column order to ensure path follows column sequence
   visibleHighlights.sort((a, b) => {
     const aIndex = focusCols.indexOf(a.col);
     const bIndex = focusCols.indexOf(b.col);
     return aIndex - bIndex;
   });
 
-  if (visibleHighlights.length < 2) return; // Need at least 2 points to draw a path
+  if (visibleHighlights.length < 2) return;
 
-  // Calculate center coordinates for each highlighted cell
-  const pathPoints = visibleHighlights.map(h => {
+  // Decimate: keep only transition boundary points to reduce noise when zoomed out
+  let decimated = visibleHighlights;
+  if (visibleHighlights.length > 2) {
+    decimated = [visibleHighlights[0]];
+    for (let i = 1; i < visibleHighlights.length - 1; i++) {
+      const prevRow = visibleHighlights[i - 1].row;
+      const currRow = visibleHighlights[i].row;
+      const nextRow = visibleHighlights[i + 1].row;
+      if (currRow !== prevRow || currRow !== nextRow) {
+        decimated.push(visibleHighlights[i]);
+      }
+    }
+    decimated.push(visibleHighlights[visibleHighlights.length - 1]);
+  }
+
+  const pathPoints = decimated.map(h => {
     const x = xScale(h.col)! + (innerWidth / nCols) / 2;
     const y = yScale(h.row)! + (innerHeight / nRows) / 2;
     return [x, y] as [number, number];
   });
 
-  // Create line generator
   const line = d3.line()
     .x(d => d[0])
     .y(d => d[1])
     .curve(d3.curveLinear);
 
-  // Remove existing path
-  focusG.selectAll(".highlight-path").remove();
-
-  // Draw path
   focusG
     .append("path")
     .datum(pathPoints)
-    .attr("class", "highlight-path")
+    .attr("class", `parent-path ${style.className}`)
     .attr("d", line)
     .attr("fill", "none")
-    .attr("stroke", "#FF0080") // Bright pink/magenta for the path
-    .attr("stroke-width", 3)
-    .attr("stroke-dasharray", "5,5")
-    .style("opacity", 0.8);
-
-  // Add circles at each point for better visibility
-  focusG
-    .selectAll(".highlight-point")
-    .data(pathPoints)
-    .join("circle")
-    .attr("class", "highlight-point")
-    .attr("cx", d => d[0])
-    .attr("cy", d => d[1])
-    .attr("r", 3)
-    .attr("fill", "#FF0080")
-    .attr("stroke", "#fff")
-    .attr("stroke-width", 1)
+    .attr("stroke", style.color)
+    .attr("stroke-width", style.strokeWidth)
+    .attr("stroke-dasharray", style.strokeDash)
     .style("opacity", 0.9);
+
+  // Draw circles only when cells are large enough to be useful
+  if (style.cellWidth >= 8) {
+    const circleRadius = Math.max(2, Math.min(4, style.cellWidth * 0.3));
+    const circleStroke = Math.max(0.5, Math.min(2, style.cellWidth * 0.15));
+    focusG
+      .selectAll(`.parent-point.${style.className}`)
+      .data(pathPoints)
+      .join("circle")
+      .attr("class", `parent-point ${style.className}`)
+      .attr("cx", d => d[0])
+      .attr("cy", d => d[1])
+      .attr("r", circleRadius)
+      .attr("fill", style.color)
+      .attr("stroke", "#fff")
+      .attr("stroke-width", circleStroke)
+      .style("opacity", 0.9);
+  }
 };
