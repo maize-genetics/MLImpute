@@ -31,10 +31,10 @@
       "signingIdentity": "-"
     }
   },
-  "productName": "MLImpute",
-  "mainBinaryName": "ml-impute",
+  "productName": "GRITS",
+  "mainBinaryName": "grits",
   "version": "0.1.0",
-  "identifier": "net.maizegenetics.mlimpute",
+  "identifier": "net.maizegenetics.grits",
   "plugins": {},
   "app": {
     "security": {
@@ -42,7 +42,7 @@
     },
     "windows": [
       {
-        "title": "MLImpute",
+        "title": "GRITS",
         "width": 1200,
         "height": 900,
         "useHttpsScheme": true

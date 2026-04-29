@@ -153,8 +153,14 @@ __marimo__/
 # =========================================
 node_modules/
 dist/
+dist-web/
 dist-ssr/
 *.local
+
+# =========================================
+# WASM Build Output
+# =========================================
+src/wasm/pkg/
 
 # Logs
 logs/

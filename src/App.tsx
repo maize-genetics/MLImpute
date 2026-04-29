@@ -1,32 +1,42 @@
 import { useState } from "react";
 import Icon from '@mdi/react';
-import { mdiMapMarkerPath, mdiChartTimeline } from '@mdi/js';
+import { mdiHome, mdiMapMarkerPath, mdiChartTimeline } from '@mdi/js';
 import "./App.css";
-import ImputePage from "./components/ImputePage";
+import LandingPage from "./components/LandingPage";
 import PS4GExplorer from "./components/PS4GExplorer";
 import BEDExplorer from "./components/BEDExplorer";
 import ThemeSwitch from "./components/ThemeSwitch";
+import { isTauri } from "./platform";
 
-type PageType = 'imputation' | 'ps4g' | 'bed';
+type PageType = 'landing' | 'imputation' | 'ps4g' | 'bed';
 
 function App() {
-  const [activePage, setActivePage] = useState<PageType>('imputation');
+  const [activePage, setActivePage] = useState<PageType>('landing');
 
   return (
     <div className="app">
-      {/* Global Navigation Bar */}
       <nav className="global-nav">
         <div className="nav-brand">
-          <span className="brand-text">MLImpute</span>
+          <span className="brand-text">GRITS</span>
+          <span className="brand-version">(v{__APP_VERSION__})</span>
         </div>
         <div className="nav-tabs">
           <button 
-            className={`nav-tab ${activePage === 'imputation' ? 'active' : ''}`}
-            onClick={() => setActivePage('imputation')}
+            className={`nav-tab ${activePage === 'landing' ? 'active' : ''}`}
+            onClick={() => setActivePage('landing')}
           >
-            <span className="nav-tab-icon"><Icon path={mdiMapMarkerPath} size={0.9} /></span>
-            Imputation
+            <span className="nav-tab-icon"><Icon path={mdiHome} size={0.9} /></span>
+            Home
           </button>
+          {isTauri && (
+            <button 
+              className={`nav-tab ${activePage === 'imputation' ? 'active' : ''}`}
+              onClick={() => setActivePage('imputation')}
+            >
+              <span className="nav-tab-icon"><Icon path={mdiMapMarkerPath} size={0.9} /></span>
+              Imputation
+            </button>
+          )}
           <button 
             className={`nav-tab ${activePage === 'ps4g' ? 'active' : ''}`}
             onClick={() => setActivePage('ps4g')}
@@ -46,25 +56,41 @@ function App() {
         <ThemeSwitch />
       </nav>
 
-      {/* Page Content - Both pages are always rendered but hidden via CSS to preserve state */}
       <div className="page-content">
-        {/* Imputation Page */}
-        <div className="imputation-page" style={{ display: activePage === 'imputation' ? 'flex' : 'none' }}>
-          <ImputePage />
+        <div className="landing-page" style={{ display: activePage === 'landing' ? 'block' : 'none' }}>
+          <LandingPage onNavigate={setActivePage} />
         </div>
 
-        {/* PS4G Explorer Page - Full Width */}
+        {isTauri && (
+          <div className="imputation-page" style={{ display: activePage === 'imputation' ? 'flex' : 'none' }}>
+            <ImputePage />
+          </div>
+        )}
+
         <div className="ps4g-page" style={{ display: activePage === 'ps4g' ? 'block' : 'none' }}>
           <PS4GExplorer />
         </div>
 
-        {/* BED Explorer Page - Full Width */}
         <div className="bed-page" style={{ display: activePage === 'bed' ? 'block' : 'none' }}>
           <BEDExplorer />
         </div>
       </div>
     </div>
   );
+}
+
+// Lazy-loaded ImputePage (only available in Tauri)
+function ImputePage() {
+  const [Component, setComponent] = useState<React.FC | null>(null);
+
+  if (!Component) {
+    import("./components/ImputePage").then((mod) => {
+      setComponent(() => mod.default);
+    });
+    return <div>Loading...</div>;
+  }
+
+  return <Component />;
 }
 
 export default App;
