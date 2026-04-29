@@ -123,7 +123,10 @@ def include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, answer_key1, an
     '''
     Adds unlabelled bins to the collapsed matrix with -1 labels
     '''
-    last_bin = min(len(answer_key1), len(answer_key2))
+    if answer_key2 is None:
+        last_bin = len(answer_key1)
+    else:
+        last_bin = min(len(answer_key1), len(answer_key2))
 
     all_pos_matrix = np.zeros((last_bin, collapsed_matrix.shape[1]), dtype=np.int8)
     labels_1 = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key1], dtype=np.int8)

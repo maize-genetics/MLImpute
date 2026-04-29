@@ -69,9 +69,9 @@ fn start_backend(app: tauri::AppHandle) -> Result<(), String> {
 * You can pin exact wheels for deterministic installs.
 
 
-# ML Impute Packaging Guide
+# GRITS Packaging Guide
 
-This guide explains how to use the new self-contained Python packaging system for the ML Impute Tauri application.
+This guide explains how to use the new self-contained Python packaging system for the GRITS Tauri application.
 
 ## Overview
 

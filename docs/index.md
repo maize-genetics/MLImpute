@@ -1,12 +1,12 @@
-# MLImpute Documentation
+# GRITS Documentation
 
-Welcome to the MLImpute documentation! This directory contains comprehensive 
+Welcome to the GRITS documentation! This directory contains comprehensive 
 guides for building, installing, and using both the command-line interface 
 (CLI) and graphical user interface (GUI) applications.
 
 ## Overview
 
-MLImpute is a machine learning-based haplotype imputation tool that combines 
+GRITS (Genetic Recombination Imputation Tool Set) is a machine learning-based haplotype imputation tool that combines 
 multiple approaches including:
 
 - **BiMamba** - State space models for sequence imputation
@@ -31,8 +31,8 @@ If you want to use the command-line interface for batch processing:
 
 ```bash
 # Clone the repository
-git clone https://github.com/maize-genetics/MLImpute.git
-cd MLImpute
+git clone https://github.com/maize-genetics/grits.git
+cd grits
 
 # Install with pixi (recommended)
 
@@ -48,7 +48,7 @@ pixi run -- python src/impute.py --input <ps4g_input.ps4g> --output <bed_file_ou
 ```
 
 ### For GUI Users
-Download the latest releases found [here](https://github.com/maize-genetics/MLImpute/releases/tag/v0.0.18-test):
+Download the latest releases found [here](https://github.com/maize-genetics/grits/releases/tag/v0.0.18-test):
 
 * macOS (`.dmg` release)
 * Windows (`.msi` release)
@@ -62,8 +62,8 @@ If you want to build the desktop application:
 
 ```bash
 # Clone the repository
-git clone https://github.com/maize-genetics/MLImpute.git
-cd MLImpute
+git clone https://github.com/maize-genetics/grits.git
+cd grits
 
 # Install dependencies
 npm install
@@ -78,7 +78,7 @@ npm run tauri build
 
 ## Documentation Files
 
-### [CLI Usage Guide](https://github.com/maize-genetics/MLImpute/wiki/CLI-Usage)
+### [CLI Usage Guide](https://github.com/maize-genetics/grits/wiki/CLI-Usage)
 Complete guide for the Python command-line interface including:
 - Installation with pixi or conda
 - Command-line arguments and examples

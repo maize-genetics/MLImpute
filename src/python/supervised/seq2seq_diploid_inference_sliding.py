@@ -4,30 +4,13 @@ from torch.utils.data import DataLoader, Dataset
 import os
 from tqdm import tqdm
 import numpy as np
-from seq2seq import Seq2Seq, Encoder, Decoder
+from seq2seq_diploid import Seq2SeqDiploid, EncoderDiploid, DecoderDiploid
 import math
-
-def inference(model, iterator, force_predictions=False):
-    device=model.device
-    predictions = []
-    model.eval()
-    with torch.no_grad():
-        for batch in tqdm(iterator, desc="Evaluating..."):
-            input_embeds = batch["input_embeds"].to(device)
-            batch_predictions = model(input_embeds)
-            if force_predictions:
-                pred_y = torch.argmax(batch_predictions[:, :, :-1], dim=-1).detach().cpu().to(torch.int64)
-            else:
-                pred_y = torch.argmax(batch_predictions, dim=-1).detach().cpu().to(torch.int64)
-            predictions.append(pred_y)
-    # concat batches along batch dimension -> [N, T]
-    preds = torch.cat(predictions, dim=0)  # shape consistent even if last batch smaller
-    return preds.numpy()
 
 # Dataset class
 # there will be multiple input files to be memory-mapped with numpy
 # and the labels are a part of the regular input files, not a separate window
-class LabeledDatasetInference(Dataset):
+class LabeledDatasetDiploidInference(Dataset):
     def __init__(self, file_dir, input_file_names, window_size=512, num_parents=24, step_size=128):
         self.file_dir = file_dir
         self.input_file_names = input_file_names
@@ -43,7 +26,7 @@ class LabeledDatasetInference(Dataset):
         # windows is a list of tuples, where each tuple represents a training data point
         # the tuples are formatted as (file index, window step index)
         # multiply window step index by step_size to get the index of the first position in the window
-        windows = [] # file idx, window step idx
+        windows = []  # file idx, window step idx
 
         for idx in range(len(self.input_file_names)):
             filelen = np.load(f"{self.file_dir}/{self.input_file_names[idx]}").shape[0]
@@ -78,20 +61,75 @@ class LabeledDatasetInference(Dataset):
             pad[:, -1] = -1
             ip = np.concatenate([ip, pad], axis=0)
 
-        if ip.shape[-1] < self.num_parents+1:
-            n_missing_cols = self.num_parents+1 - ip.shape[-1]
-            add_empty_parents = np.concat([ip[:, :-1], np.zeros((ip.shape[0], n_missing_cols)), ip[:, -1].reshape(-1, 1)], axis=1)
-            matrix = add_empty_parents[:, 0:self.num_parents+1]
-        else:
-            matrix = ip[:, 0:self.num_parents+1]
-        labels = torch.tensor(matrix[:, -1], dtype=torch.int64)
+        # TODO: make this less specific to the maize data
+        if ip.shape[1] == 25: # data is haploid, copy haploid labels
+            matrix = np.concatenate([ip, ip[:, self.num_parents:self.num_parents+1]], axis=1)
+        elif ip.shape[1] == 26: # data has diploid labels
+            matrix = ip[:, 0:self.num_parents+2]
+        else: # data has fewer than 24 parents
+            raise RuntimeError("Input matrix is wrong shape")
+
+        labels = torch.tensor(matrix[:, self.num_parents:self.num_parents+2], dtype=torch.int64)
         labels[labels == -1] = 24
 
         return {
-            "input_embeds": torch.tensor(matrix[:, :-1], dtype=torch.float),
+            "input_embeds": torch.tensor(matrix[:, :-2], dtype=torch.float),
             "labels": labels
         }
 
+def inference_sliding(model, iterator, force_predictions=False):
+    device = model.device
+    predictions = []
+    model.eval()
+
+    num_batches = len(iterator)
+
+    with torch.no_grad():
+        for batch_num, batch in enumerate(tqdm(iterator, desc="Evaluating...")):
+            input_embeds = batch["input_embeds"].to(device)
+
+            # [B, W, 2, num_parents+1]
+            batch_predictions = model(input_embeds)
+
+            W = batch_predictions.shape[1]
+            start = W // 4
+            end = (W // 4) * 3
+
+            # remove last class if forcing predictions
+            if force_predictions:
+                logits = batch_predictions[..., :-1]
+            else:
+                logits = batch_predictions
+
+            # [B, W, 2]
+            arg = torch.argmax(logits, dim=-1)
+
+            if batch_num == 0:
+                # first window
+                first = arg[0, :end]
+                mid = arg[1:, start:end]
+
+                predictions.append(first.cpu().reshape(-1, first.shape[-1]))
+                if mid.numel() > 0:
+                    predictions.append(mid.cpu().reshape(-1, mid.shape[-1]))
+
+            elif batch_num == num_batches - 1:
+                # last window
+                mid = arg[:-1, start:end]
+                last = arg[-1, start:]
+
+                if mid.numel() > 0:
+                    predictions.append(mid.cpu().reshape(-1, mid.shape[-1]))
+                predictions.append(last.cpu().reshape(-1, last.shape[-1]))
+
+            else:
+                # middle windows
+                mid = arg[:, start:end]
+                predictions.append(mid.cpu().reshape(-1, mid.shape[-1]))
+
+    preds = torch.cat(predictions, dim=0).to(torch.int64)
+
+    return preds.numpy()
 
 # arguments for running the script
 def parse_args():
@@ -103,7 +141,7 @@ def parse_args():
     parser.add_argument("--save-dir", type=str, required=True, help="path to save imputed paths")
     parser.add_argument("--num-parents", "--np", type=int, default=24, help="number of parents")
     parser.add_argument("--max-seq-length", "--sl", type=int, default=512, help="maximum input sequence length")
-    parser.add_argument("--step-size", "-s", type=int, default=128, help="distance between the start points of each training window")
+    parser.add_argument("--step-size", "-s", type=int, default=256, help="distance between the start points of each training window")
     parser.add_argument("--embedding-dim", type=int, default=12, help="embedding dimension")
     parser.add_argument("--hidden-dim", type=int, default=24, help="hidden dimension")
     parser.add_argument("--force-preds", action="store_true", help="forces predictions / disables unknown option")
@@ -119,9 +157,9 @@ def main():
     EMB_DIM = args.embedding_dim
     HID_DIM = args.hidden_dim
 
-    enc = Encoder(args.num_parents, EMB_DIM, HID_DIM)
-    dec = Decoder(args.num_parents+1, EMB_DIM, HID_DIM)
-    model = Seq2Seq(enc, dec, device)
+    enc = EncoderDiploid(args.num_parents, EMB_DIM, HID_DIM)
+    dec = DecoderDiploid(args.num_parents+1, EMB_DIM, HID_DIM, ploidy=2)
+    model = Seq2SeqDiploid(enc, dec, device, ploidy=2)
     model.load_state_dict(ckpt)
     model.to(device)
 
@@ -129,13 +167,14 @@ def main():
 
     filenames = os.listdir(args.data_path)
     for file in filenames:
-        dataset = LabeledDatasetInference(args.data_path, [file], args.max_seq_length, args.num_parents, args.step_size)
+        dataset = LabeledDatasetDiploidInference(args.data_path, [file], args.max_seq_length, args.num_parents, args.step_size)
         dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
-        predictions = inference(model, dataloader, args.force_preds).flatten()
+        predictions = inference_sliding(model, dataloader, args.force_preds)
+        predictions = predictions.reshape(-1, predictions.shape[-1])
         pred_file = file.split("_matrix")[0]
         ps4g_len = len(np.load(f"{args.data_path}/{file}", allow_pickle=True))
-        assert(len(predictions) >= ps4g_len)
-        np.save(os.path.join(args.save_dir, pred_file), predictions[:ps4g_len])
+        assert(predictions.shape[0] >= ps4g_len)
+        np.save(os.path.join(args.save_dir, pred_file), predictions[:ps4g_len, :])
 
 
 if __name__ == "__main__":

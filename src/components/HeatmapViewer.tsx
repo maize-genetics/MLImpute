@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
 import Icon from '@mdi/react';
+import { getBackend } from '../platform';
+import type { FileHandle, FileInput, ChromosomeMatrixResult, ChromosomeMatrixProgress, NpyOverlayResult } from '../platform';
 import { mdiChartTimeline, mdiAlertCircle, mdiChevronDown, mdiDownload, mdiPlay, mdiPause, mdiHelpCircleOutline, mdiEye, mdiEyeOff, mdiArrowExpandVertical, mdiKeyboard, mdiClose } from '@mdi/js';
 import HeatmapCanvas, { VisibleRange, HeatmapCanvasHandle, PathOverlay } from './HeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
@@ -50,56 +49,7 @@ function naturalSortCompare(a: string, b: string): number {
   return 0;
 }
 
-interface GameteInfo {
-  gamete: string;
-  gamete_index: number;
-  read_count: number;
-  weight: number;
-}
-
-interface PS4GMetadata {
-  version: string | null;
-  command: string | null;
-  total_unique_counts: number | null;
-  gametes: GameteInfo[];
-}
-
-interface PS4GSummary {
-  total_rows: number;
-  unique_positions: number;
-  chromosomes: string[];
-  chromosome_counts: Record<string, number>;
-  gamete_count: number;
-  position_range: Record<string, [number, number]>;
-}
-
-interface ChromosomeMatrixResult {
-  success: boolean;
-  chromosome: string;
-  matrix: number[][];
-  positions: number[];
-  gamete_names: string[];
-  num_gametes: number;
-  num_positions: number;
-  position_range: [number, number];
-  error: string | null;
-}
-
-interface ChromosomeMatrixProgress {
-  rows_processed: number;
-  chromosome: string;
-  percent: number;
-}
-
-interface NpyOverlayResult {
-  success: boolean;
-  true_paths: number[][];
-  predicted_paths: number[][];
-  num_positions: number;
-  is_diploid_true: boolean;
-  is_diploid_predicted: boolean;
-  error: string | null;
-}
+import type { PS4GMetadata, PS4GSummary } from '../platform';
 
 // Colorblind-safe palette (Wong 2011) chosen to contrast with plasma heatmap
 const PATH_COLORS = {
@@ -125,6 +75,7 @@ const PATH_WIDTHS = {
 
 interface HeatmapViewerProps {
   filePath: string;
+  fileHandle: FileHandle | null;
   metadata: PS4GMetadata;
   summary: PS4GSummary;
   overlayModalOpen?: boolean;
@@ -133,6 +84,7 @@ interface HeatmapViewerProps {
 
 const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   filePath,
+  fileHandle,
   metadata: _metadata,
   summary,
   overlayModalOpen = false,
@@ -159,7 +111,6 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [autoScrollSpeed, setAutoScrollSpeed] = useState<number>(0.5);
   const autoScrollRef = useRef<number | null>(null);
   
-  const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HeatmapCanvasHandle>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -175,6 +126,8 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   // NumPy overlay state
   const [observedNpyPath, setObservedNpyPath] = useState<string>('');
   const [predictionsNpyPath, setPredictionsNpyPath] = useState<string>('');
+  const observedNpyFileRef = useRef<FileInput | null>(null);
+  const predictionsNpyFileRef = useRef<FileInput | null>(null);
   const [overlayData, setOverlayData] = useState<NpyOverlayResult | null>(null);
   const [overlayLoading, setOverlayLoading] = useState<boolean>(false);
   const [overlayError, setOverlayError] = useState<string | null>(null);
@@ -182,23 +135,6 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const [showTruePath2, setShowTruePath2] = useState<boolean>(true);
   const [showPredPath1, setShowPredPath1] = useState<boolean>(true);
   const [showPredPath2, setShowPredPath2] = useState<boolean>(true);
-
-  // Set up progress event listener
-  useEffect(() => {
-    const setupListener = async () => {
-      unlistenRef.current = await listen<ChromosomeMatrixProgress>('chromosome-matrix-progress', (event) => {
-        setLoadProgress(event.payload);
-      });
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlistenRef.current) {
-        unlistenRef.current();
-      }
-    };
-  }, []);
 
   // Monitor container width for viewport calculation
   useEffect(() => {
@@ -218,23 +154,22 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
 
   // Load chromosome data when selection changes
   const loadChromosomeData = useCallback(async (chromosome: string) => {
-    if (!chromosome || !filePath) return;
+    if (!chromosome || !fileHandle) return;
 
     setIsLoading(true);
     setError(null);
     setLoadProgress(null);
 
     try {
-      const result = await invoke<ChromosomeMatrixResult>('get_chromosome_matrix', {
-        filePath,
-        chromosome,
+      const backend = await getBackend();
+      const result = await backend.getChromosomeMatrix(fileHandle, chromosome, (p) => {
+        setLoadProgress(p);
       });
 
       if (result.success) {
         setMatrixData(result);
         setZoomLevel(1);
         setScrollOffset(0);
-        // Clear overlay since .npy files are per-chromosome
         setOverlayData(null);
         setOverlayError(null);
       } else {
@@ -249,7 +184,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       setIsLoading(false);
       setLoadProgress(null);
     }
-  }, [filePath]);
+  }, [fileHandle]);
 
   // Load data when chromosome selection changes
   useEffect(() => {
@@ -486,22 +421,26 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     return overlays.length > 0 ? overlays : undefined;
   }, [overlayData, remapPath, showTruePath1, showTruePath2, showPredPath1, showPredPath2]);
 
-  // Select a .npy file via Tauri dialog
   const selectNpyFile = useCallback(async (
     setter: (path: string) => void,
+    fileRef: React.MutableRefObject<FileInput | null>,
     title: string,
   ) => {
     try {
-      const selected = await open({
+      const backend = await getBackend();
+      const selected = await backend.openFile({
         title,
-        multiple: false,
         filters: [
           { name: 'NumPy Files (*.npy)', extensions: ['npy'] },
           { name: 'All Files', extensions: ['*'] },
         ],
       });
-      if (selected && typeof selected === 'string') {
-        setter(selected);
+      if (selected) {
+        const displayName = typeof selected === 'string'
+          ? selected
+          : (selected as File).name;
+        setter(displayName);
+        fileRef.current = selected;
       }
     } catch (err) {
       console.error('File selection error:', err);
@@ -511,7 +450,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   // Load overlay data from the selected .npy files
   const loadOverlay = useCallback(async () => {
     if (!matrixData) return;
-    if (!observedNpyPath && !predictionsNpyPath) {
+    if (!observedNpyFileRef.current && !predictionsNpyFileRef.current) {
       setOverlayError('Select at least one .npy file');
       return;
     }
@@ -520,12 +459,13 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     setOverlayError(null);
 
     try {
-      const result = await invoke<NpyOverlayResult>('load_npy_overlay', {
-        observedPath: observedNpyPath || null,
-        predictionsPath: predictionsNpyPath || null,
-        expectedNumPositions: matrixData.num_positions,
-        expectedNumGametes: matrixData.num_gametes,
-      });
+      const backend = await getBackend();
+      const result = await backend.loadNpyOverlay(
+        observedNpyFileRef.current,
+        predictionsNpyFileRef.current,
+        matrixData.num_positions,
+        matrixData.num_gametes,
+      );
 
       if (result.success) {
         setOverlayData(result);
@@ -540,13 +480,15 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
     } finally {
       setOverlayLoading(false);
     }
-  }, [matrixData, observedNpyPath, predictionsNpyPath]);
+  }, [matrixData]);
 
   const clearOverlay = useCallback(() => {
     setOverlayData(null);
     setOverlayError(null);
     setObservedNpyPath('');
     setPredictionsNpyPath('');
+    observedNpyFileRef.current = null;
+    predictionsNpyFileRef.current = null;
   }, []);
 
   // Format count
@@ -687,7 +629,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                         />
                         <button
                           className="control-button overlay-browse-button"
-                          onClick={() => selectNpyFile(setObservedNpyPath, 'Select Observed .npy File')}
+                          onClick={() => selectNpyFile(setObservedNpyPath, observedNpyFileRef, 'Select Observed .npy File')}
                           disabled={overlayLoading}
                         >
                           Browse
@@ -707,7 +649,7 @@ const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
                         />
                         <button
                           className="control-button overlay-browse-button"
-                          onClick={() => selectNpyFile(setPredictionsNpyPath, 'Select Predictions .npy File')}
+                          onClick={() => selectNpyFile(setPredictionsNpyPath, predictionsNpyFileRef, 'Select Predictions .npy File')}
                           disabled={overlayLoading}
                         >
                           Browse

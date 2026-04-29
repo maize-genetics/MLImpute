@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import Icon from '@mdi/react';
 import {
   mdiChartTimeline,
@@ -14,50 +12,23 @@ import {
   mdiArrowExpandVertical,
   mdiKeyboard,
 } from '@mdi/js';
-import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle, BEDRegion } from './BEDHeatmapCanvas';
+import BEDHeatmapCanvas, { BEDVisibleRange, BEDHeatmapCanvasHandle } from './BEDHeatmapCanvas';
 import HeatmapControls from './HeatmapControls';
 import PositionSearch from './PositionSearch';
 import ExportModal, { ExportSettings, PathOverlayInfo } from './ExportModal';
 import { findNearestColumnIndex, calculateScrollOffset } from '../utils/positionSearch';
+import { getBackend } from '../platform';
+import type { FileHandle, BEDChromosomeMatrixResult, BEDMatrixProgress, BEDSummary } from '../platform';
 import './HeatmapViewer.css';
 import './BEDHeatmapViewer.css';
 
-interface BEDMatrixProgress {
-  rows_processed: number;
-  chromosome: string;
-  percent: number;
-}
-
-interface BEDChromosomeMatrixResult {
-  success: boolean;
-  chromosome: string;
-  matrix: number[][];
-  parent_names: string[];
-  regions: BEDRegion[];
-  num_parents: number;
-  num_regions: number;
-  parent1_path: number[];
-  parent2_path: number[];
-  error: string | null;
-}
-
-interface BEDSummary {
-  total_rows: number;
-  chromosomes: string[];
-  chromosome_counts: Record<string, number>;
-  position_range: Record<string, [number, number]>;
-  total_coverage_bp: number;
-  avg_region_size_bp: number;
-  unique_parents: string[];
-  unique_parent_pairs: number;
-}
-
 interface BEDHeatmapViewerProps {
   filePath: string;
+  fileHandle: FileHandle | null;
   summary: BEDSummary;
 }
 
-const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }) => {
+const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, fileHandle, summary }) => {
   // State
   const [selectedChromosome, setSelectedChromosome] = useState<string>(summary.chromosomes[0] || '');
   const [matrixData, setMatrixData] = useState<BEDChromosomeMatrixResult | null>(null);
@@ -80,7 +51,6 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
   const [autoScrollSpeed, setAutoScrollSpeed] = useState<number>(0.5);
   const autoScrollRef = useRef<number | null>(null);
 
-  const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<BEDHeatmapCanvasHandle>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -91,17 +61,6 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
 
   // Export modal
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
-
-  // Progress listener
-  useEffect(() => {
-    const setup = async () => {
-      unlistenRef.current = await listen<BEDMatrixProgress>('bed-matrix-progress', (event) => {
-        setLoadProgress(event.payload);
-      });
-    };
-    setup();
-    return () => { if (unlistenRef.current) unlistenRef.current(); };
-  }, []);
 
   // Container width
   useEffect(() => {
@@ -118,15 +77,15 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
 
   // Load chromosome data
   const loadChromosomeData = useCallback(async (chromosome: string) => {
-    if (!chromosome || !filePath) return;
+    if (!chromosome || !fileHandle) return;
     setIsLoading(true);
     setError(null);
     setLoadProgress(null);
 
     try {
-      const result = await invoke<BEDChromosomeMatrixResult>('get_bed_chromosome_matrix', {
-        filePath,
-        chromosome,
+      const backend = await getBackend();
+      const result = await backend.getBEDChromosomeMatrix(fileHandle, chromosome, (p) => {
+        setLoadProgress(p);
       });
       if (result.success) {
         setMatrixData(result);
@@ -144,7 +103,7 @@ const BEDHeatmapViewer: React.FC<BEDHeatmapViewerProps> = ({ filePath, summary }
       setIsLoading(false);
       setLoadProgress(null);
     }
-  }, [filePath]);
+  }, [fileHandle]);
 
   useEffect(() => {
     if (selectedChromosome) loadChromosomeData(selectedChromosome);
