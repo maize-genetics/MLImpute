@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import List, Tuple, Optional
+import logging
 
 Row = Tuple[str, int, int, List[str]]  # chrom, start, end, extra_cols
 
@@ -11,7 +12,7 @@ def parse_bed(path: str) -> List[Row]:
             line = line.strip()
             if not line or line.startswith("#") or line.startswith("track") or line.startswith("browser"):
                 continue
-            parts = line.split()
+            parts = line.rstrip("\n").split("\t")
             if len(parts) < 3:
                 continue
             chrom = parts[0]
@@ -67,7 +68,8 @@ def make_contiguous(rows: List[Row], chr_lengths: Optional[dict] = None) -> List
         # sanity: ensure non-decreasing coordinates
         for i, (c, s, e, extra) in enumerate(chrom_rows):
             if e < s:
-                # if something weird happened, clamp
+                logging.exception("Interval end coordinate less than start coordinate. Interval removed.")
+                # Remove interval (creates an interval of length 0)
                 chrom_rows[i][2] = s
 
         out.extend((c, s, e, extra) for (c, s, e, extra) in chrom_rows)
@@ -79,5 +81,6 @@ def make_contiguous(rows: List[Row], chr_lengths: Optional[dict] = None) -> List
 
 def write_bed(rows: List[Row], path: str) -> None:
     with open(path, "w") as f:
+        f.write("chrom\tstart\tend\tparent1\tparent2\n")
         for chrom, start, end, extra in rows:
             f.write("\t".join([chrom, str(start), str(end), *extra]) + "\n")
