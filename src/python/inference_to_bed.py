@@ -8,7 +8,8 @@ import os
 from ps4g_io.ps4g import build_index_lookup
 from bed_io.bed import output_bed_file
 import logging
-
+from bed_io.make_bed_contiguous import parse_bed, read_fai_lengths, make_contiguous, write_bed
+import glob
 
 def write_bed_for_single_contig(
     output_bed,
@@ -51,7 +52,8 @@ def write_bed_for_single_contig(
 def associate_files_with_samples(inference_dir, ps4g_dir):
     # some regex patterns found from chatgpt  this allows us to parse out the sample name and the contig name
     matrix_re = re.compile(r"(?P<sample>.+)_(?P<contig>chr[^_]+)\.npy")
-    table_re = re.compile(r"(?P<sample>.+)_ps4g\.txt")
+    # TODO: allow different contig name formats
+    table_re = re.compile(r"(?P<sample>.+)\.ps4g$")
     matrix_dir = Path(inference_dir)
     table_dir = Path(ps4g_dir)
     samples = defaultdict(lambda: {"matrices": {}, "table": None})
@@ -62,7 +64,7 @@ def associate_files_with_samples(inference_dir, ps4g_dir):
         sample = m.group("sample")
         contig = m.group("contig")
         samples[sample]["matrices"][contig] = f
-    for f in table_dir.glob("*_ps4g.txt"):
+    for f in table_dir.glob("*.ps4g"):
         m = table_re.match(f.name)
         if not m:
             continue
@@ -104,7 +106,7 @@ def process_single_sample(prediction_files, ps4g_file, sample, save_dir):
 
 
 def process_contig(contig, index_array, positions, prediction_files, sample, save_dir):
-    final_predictions = np.load(prediction_files[contig], mmap_mode="r").flatten()
+    final_predictions = np.load(prediction_files[contig], mmap_mode="r")
     write_bed_for_single_contig(
         output_bed=os.path.join(save_dir, f"{sample}_{contig}_imputed.bed"),
         contig=contig,
@@ -120,12 +122,25 @@ def parse_args():
     parser.add_argument("--inference-dir","-i", type=str, required=True, help="path to the inferred numpy data")
     parser.add_argument("--ps4g-dir", "-p", type=str, required=True, help="path to the input PS4G data")
     parser.add_argument("--save-dir","-s", type=str, required=True, help="path to the output bed files")
+    parser.add_argument("--contiguous", action="store_true", help="Optional flag to make prediction path contiguous")
+    parser.add_argument("--fai", default=None, help="Optional reference .fai to force chromosome end coordinates (if contiguous True)")
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_args()
     process_files(args.inference_dir, args.ps4g_dir, args.save_dir)
+    chr_lengths = read_fai_lengths(args.fai) if args.fai else None
+
+    if args.contiguous:
+        bed_files = glob.glob(os.path.join(args.save_dir, "*.bed"))
+        for file in bed_files:
+            rows = parse_bed(file)
+            out = make_contiguous(rows, chr_lengths=chr_lengths)
+            new_file = file.replace(".bed", ".contiguous.bed")
+            write_bed(out, new_file)
+
+            # TODO: option to save all chr together
 
 if __name__ == "__main__":
     main()
