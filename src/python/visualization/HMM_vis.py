@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="takes a ps4g file and the sample_parents.txt output from PHG HMM and converts it into a numerical numpy array to be used in downstream visualization analysis")
     parser.add_argument("--input-bed", type=str, required=True, help="Input bed file")
     parser.add_argument("--ps4g", type=str, required=True, help="PS4G file")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory")
