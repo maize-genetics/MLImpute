@@ -544,7 +544,7 @@ def main():
     if args.samples:
         samples = [s.strip() for s in args.samples.split(',')]
     else:
-        samples = None
+        samples = []
 
     try:
         with tempfile.TemporaryDirectory() as td:
