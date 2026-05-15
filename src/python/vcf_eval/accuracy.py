@@ -656,7 +656,7 @@ def main():
                 acc = res["af_bin_correct"][i] / n
             else: acc = None
 
-            print(low, high, acc, n)
+            print(low, high, acc, n, sep='\t')
 
         print("\nACCURACY OF HETEROZYGOUS TRUTH SITES BY MINOR ALLELE FREQUENCY\n")
         print("LOW\tHIGH\tACCURACY\tCOUNT")
@@ -670,7 +670,7 @@ def main():
                 acc = res["het_bin_correct"][i] / n
             else: acc = None
 
-            print(low, high, acc, n)
+            print(low, high, acc, n, sep='\t')
 
         print("\nR2 OF ALL TRUTH SITES BY TRUTH ALLELE FREQUENCY\n")
         print("LOW\tHIGH\tR2")
@@ -690,7 +690,7 @@ def main():
             else:
                 r2 = None
 
-            print(low, high, r2)
+            print(low, high, r2, sep='\t')
 
 #        if res["examples"]:
 #            print("\nExamples:")
