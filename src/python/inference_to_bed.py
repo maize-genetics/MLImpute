@@ -5,10 +5,10 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import os
-from ps4g_io.ps4g import build_index_lookup
-from bed_io.bed import output_bed_file
+from src.python.ps4g_io.ps4g import build_index_lookup
+from src.python.bed_io.bed import output_bed_file
 import logging
-from bed_io.make_bed_contiguous import parse_bed, read_fai_lengths, make_contiguous, write_bed
+from src.python.bed_io.make_bed_contiguous import parse_bed, read_fai_lengths, make_contiguous, write_bed
 import glob
 
 def write_bed_for_single_contig(

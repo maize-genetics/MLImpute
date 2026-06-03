@@ -34,16 +34,11 @@ class LabeledDatasetDiploidPosInference(Dataset):
     # uses a list to store all valid windows
     # this could be manipulated to skip windows with unlabeled bins
     def __generate_windows__(self):
-        # windows is a list of tuples, where each tuple represents a training data point
-        # the tuples are formatted as (file index, window step index)
-        # multiply window step index by step_size to get the index of the first position in the window
-        windows = []  # file idx, window step idx
-
+        windows = []
         for idx in range(len(self.input_file_names)):
             filelen = np.load(f"{self.file_dir}/{self.input_file_names[idx]}").shape[0]
-            num_windows = (filelen - self.window_size) // self.step_size
+            num_windows = math.ceil(filelen / self.step_size)
             windows.extend([(idx, idy) for idy in range(num_windows)])
-
         return windows
 
     def __len__(self):
