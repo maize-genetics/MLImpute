@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from python.ps4g_io.ps4g import decode_position, build_index_lookup
+from src.python.ps4g_io.ps4g import decode_position, build_index_lookup
 
 
 def output_bed_file_deprecated(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions=True):
