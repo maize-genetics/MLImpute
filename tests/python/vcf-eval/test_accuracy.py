@@ -171,6 +171,7 @@ def test_compare_sorted():
     pass
 
 def test_initialize_counts():
+    NBINS=20
     assert initialize_counts() == {
         "truth_records": 0,
         "imputed_records": 0,
@@ -186,12 +187,13 @@ def test_initialize_counts():
         "gt_allele_mismatches": 0,
         "partial_credit_sum": 0.0,
         "examples": [],
-        "af_bin_total": None,
-        "af_bin_correct": None,
-        "af_bins": None,
-        "het_bin_total": None,
-        "het_bin_correct": None,
-    }
+        "af_bins": [i / 20 for i in range(21)],
+        "af_bin_total": [0] * NBINS,
+        "af_bin_correct": [0] * NBINS,
+        "af_bin_true_alt_counts": [[] for _ in range(NBINS)],
+        "af_bin_imp_alt_counts": [[] for _ in range(NBINS)],
+        "het_bin_total": [0] * NBINS,
+        "het_bin_correct": [0] * NBINS}
 
 def test_write_sites():
     """Test basic site writing functionality"""

@@ -18,24 +18,26 @@
 ##contig=<ID=chr3>
 ##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in called genotypes">
 ##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes">
-#CHROM  POS ID  REF ALT QUAL    FILTER  INFO        FORMAT  SampleA SampleB SampleC SampleD SampleE
-chr1    1   .   A   T   .       .       AN=10;AC=2  GT      1/0     0/0     0/0     0/1     0/0
-chr1    3   .   T   C   .       .       AN=10;AC=5  GT      1/1     1/0     0/1     0/1     0/0
-chr1    5   .   A   G   .       .       AN=10;AC=2  GT      0/0     1/1     0/0     0/0     0/0
-chr1    6   .   G   C   .       .       AN=10;AC=1  GT      0/0     0/0     0/0     0/0     1/0
-chr1    10  .   G   C   .       .       AN=10;AC=4  GT      0/0     0/1     1/1     0/1     0/0
-chr1    12  .   A   T   .       .       AN=9;AC=3   GT      ./1     0/1     1/0     0/0     0/0
-chr1    13  .   A   C   .       .       AN=10;AC=7  GT      1/1     0/0     1/0     1/1     1/1
-chr1    14  .   C   T   .       .       AN=10;AC=1  GT      0/0     0/0     0/0     0/0     0/1
-chr2    2   .   G   T   .       .       AN=8;AC=2   GT      1/0     ./.     0/0     0/1     0/0
-chr2    3   .   G   T   .       .       AN=10;AC=5  GT      0/0     1/1     0/1     1/1     0/0
-chr2    6   .   A   C   .       .       AN=9;AC=5   GT      1/0     1/1     1/.     0/0     1/0
-chr2    11  .   C   G   .       .       AN=10;AC=2  GT      1/1     0/0     0/0     0/0     0/0
-chr2    15  .   T   G   .       .       AN=10;AC=3  GT      0/0     1/1     0/0     0/0     0/1
-chr2    17  .   T   C   .       .       AN=10;AC=4  GT      0/0     0/0     0/0     1/1     1/1
-chr3    3   .   T   A   .       .       AN=10;AC=1  GT      0/0     0/0     1/0     0/0     0/0
-chr3    4   .   A   G   .       .       AN=10;AC=3  GT      0/0     0/0     0/0     1/0     1/1
-chr3    9   .   G   T   .       .       AN=7;AC=2   GT      ./.     ./0     1/0     0/1     0/0
-chr3    13  .   C   A   .       .       AN=10;AC=6  GT      1/1     0/0     0/1     1/1     1/0
-chr3    18  .   A   T   .       .       AN=10;AC=2  GT      1/0     0/1     0/0     0/0     0/0
-chr3    20  .   C   T   .       .       AN=10;AC=1  GT      1/0     0/0     0/0     0/0     0/0
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SampleA	SampleB	SampleC	SampleD	SampleE
+chr1	1	.	A	T	.	.	AN=10;AC=2	GT	1/0	0/0	0/0	0/1	0/0
+chr1	3	.	T	C	.	.	AN=10;AC=5	GT	1/1	1/0	0/1	0/1	0/0
+chr1	5	.	A	G	.	.	AN=10;AC=2	GT	0/0	1/1	0/0	0/0	0/0
+chr1	6	.	G	C	.	.	AN=10;AC=1	GT	0/0	0/0	0/0	0/0	1/0
+chr1	10	.	G	C	.	.	AN=10;AC=4	GT	0/0	0/1	1/1	0/1	0/0
+chr1	12	.	A	T	.	.	AN=9;AC=3	GT	./1	0/1	1/0	0/0	0/0
+chr1	13	.	A	C	.	.	AN=10;AC=7	GT	1/1	0/0	1/0	1/1	1/1
+chr1	14	.	C	T	.	.	AN=10;AC=1	GT	0/0	0/0	0/0	0/0	0/1
+chr2	2	.	G	T	.	.	AN=8;AC=2	GT	1/0	./.	0/0	0/1	0/0
+chr2	3	.	G	T	.	.	AN=10;AC=5	GT	0/0	1/1	0/1	1/1	0/0
+chr2	6	.	A	C	.	.	AN=9;AC=5	GT	1/0	1/1	1/.	0/0	1/0
+chr2	11	.	C	G	.	.	AN=10;AC=2	GT	1/1	0/0	0/0	0/0	0/0
+chr2	15	.	T	G	.	.	AN=10;AC=3	GT	0/0	1/1	0/0	0/0	0/1
+chr2	17	.	T	C	.	.	AN=10;AC=4	GT	0/0	0/0	0/0	1/1	1/1
+chr3	3	.	T	A	.	.	AN=10;AC=1	GT	0/0	0/0	1/0	0/0	0/0
+chr3	4	.	A	G	.	.	AN=10;AC=3	GT	0/0	0/0	0/0	1/0	1/1
+chr3	9	.	G	T	.	.	AN=7;AC=2	GT	./.	./0	1/0	0/1	0/0
+chr3	13	.	C	A	.	.	AN=10;AC=6	GT	1/1	0/0	0/1	1/1	1/0
+chr3	18	.	A	T	.	.	AN=10;AC=2	GT	1/0	0/1	0/0	0/0	0/0
+chr3	20	.	C	T	.	.	AN=10;AC=1	GT	1/0	0/0	0/0	0/0	0/0
+
+
