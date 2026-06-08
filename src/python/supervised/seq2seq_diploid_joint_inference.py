@@ -7,7 +7,7 @@ import numpy as np
 import math
 
 # import your NEW joint model
-from seq2seq_diploid_joint import (
+from src.python.supervised.seq2seq_diploid_joint import (
     Seq2SeqDiploidJoint,
     EncoderDiploid,
     DecoderDiploidJoint

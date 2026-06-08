@@ -1,3 +1,5 @@
+# Original seq_sim pipeline
+
 **Step 1: Rename fasta files with phg prepare-assemblies**
 
 - Need a keyfile with tab separated columns for filepaths and sample names
@@ -14,7 +16,6 @@ Necessary files:
 **Step 3: Pick crossover points in ref coordinates (create {assembly}_refkey.bed files)**
 
 `python pick_crossovers.py --ref-fasta /fastas-dir/ref.fa --assembly-list assembly_list.txt`
-
 
 
 **Step 4: Create chain files (create {assembly}.chain) from maf files**
@@ -70,4 +71,7 @@ Necessary files:
 
 **Step 14: Convert ps4g files into training matrices**
 
-`python build_training_data.py --assembly-key-dir path/to/assembly_keys/ --ps4g-dir ps4g --output-dir training-data`
+`python build_training_data.py --assembly-key-dir path/to/assembly_keys/ --ps4g-dir ps4g --output-dir training-data --collapse --sample-assembly-key sample_asm_key.txt`
+* --collapse flag will collapse down duplicate ps4g positions, summing read counts by gamete
+* --sample-assembly-key is a tab separated file use to generate the labels on the training data
+  * lists the sample name in first column, second column is parent one assembly, third (optional) column is parent two assembly
