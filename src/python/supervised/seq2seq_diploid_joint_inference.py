@@ -7,7 +7,7 @@ import numpy as np
 import math
 
 # import your NEW joint model
-from src.python.supervised.seq2seq_diploid_joint import (
+from src.python.supervised.seq2seq_diploid_joint_bert import (
     Seq2SeqDiploidJoint,
     EncoderDiploid,
     DecoderDiploidJoint
@@ -57,15 +57,15 @@ class LabeledDatasetDiploidInference(Dataset):
             pad[:, -1] = -1
             ip = np.concatenate([ip, pad], axis=0)
 
-        if ip.shape[1] == 25:
+        if ip.shape[1] == self.num_parents+1:
             matrix = np.concatenate([ip, ip[:, self.num_parents:self.num_parents+1]], axis=1)
-        elif ip.shape[1] == 26:
+        elif ip.shape[1] == self.num_parents+2:
             matrix = ip[:, 0:self.num_parents+2]
         else:
             raise RuntimeError("Input matrix is wrong shape")
 
         labels = torch.tensor(matrix[:, self.num_parents:self.num_parents+2], dtype=torch.int64)
-        labels[labels == -1] = 24
+        labels[labels == -1] = self.num_parents
 
         return {
             "input_embeds": torch.tensor(matrix[:, :-2], dtype=torch.float),

@@ -45,18 +45,21 @@ def create_chromosome_matrix(ps4g, gamete_to_idx, answer_key1, answer_key2=None)
 
     return X_multihot
 
-def build_answer_key(keyfile):
+def build_answer_key(keyfile, bin_size=256, version="v2"):
     '''
     return a dictionary answer_key mapping chromosome to a list of labels, with indices corresponding to binned positions
     may include unlabelled bins
     '''
-    # TODO: v1 usecols=[3, 4, 5, 6] because using _key.bed, v2 use 1, 2, 3, 4 because _refkey.bed
-    key_df = (pd.read_csv(keyfile, sep="\t", header=None,
-                         names=["ref_chr", "ref_start", "ref_end", "founder"]).drop_duplicates().sort_values(by=["ref_chr", "ref_start"]))
+    if version == "v1":
+        key_df = (pd.read_csv(keyfile, sep="\t", header=None, usecols= [3, 4, 5, 6],
+                              names=["ref_chr", "ref_start", "ref_end", "founder"]).drop_duplicates().sort_values(by=["ref_chr", "ref_start"]))
+    else:
+        key_df = (pd.read_csv(keyfile, sep="\t", header=None,
+                              names=["ref_chr", "ref_start", "ref_end", "founder"]).drop_duplicates().sort_values(by=["ref_chr", "ref_start"]))
 
     # convert ref_chr, ref_start, ref_end (columns 1-3) to binned positions
-    key_df["ref_start"] = key_df["ref_start"]//256
-    key_df["ref_end"] = key_df["ref_end"]//256
+    key_df["ref_start"] = key_df["ref_start"]//bin_size
+    key_df["ref_end"] = key_df["ref_end"]//bin_size
 
     # convert to numpy array where index is binned position, fill in ranges with founder and empty bins with NA
 
@@ -190,6 +193,8 @@ if __name__ == '__main__':
     parser.add_argument("--collapse", action='store_true', help="flag to collapse ps4g by position, only flag --collapse or --include-all-pos")
     parser.add_argument("--include-all-pos", action='store_true', help="flag to include empty positions, will also be collapsed")
     parser.add_argument("--positional-embed", action='store_true', help="flag to include positional embed")
+    parser.add_argument("--bin-size", type=int, default=256, help="size of binned positions")
+    parser.add_argument("--version", type=str, default='v2', help="version of seq-sim pipeline (v1 or v2)")
     parser.add_argument("--sample-assembly-key", type=str, help="""\
                                                                                 tab separated file
                                                                                 [sample] [assembly1] (optional) [assembly2]
@@ -206,17 +211,21 @@ if __name__ == '__main__':
     sample_asm_key = pd.read_csv(args.sample_assembly_key, sep="\t", header=None)
 
     for ps4g_file in os.listdir(args.ps4g_dir):
-        # TODO: old version is _ps4g.txt
-        sample_name = ps4g_file.split(".ps4g")[0]
+        sample_name = ps4g_file.replace(".ps4g", "").replace("_ps4g.txt", "")
         row = sample_asm_key[sample_asm_key[0] == sample_name]
         if row.empty:
             raise ValueError(f"Sample {sample_name} not found in sample-assembly-key file.")
         assembly1 = row[1].iloc[0]
-        # TODO: v1 should be _key.bed, v2 is _refkey.bed
-        key_file1 = f"{assembly1}_refkey.bed"
+        if args.version == 'v1':
+            key_file1 = f"{assembly1}_key.bed"
+        else:
+            key_file1 = f"{assembly1}_refkey.bed"
         if sample_asm_key.shape[1] > 2:
             assembly2 = row[2].iloc[0]
-            key_file2 = f"{assembly2}_refkey.bed"
+            if args.version == 'v1':
+                key_file2 = f"{assembly2}_key.bed"
+            else:
+                key_file2 = f"{assembly2}_refkey.bed"
             diploid = True
         else:
             key_file2 = None
@@ -233,9 +242,9 @@ if __name__ == '__main__':
         gamete_to_idx = {str(d["gamete"]): int(d["gamete_index"]) for d in gamete_data}
         logging.info("extracted metadata")
 
-        key_dict1 = build_answer_key(f"{args.assembly_key_dir}/{key_file1}")
+        key_dict1 = build_answer_key(f"{args.assembly_key_dir}/{key_file1}", bin_size=args.bin_size, version=args.version)
         if diploid:
-            key_dict2 = build_answer_key(f"{args.assembly_key_dir}/{key_file2}")
+            key_dict2 = build_answer_key(f"{args.assembly_key_dir}/{key_file2}", bin_size=args.bin_size, version=args.version)
         else:
             key_dict2 = None
 

@@ -83,7 +83,7 @@ class LabeledDatasetDiploidPos(Dataset):
 
         # Extract labels (last 2 columns)
         labels = torch.tensor(matrix[:, -2:], dtype=torch.int64)
-        labels[labels == -1] = 24
+        labels[labels == -1] = self.num_parents
 
         return {
             "input_embeds": torch.tensor(matrix[:, :-2], dtype=torch.float),  # All except last 2

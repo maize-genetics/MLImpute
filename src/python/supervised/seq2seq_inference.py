@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, Dataset
 import os
 from tqdm import tqdm
 import numpy as np
-from seq2seq import Seq2Seq, Encoder, Decoder
+from src.python.supervised.seq2seq import Seq2Seq, Encoder, Decoder
 import math
 
 def inference(model, iterator, force_predictions=False):
@@ -85,7 +85,7 @@ class LabeledDatasetInference(Dataset):
         else:
             matrix = ip[:, 0:self.num_parents+1]
         labels = torch.tensor(matrix[:, -1], dtype=torch.int64)
-        labels[labels == -1] = 24
+        labels[labels == -1] = self.num_parents
 
         return {
             "input_embeds": torch.tensor(matrix[:, :-1], dtype=torch.float),

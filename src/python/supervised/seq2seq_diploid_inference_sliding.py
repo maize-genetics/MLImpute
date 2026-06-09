@@ -61,16 +61,15 @@ class LabeledDatasetDiploidInference(Dataset):
             pad[:, -1] = -1
             ip = np.concatenate([ip, pad], axis=0)
 
-        # TODO: make this less specific to the maize data
-        if ip.shape[1] == 25: # data is haploid, copy haploid labels
+        if ip.shape[1] == self.num_parents+1: # data is haploid, copy haploid labels
             matrix = np.concatenate([ip, ip[:, self.num_parents:self.num_parents+1]], axis=1)
-        elif ip.shape[1] == 26: # data has diploid labels
+        elif ip.shape[1] == self.num_parents+2: # data has diploid labels
             matrix = ip[:, 0:self.num_parents+2]
         else: # data has fewer than 24 parents
             raise RuntimeError("Input matrix is wrong shape")
 
         labels = torch.tensor(matrix[:, self.num_parents:self.num_parents+2], dtype=torch.int64)
-        labels[labels == -1] = 24
+        labels[labels == -1] = self.num_parents
 
         return {
             "input_embeds": torch.tensor(matrix[:, :-2], dtype=torch.float),

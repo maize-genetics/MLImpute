@@ -50,10 +50,8 @@ def write_bed_for_single_contig(
     )
 
 def associate_files_with_samples(inference_dir, ps4g_dir):
-    # some regex patterns found from chatgpt  this allows us to parse out the sample name and the contig name
-    matrix_re = re.compile(r"(?P<sample>.+)_(?P<contig>chr[^_]+)\.npy")
-    # TODO: allow different contig name formats, allow _ps4g.txt and .ps4g
-    table_re = re.compile(r"(?P<sample>.+)\.ps4g$")
+    matrix_re = re.compile(r"(?P<sample>.+)_(?P<contig>(?:chr|chromosome)[^_]+)\.npy$", re.IGNORECASE)
+    table_re = re.compile(r"(?P<sample>.+)\.(?:ps4g|_ps4g\.txt)$")
     matrix_dir = Path(inference_dir)
     table_dir = Path(ps4g_dir)
     samples = defaultdict(lambda: {"matrices": {}, "table": None})
@@ -64,7 +62,7 @@ def associate_files_with_samples(inference_dir, ps4g_dir):
         sample = m.group("sample")
         contig = m.group("contig")
         samples[sample]["matrices"][contig] = f
-    for f in table_dir.glob("*.ps4g"):
+    for f in table_dir.glob("*ps4g"):
         m = table_re.match(f.name)
         if not m:
             continue
@@ -72,7 +70,7 @@ def associate_files_with_samples(inference_dir, ps4g_dir):
         samples[sample]["table"] = f
     return samples
 
-def process_files(inference_dir, ps4g_dir, save_dir):
+def process_files(inference_dir, ps4g_dir, save_dir, bin_size=256):
     samples_with_matrices = associate_files_with_samples(inference_dir, ps4g_dir)
 
     for sample, info in samples_with_matrices.items():
@@ -83,15 +81,15 @@ def process_files(inference_dir, ps4g_dir, save_dir):
             logging.info(f"Skipping incomplete sample {sample}")
             continue
 
-        process_single_sample(prediction_files, ps4g_file, sample, save_dir)
+        process_single_sample(prediction_files, ps4g_file, sample, save_dir, bin_size=bin_size)
 
 
-def process_single_sample(prediction_files, ps4g_file, sample, save_dir):
+def process_single_sample(prediction_files, ps4g_file, sample, save_dir, bin_size=256):
     # Build the index array for each founder sample
     index_array = build_index_lookup(ps4g_file)
     index_array.append(None)  # add extra index to represent "unlabelled" prediction
     df = pd.read_csv(ps4g_file, sep="\t", comment="#")
-    df["refPosBinned"] *= 256  # Resolve the binned positions to actual positions
+    df["refPosBinned"] *= bin_size  # Resolve the binned positions to actual positions
     contig_positions = (
         df.groupby("refContig")["refPosBinned"]
         .apply(lambda x: sorted(set(x)))
@@ -124,12 +122,13 @@ def parse_args():
     parser.add_argument("--save-dir","-s", type=str, required=True, help="path to the output bed files")
     parser.add_argument("--contiguous", action="store_true", help="Optional flag to make prediction path contiguous")
     parser.add_argument("--fai", default=None, help="Optional reference .fai to force chromosome end coordinates (if contiguous True)")
+    parser.add_argument("--bin-size", type=int, default=256, help="bin size for positions")
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_args()
-    process_files(args.inference_dir, args.ps4g_dir, args.save_dir)
+    process_files(args.inference_dir, args.ps4g_dir, args.save_dir, bin_size=args.bin_size)
     chr_lengths = read_fai_lengths(args.fai) if args.fai else None
 
     if args.contiguous:
@@ -139,8 +138,6 @@ def main():
             out = make_contiguous(rows, chr_lengths=chr_lengths)
             new_file = file.replace(".bed", ".contiguous.bed")
             write_bed(out, new_file)
-
-            # TODO: option to save all chr together
 
 if __name__ == "__main__":
     main()

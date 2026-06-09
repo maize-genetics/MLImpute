@@ -55,7 +55,7 @@ class LabeledDataset(Dataset):
 
         matrix = ip[:, 0:self.num_parents+1]
         labels = torch.tensor(matrix[:, -1], dtype=torch.int64)
-        labels[labels == -1] = 24
+        labels[labels == -1] = self.num_parents
 
         return {
             "input_embeds": torch.tensor(matrix[:, :-1], dtype=torch.float),

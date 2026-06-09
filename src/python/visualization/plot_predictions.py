@@ -10,9 +10,10 @@ def main():
     parser.add_argument("--chr", type=str, help="chromosome/contig name")
     parser.add_argument("--start", type=int, help="start position")
     parser.add_argument("--end", type=int, help="end position")
-    parser.add_argument("--matrix-dir", type=str, help="path to matrix directory")
+    parser.add_argument("--matrix-dir", type=str, help="path to matrix directory (assumes matrices have correct labels)")
     parser.add_argument("--predictions", type=str, help="path to predictions numpy file")
     parser.add_argument("--diploid", action="store_true", help="add this flag for diploid predictions")
+    parser.add_argument("--num-parents", type=int, default=24, help="number of parents")
     args = parser.parse_args()
 
     # Load in matrix
@@ -25,12 +26,12 @@ def main():
     all_labels_1[all_labels_1 == -1] = np.nan
 
     if args.diploid:
-        assert(data.shape[1] == 26)
+        assert(data.shape[1] == args.num_parents+2)
         matrix = data[:, :-2]
         all_labels_2 = data[:, -2].astype(float)
         all_labels_2[all_labels_2 == -1] = np.nan
     else:
-        assert(data.shape[1] == 25)
+        assert(data.shape[1] == args.num_parents+1)
         matrix = data[:, :-1]
 
     assert(matrix.min() >= 0)
