@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
 from tqdm import tqdm
 import argparse
 import os
@@ -50,7 +50,8 @@ def build_answer_key(keyfile):
     return a dictionary answer_key mapping chromosome to a list of labels, with indices corresponding to binned positions
     may include unlabelled bins
     '''
-    key_df = (pd.read_csv(keyfile, sep="\t", header=None, usecols=[3, 4, 5, 6],
+    # TODO: v1 usecols=[3, 4, 5, 6] because using _key.bed, v2 use 1, 2, 3, 4 because _refkey.bed
+    key_df = (pd.read_csv(keyfile, sep="\t", header=None,
                          names=["ref_chr", "ref_start", "ref_end", "founder"]).drop_duplicates().sort_values(by=["ref_chr", "ref_start"]))
 
     # convert ref_chr, ref_start, ref_end (columns 1-3) to binned positions
@@ -128,6 +129,7 @@ def include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, answer_key1, an
     else:
         last_bin = min(len(answer_key1), len(answer_key2))
 
+    all_positions = np.arange(last_bin)
     all_pos_matrix = np.zeros((last_bin, collapsed_matrix.shape[1]), dtype=np.int8)
     labels_1 = np.array([gamete_to_idx.get(str(x), -1) for x in answer_key1], dtype=np.int8)
     all_pos_labels_1 = labels_1[:last_bin]
@@ -139,7 +141,45 @@ def include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, answer_key1, an
 
     all_pos_matrix[unique_pos, ...] = collapsed_matrix
 
-    return all_pos_matrix
+    return all_pos_matrix, all_positions
+
+def normalize_positions(positions, method='minmax'):
+    """Normalize genomic positions for positional embedding"""
+    positions = np.array(positions)
+
+    if method == 'minmax':
+        # Scale to [0, 1]
+        pos_min, pos_max = positions.min(), positions.max()
+        if pos_max > pos_min:
+            return (positions - pos_min) / (pos_max - pos_min)
+        else:
+            return np.zeros_like(positions)
+    elif method == 'zscore':
+        # Standardize to mean=0, std=1
+        return (positions - positions.mean()) / (positions.std() + 1e-8)
+    elif method == 'log':
+        # Log scale (useful for genomic distances)
+        return np.log10(positions + 1) / np.log10(positions.max() + 1)
+
+def add_positional_embedding(matrix, positions, method='minmax', diploid=False):
+    """Add positional information as an additional column"""
+    pos_normalized = normalize_positions(positions, method=method)
+    pos_int8 = (pos_normalized * 127).astype(np.int8)
+
+    # Reshape to column vector if needed
+    if pos_int8.ndim == 1:
+        pos_int8 = pos_int8.reshape(-1, 1)
+
+    # Separate features and labels
+    if diploid:  # diploid: features + 2 labels
+        features = matrix[:, :-2]
+        labels = matrix[:, -2:]
+    else:  # haploid: features + 1 label
+        features = matrix[:, :-1]
+        labels = matrix[:, -1:]
+
+    # Insert position AFTER features, BEFORE labels
+    return np.concatenate([features, pos_int8, labels], axis=1)
 
 
 if __name__ == '__main__':
@@ -147,8 +187,9 @@ if __name__ == '__main__':
     parser.add_argument("--assembly-key-dir", type=str, help="directory containing parent answer keys")
     parser.add_argument("--ps4g-dir", type=str, help="directory containing PS4G data")
     parser.add_argument("--output-dir", type=str, help="output directory")
-    parser.add_argument("--collapse", type=bool, default=False, help="flag to collapse ps4g by position")
-    parser.add_argument("--include-all-pos", type=bool, default=False, help="flag to include empty positions, must collapse")
+    parser.add_argument("--collapse", action='store_true', help="flag to collapse ps4g by position, only flag --collapse or --include-all-pos")
+    parser.add_argument("--include-all-pos", action='store_true', help="flag to include empty positions, will also be collapsed")
+    parser.add_argument("--positional-embed", action='store_true', help="flag to include positional embed")
     parser.add_argument("--sample-assembly-key", type=str, help="""\
                                                                                 tab separated file
                                                                                 [sample] [assembly1] (optional) [assembly2]
@@ -157,21 +198,25 @@ if __name__ == '__main__':
                                                                                 {assembly2}_key.bed
                                                                                 """)
     args = parser.parse_args()
+    if args.collapse and args.include_all_pos:
+        raise ValueError("Cannot use both --collapse and --include-all-pos flags simultaneously")
 
     os.makedirs(args.output_dir, exist_ok=True)
 
     sample_asm_key = pd.read_csv(args.sample_assembly_key, sep="\t", header=None)
 
     for ps4g_file in os.listdir(args.ps4g_dir):
-        sample_name = ps4g_file.split("_ps4g")[0]
+        # TODO: old version is _ps4g.txt
+        sample_name = ps4g_file.split(".ps4g")[0]
         row = sample_asm_key[sample_asm_key[0] == sample_name]
         if row.empty:
             raise ValueError(f"Sample {sample_name} not found in sample-assembly-key file.")
         assembly1 = row[1].iloc[0]
-        key_file1 = f"{assembly1}_key.bed"
+        # TODO: v1 should be _key.bed, v2 is _refkey.bed
+        key_file1 = f"{assembly1}_refkey.bed"
         if sample_asm_key.shape[1] > 2:
             assembly2 = row[2].iloc[0]
-            key_file2 = f"{assembly2}_key.bed"
+            key_file2 = f"{assembly2}_refkey.bed"
             diploid = True
         else:
             key_file2 = None
@@ -228,16 +273,23 @@ if __name__ == '__main__':
 
             has_nonzero = np.array(has_nonzero)
             logging.info("accuracy: ", has_nonzero.mean())
+            positions = ps4g_chr["refPosBinned"]
 
             if args.collapse:
-                collapsed_matrix, unique_pos = collapse_matrix(matrix, ps4g_chr["refPosBinned"], diploid)
-                if args.include_all_pos:
-                    if diploid:
-                        all_pos_matrix = include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, key_dict1[chr], key_dict2[chr])
-                    else:
-                        all_pos_matrix = include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, key_dict1[chr], answer_key2=None)
-                    np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)
+                collapsed_matrix, unique_pos = collapse_matrix(matrix, positions, diploid)
+                if args.positional_embed:
+                    collapsed_matrix = add_positional_embedding(collapsed_matrix, unique_pos, diploid=diploid)
+                np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", collapsed_matrix)
+            elif args.include_all_pos:
+                collapsed_matrix, unique_pos = collapse_matrix(matrix, positions, diploid)
+                if diploid:
+                    all_pos_matrix, all_positions = include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, key_dict1[chr], key_dict2[chr])
                 else:
-                    np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", collapsed_matrix)
+                    all_pos_matrix, all_positions = include_all_pos(collapsed_matrix, unique_pos, gamete_to_idx, key_dict1[chr], answer_key2=None)
+                if args.positional_embed:
+                    all_pos_matrix = add_positional_embedding(all_pos_matrix, all_positions, diploid=diploid)
+                np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)
             else:
+                if args.positional_embed:
+                    matrix = add_positional_embedding(matrix, positions, diploid=diploid)
                 np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", matrix)
