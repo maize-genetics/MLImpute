@@ -83,7 +83,7 @@ def include_all_pos_inference(collapsed_matrix, unique_pos, length):
     all_pos_labels = np.full((last_bin+1, 1), -1)
     all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1)
     all_pos_matrix[unique_pos, :] = collapsed_matrix
-    all_positions = np.arange(last_bin)
+    all_positions = np.arange(last_bin+1)
     return all_pos_matrix, all_positions
 
 def normalize_positions(positions, method='minmax'):
