@@ -1,0 +1,24 @@
+// python 3.9?
+// slim slim.slim
+
+initialize() {
+	initializeTreeSeq();
+	initializeMutationRate(0.0);
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1, 0, 9999999);
+	initializeRecombinationRate(1e-8);
+	// can load in a reference chromosome fasta
+}
+
+1 early() {
+	sim.addSubpop("p1", 24);
+	sim.treeSeqRememberIndividuals(p1.individuals);
+	// I think there is a way to load in specific VCFs
+}
+
+50 late() {
+	sim.treeSeqOutput("founders.trees");
+	// can output the children VCFs
+	// want to use tree to get ancestry/crossovers
+}
