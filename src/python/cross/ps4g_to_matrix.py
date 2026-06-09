@@ -4,8 +4,8 @@ from tqdm import tqdm
 import argparse
 import os
 import logging
-from chrom_lengths import chrom_lengths
-from python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from src.python.cross.chrom_lengths import chrom_lengths
+from src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
 
 
 def create_chromosome_matrix_inference(ps4g, gamete_to_idx):
@@ -83,16 +83,55 @@ def include_all_pos_inference(collapsed_matrix, unique_pos, length):
     all_pos_labels = np.full((last_bin+1, 1), -1)
     all_pos_matrix = np.concatenate((all_pos_matrix, all_pos_labels), axis=1)
     all_pos_matrix[unique_pos, :] = collapsed_matrix
+    all_positions = np.arange(last_bin+1)
+    return all_pos_matrix, all_positions
 
-    return all_pos_matrix
+def normalize_positions(positions, method='minmax'):
+    """Normalize genomic positions for positional embedding"""
+    positions = np.array(positions)
+
+    if method == 'minmax':
+        # Scale to [0, 1]
+        pos_min, pos_max = positions.min(), positions.max()
+        if pos_max > pos_min:
+            return (positions - pos_min) / (pos_max - pos_min)
+        else:
+            return np.zeros_like(positions)
+    elif method == 'zscore':
+        # Standardize to mean=0, std=1
+        return (positions - positions.mean()) / (positions.std() + 1e-8)
+    elif method == 'log':
+        # Log scale (useful for genomic distances)
+        return np.log10(positions + 1) / np.log10(positions.max() + 1)
+
+def add_positional_embedding(matrix, positions, method='minmax', diploid=False):
+    """Add positional information as an additional column"""
+    pos_normalized = normalize_positions(positions, method=method)
+    pos_int8 = (pos_normalized * 127).astype(np.int8)
+
+    # Reshape to column vector if needed
+    if pos_int8.ndim == 1:
+        pos_int8 = pos_int8.reshape(-1, 1)
+
+    # Separate features and labels
+    if diploid:  # diploid: features + 2 labels
+        features = matrix[:, :-2]
+        labels = matrix[:, -2:]
+    else:  # haploid: features + 1 label
+        features = matrix[:, :-1]
+        labels = matrix[:, -1:]
+
+    # Insert position AFTER features, BEFORE labels
+    return np.concatenate([features, pos_int8, labels], axis=1)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--ps4g-dir", type=str, help="directory containing PS4G matrices")
     parser.add_argument("--output-dir", type=str, help="output directory")
-    parser.add_argument("--collapse", type=bool, default=False, help="flag to collapse ps4g by position")
-    parser.add_argument("--include-all-pos", type=bool, default=False, help="flag to include empty positions, must collapse")
+    parser.add_argument("--collapse", action='store_true', help="flag to collapse ps4g by position, only flag --collapse or --include-all-pos")
+    parser.add_argument("--include-all-pos", action='store_true', help="flag to include empty positions, will also be collapsed")
+    parser.add_argument("--positional-embed", action='store_true', help="flag to include positional embed")
     parser.add_argument("--ref-fasta", type=str, help="path to reference fasta (required for --include-all-pos to obtain chr lengths)")
     args = parser.parse_args()
 
@@ -100,8 +139,7 @@ if __name__ == '__main__':
     chr_lengths = chrom_lengths(args.ref_fasta)
 
     for ps4g_file in os.listdir(args.ps4g_dir):
-        sample_name = ps4g_file.split("_ps4g")[0]
-        assembly = ps4g_file.split("_")[0]
+        sample_name = ps4g_file.split(".ps4g")[0]
 
         try: ps4g_df = load_ps4g_file(f"{args.ps4g_dir}/{ps4g_file}")
         except Exception as e:
@@ -118,14 +156,22 @@ if __name__ == '__main__':
 
         for chr in chromosomes:
             ps4g_chr = ps4g_df[ps4g_df["refContig"] == chr]
+            positions = ps4g_chr["refPosBinned"]
             matrix = create_chromosome_matrix_inference(ps4g_chr.reset_index(), gamete_to_idx)
+
             if args.collapse:
-                collapsed_matrix, unique_pos = collapse_matrix_inference(matrix, ps4g_chr["refPosBinned"])
-                if args.include_all_pos:
-                    length = chr_lengths[chr]
-                    all_pos_matrix = include_all_pos_inference(collapsed_matrix, unique_pos, length)
-                    np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)
-                else:
-                    np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", collapsed_matrix)
+                collapsed_matrix, unique_pos = collapse_matrix_inference(matrix, positions)
+                if args.positional_embed:
+                    collapsed_matrix = add_positional_embedding(collapsed_matrix, unique_pos)
+                np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", collapsed_matrix)
+            elif args.include_all_pos:
+                collapsed_matrix, unique_pos = collapse_matrix_inference(matrix, positions)
+                length = chr_lengths[chr]
+                all_pos_matrix, all_positions = include_all_pos_inference(collapsed_matrix, unique_pos, length)
+                if args.positional_embed:
+                    all_pos_matrix = add_positional_embedding(all_pos_matrix, all_positions)
+                np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)
             else:
+                if args.positional_embed:
+                    matrix = add_positional_embedding(matrix, positions)
                 np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", matrix)

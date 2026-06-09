@@ -7,7 +7,7 @@ import numpy as np
 import math
 
 # import your NEW joint model
-from seq2seq_diploid_joint import (
+from src.python.supervised.seq2seq_diploid_joint import (
     Seq2SeqDiploidJoint,
     EncoderDiploid,
     DecoderDiploidJoint
@@ -175,7 +175,7 @@ def main():
     # load model
     ckpt = torch.load(args.model_path, map_location=device)
 
-    enc = EncoderDiploid(args.num_parents, args.embedding_dim, args.hidden_dim)
+    enc = EncoderDiploid(args.num_parents, args.embedding_dim, args.max_seq_length)
     dec = DecoderDiploidJoint(args.num_parents + 1, args.embedding_dim, args.hidden_dim, ploidy=2)
     model = Seq2SeqDiploidJoint(enc, dec, device, ploidy=2)
 

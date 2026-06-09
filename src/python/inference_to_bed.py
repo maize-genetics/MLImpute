@@ -5,10 +5,10 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import os
-from ps4g_io.ps4g import build_index_lookup
-from bed_io.bed import output_bed_file
+from src.python.ps4g_io.ps4g import build_index_lookup
+from src.python.bed_io.bed import output_bed_file
 import logging
-from bed_io.make_bed_contiguous import parse_bed, read_fai_lengths, make_contiguous, write_bed
+from src.python.bed_io.make_bed_contiguous import parse_bed, read_fai_lengths, make_contiguous, write_bed
 import glob
 
 def write_bed_for_single_contig(
@@ -52,7 +52,7 @@ def write_bed_for_single_contig(
 def associate_files_with_samples(inference_dir, ps4g_dir):
     # some regex patterns found from chatgpt  this allows us to parse out the sample name and the contig name
     matrix_re = re.compile(r"(?P<sample>.+)_(?P<contig>chr[^_]+)\.npy")
-    # TODO: allow different contig name formats
+    # TODO: allow different contig name formats, allow _ps4g.txt and .ps4g
     table_re = re.compile(r"(?P<sample>.+)\.ps4g$")
     matrix_dir = Path(inference_dir)
     table_dir = Path(ps4g_dir)
