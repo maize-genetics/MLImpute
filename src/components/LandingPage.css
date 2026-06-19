@@ -51,12 +51,20 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+.landing-hero-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 1.25rem;
+}
+
 .landing-github-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  margin-top: 1.25rem;
   font-family: var(--md-sys-typescale-label-large-font);
   font-size: var(--md-sys-typescale-label-large-size);
   font-weight: var(--md-sys-typescale-label-large-weight);

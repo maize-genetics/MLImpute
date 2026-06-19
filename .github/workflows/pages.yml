@@ -1,0 +1,86 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# GitHub Pages serves a single site per repo. Serialize deployments so the
+# visualization web app and the docs site (built together below) never clobber
+# each other.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Static visualization web app (served at the site root) -----------
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './crates/parser-wasm -> target'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: Install Node.js dependencies
+        run: npm install
+
+      - name: Build static web app
+        run: npm run build:web
+
+      # --- MkDocs documentation site (served under /docs/) ------------------
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.9.0
+        with:
+          pixi-version: latest
+          locked: false
+          environments: docs
+
+      - name: Build documentation site
+        run: pixi run -e docs docs-build
+
+      - name: Combine docs into web app output
+        run: |
+          mkdir -p dist-web/docs
+          cp -r site/. dist-web/docs/
+
+      # --- Publish the combined artifact ------------------------------------
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

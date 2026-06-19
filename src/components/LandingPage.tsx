@@ -5,6 +5,7 @@ import {
   mdiChartTimeline,
   mdiArrowRight,
   mdiGithub,
+  mdiBookOpenVariant,
 } from '@mdi/js';
 import { isTauri } from '../platform';
 import './LandingPage.css';
@@ -24,6 +25,10 @@ interface FeatureCard {
 }
 
 const GITHUB_REPO_URL = 'https://github.com/maize-genetics/grits';
+// Documentation is published alongside this web app under /docs/ on the
+// combined GitHub Pages site. The desktop (Tauri) build has no such path, so
+// the link is only rendered for the web build.
+const DOCS_URL = './docs/';
 
 const features: FeatureCard[] = [
   {
@@ -69,15 +74,23 @@ const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             transformers, and classical methods, to impute missing haplotype data
             from PS4G files and produce extended BED output for downstream analysis.
           </p>
-          <a
-            className="landing-github-link"
-            href={GITHUB_REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Icon path={mdiGithub} size={1} />
-            View on GitHub
-          </a>
+          <div className="landing-hero-links">
+            <a
+              className="landing-github-link"
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Icon path={mdiGithub} size={1} />
+              View on GitHub
+            </a>
+            {!isTauri && (
+              <a className="landing-github-link" href={DOCS_URL}>
+                <Icon path={mdiBookOpenVariant} size={1} />
+                Documentation
+              </a>
+            )}
+          </div>
         </section>
 
         <section className="landing-features">

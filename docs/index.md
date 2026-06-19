@@ -4,6 +4,11 @@ Welcome to the GRITS documentation! This directory contains comprehensive
 guides for building, installing, and using both the command-line interface 
 (CLI) and graphical user interface (GUI) applications.
 
+!!! tip "Try it in your browser"
+    The interactive GRITS web app (PS4G/BED explorers and chromosome-matrix
+    visualizations, powered by WebAssembly) is published alongside these docs.
+    [Launch the web app &raquo;](../)
+
 ## Overview
 
 GRITS (Genetic Recombination Imputation Tool Set) is a machine learning-based haplotype imputation tool that combines 
