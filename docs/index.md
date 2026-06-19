@@ -44,7 +44,7 @@ pixi install --environment gpu
 
 
 # Run imputation
-pixi run -- python src/impute.py --input <ps4g_input.ps4g> --output <bed_file_output.bed> --model bimamba
+pixi run -- python src/python/impute.py --input <ps4g_input.ps4g> --output <bed_file_output.bed> --model bimamba
 ```
 
 ### For GUI Users
@@ -78,7 +78,7 @@ npm run tauri build
 
 ## Documentation Files
 
-### [CLI Usage Guide](https://github.com/maize-genetics/grits/wiki/CLI-Usage)
+### [CLI Usage Guide](./cli.md)
 Complete guide for the Python command-line interface including:
 - Installation with pixi or conda
 - Command-line arguments and examples
@@ -98,11 +98,11 @@ Comprehensive guide for the desktop application including:
 
 ### CLI Application
 ```
-Python CLI (src/impute.py)
-├── BiMamba Models (src/bimamba/)
-├── ModernBERT Models (src/modernBERT/)
-├── HMM Implementation (src/hmm/)
-├── File I/O (src/ps4g_io/, src/bed_io/)
+Python CLI (src/python/impute.py)
+├── BiMamba Models (src/python/bimamba/)
+├── ModernBERT Models (src/python/modernBERT/)
+├── HMM Implementation (src/python/hmm/)
+├── File I/O (src/python/ps4g_io/, src/python/bed_io/)
 └── Data Processing (src/python/)
 ```
 

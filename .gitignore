@@ -140,8 +140,12 @@ ipython_config.py
 # =========================================
 # Documentation Tools
 # =========================================
-# MkDocs
+# MkDocs site output (mkdocs build / pixi run -e docs docs-build)
 /site
+# Docs fetched from external repos at build time (scripts/fetch-external-docs.sh)
+docs/_external/
+# Material for MkDocs plugin cache (social cards, asset optimization)
+.cache/
 
 # Marimo
 marimo/_static/

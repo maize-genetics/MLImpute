@@ -44,8 +44,26 @@ torch = "*"
 torchvision = "*"
 
 
+# Documentation site (MkDocs Material)
+[feature.docs.pypi-dependencies]
+mkdocs-material                = "*"
+mkdocstrings                   = { version = "*", extras = ["python"] }
+pymdown-extensions             = "*"
+mkdocs-include-markdown-plugin = "*"
+black                          = "*"  # formats rendered Python API signatures
+
+[feature.docs.tasks]
+# Pull docs from the accompanying seq_sim repo into docs/_external/
+docs-fetch = "bash scripts/fetch-external-docs.sh"
+# Live preview at http://127.0.0.1:8000 (fetches external docs first)
+docs-serve = { cmd = "mkdocs serve", depends-on = ["docs-fetch"] }
+# Build the static site into ./site (fetches external docs first)
+docs-build = { cmd = "mkdocs build", depends-on = ["docs-fetch"] }
+
+
 # Set up environments
 [environments]
 default = []      # pixi install
 gpu     = ["gpu"] # pixi install --environment gpu
+docs    = ["docs"] # pixi install --environment docs
 

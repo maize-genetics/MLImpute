@@ -1,0 +1,98 @@
+site_name: GRITS
+site_description: >-
+  GRITS (Genetic Recombination Imputation Tool Set) - machine learning-based
+  haplotype imputation, with documentation for the accompanying seq_sim
+  sequence-simulation pipeline.
+site_author: maize-genetics
+# Served from a /docs/ subpath of the project GitHub Pages site so it can
+# coexist with the Vite visualization web app published at the site root.
+site_url: https://maize-genetics.github.io/grits/docs/
+repo_url: https://github.com/maize-genetics/grits
+repo_name: maize-genetics/grits
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+# The raw fetched markdown is surfaced through wrapper pages via the
+# include-markdown plugin, so don't also build the originals as standalone
+# pages. Images under _external/ are still copied so they can be referenced.
+exclude_docs: |
+  _external/**/*.md
+not_in_nav: |
+  _external/**
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: light green
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: light green
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src/python]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            heading_level: 2
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+
+nav:
+  - Home: index.md
+  - CLI Reference: cli.md
+  - GUI Guide: gui_usage.md
+  - Training & Pipelines: training.md
+  - Packaging: notes/packaging.md
+  - Python API: api.md
+  - Sequence Simulation:
+      - Overview: seq_sim.md
+      - Pipeline Commands: seq_sim_commands.md
