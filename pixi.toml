@@ -25,6 +25,7 @@ tqdm         = "*"
 pysam        = "*"
 torch        = "*"
 torchvision  = "*"
+tensorboard  = "*"
 
 
 # "GPU only" dependencies (Linux and Windows)
