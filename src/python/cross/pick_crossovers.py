@@ -4,7 +4,7 @@ import numpy as np
 import random
 import pandas as pd
 import argparse
-from python.cross.chrom_lengths import chrom_lengths, chrom_lengths_dicts
+from src.python.cross.chrom_lengths import chrom_lengths, chrom_lengths_dicts
 
 # ----------------------------
 # Data structures
@@ -58,6 +58,8 @@ def pick_crossovers(A: str, B: str, length: int,
 def simulate_rounds(chrom_lengths: Dict[Union[int, str], int],
                     founders: List[str],
                     rounds: int,
+                    min_spacing: int = 1_000_000,
+                    max_spacing: int = 9_000_000,
                     rng_seed: int | None = None) -> Dict:
     """
     Start with 2N founders (one line per founder), then:
@@ -79,7 +81,7 @@ def simulate_rounds(chrom_lengths: Dict[Union[int, str], int],
             random.shuffle(founders)
             for i in range(0, len(founders), 2):
                 A, B = founders[i], founders[i+1]
-                all_crosses.extend(pick_crossovers(A, B, L, rng=rng))
+                all_crosses.extend(pick_crossovers(A, B, L, min_spacing=min_spacing, max_spacing=max_spacing, rng=rng))
         # crossovers must be sorted in ascending order
         all_crosses.sort(key=lambda pos: pos[0])
 
@@ -179,6 +181,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ref-fasta", type=str, help="full file path to reference fasta")
     parser.add_argument("--assembly-list", type=str, help="file containing full file paths and names for assembly fastas")
+    parser.add_argument("--min-spacing", type=int, default=1_000_000, help="minimum spacing between crossovers")
+    parser.add_argument("--max-spacing", type=int, default=9_000_000, help="maximum spacing between crossovers")
+    parser.add_argument("--rounds", type=int, nargs='+', default=[1, 10, 50, 125],
+                        help="number of crossover rounds for chromosome segment, number of segments will be length of list")
     args = parser.parse_args()
 
     assembly_founder_paths = []
@@ -195,27 +201,27 @@ if __name__ == "__main__":
 
     ref_chrom_lengths = chrom_lengths(args.ref_fasta, exclude_scaffolds=True)
 
-    # 1/4 chromosome lengths (bp) as "arm" lengths
-    ref_arm_lengths = {chrom: length // 4 for chrom, length in ref_chrom_lengths.items()}
+    # segment chromosome lengths (bp) as "arm" lengths
+    ref_arm_lengths = {chrom: length // len(args.rounds) for chrom, length in ref_chrom_lengths.items()}
 
-    founder_chroms = chrom_lengths_dicts(assembly_founder_paths, exclude_scaffolds=True)
+    pops = []
+    for round in args.rounds:
+        pop = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=round, min_spacing=args.min_spacing, max_spacing=args.max_spacing)
+        pops.append(pop)
 
-    pop1 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=1)
-    pop2 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=10)
-    pop3 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=50)
-    pop4 = simulate_rounds(ref_arm_lengths, assembly_founders, rounds=125)
+    if not pops: # Handle edge case of no rounds
+        merged_pop = None
+    else:
+        # For each chromosome, assign each pop to one region of the chromosome
+        shift = np.arange(len(pops))
+        for chrom, length in ref_arm_lengths.items():
+            random.shuffle(shift)
+            for i in range(len(pops)):
+                shift_chrom_arm(pops[i], chrom, length * shift[i])
 
-    # For each chromosome, assign each pop to one region of the chromosome
-    shift = [0, 1, 2, 3]
-    for chrom, length in ref_arm_lengths.items():
-        random.shuffle(shift)
-        shift_chrom_arm(pop1, chrom, length*shift[0])
-        shift_chrom_arm(pop2, chrom, length*shift[1])
-        shift_chrom_arm(pop3, chrom, length*shift[2])
-        shift_chrom_arm(pop4, chrom, length*shift[3])
+        merged_pop = pops[0]
+        for pop in pops[1:]:
+            merged_pop = merge_pop(pop, merged_pop)
 
-    pop12 = merge_pop(pop1, pop2)
-    pop34 = merge_pop(pop3, pop4)
-    pop = merge_pop(pop12, pop34)
-
-    convert_pop_to_key(pop, assembly_founders)
+    if merged_pop is not None:
+        convert_pop_to_key(merged_pop, assembly_founders)

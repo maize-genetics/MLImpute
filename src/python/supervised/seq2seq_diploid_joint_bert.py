@@ -81,13 +81,13 @@ class LabeledDatasetDiploid(Dataset):
             mmap_mode='r'
         )[pos_start:pos_end]
 
-        if ip.shape[1] != 26:  # copy haploid labels
+        if ip.shape[1] != self.num_parents+2:  # copy haploid labels
             matrix = np.concatenate([ip, ip[:, self.num_parents:self.num_parents+1]], axis=1)
         else:  # diploid labels
             matrix = ip[:, 0:self.num_parents+2]
 
         labels = torch.tensor(matrix[:, self.num_parents:self.num_parents+2], dtype=torch.int64)
-        labels[labels == -1] = 24
+        labels[labels == -1] = self.num_parents
 
         return {
             "input_embeds": torch.tensor(matrix[:, :-2], dtype=torch.float),

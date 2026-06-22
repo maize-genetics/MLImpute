@@ -8,6 +8,7 @@ def main():
     parser.add_argument("--input-bed", type=str, required=True, help="Input bed file")
     parser.add_argument("--ps4g", type=str, required=True, help="PS4G file")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory")
+    parser.add_argument("--bin-size", type=int, default=256, help="Bin size")
     parser.add_argument("--diploid", action='store_true', help="Diploid predictions")
     args = parser.parse_args()
 
@@ -17,8 +18,8 @@ def main():
     for c in df.columns[3:]:
         df[c] = df[c].astype(str).str.replace(r":\d+$", "", regex=True)
 
-    df["start"] = (df["start"] // 256).astype(int)
-    df["end"]   = (df["end"] // 256).astype(int)
+    df["start"] = (df["start"] // args.bin_size).astype(int)
+    df["end"]   = (df["end"] // args.bin_size).astype(int)
 
     parent_col_1 = df.columns[3]
     if args.diploid:

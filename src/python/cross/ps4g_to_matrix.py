@@ -73,11 +73,11 @@ def collapse_matrix_inference(chrom_matrix, positions):
 
     return collapsed_matrix, unique_pos
 
-def include_all_pos_inference(collapsed_matrix, unique_pos, length):
+def include_all_pos_inference(collapsed_matrix, unique_pos, length, bin_size=256):
     '''
     Adds unlabelled bins to the collapsed matrix with -1 labels
     '''
-    last_bin = length // 256
+    last_bin = length // bin_size
 
     all_pos_matrix = np.zeros((last_bin+1, collapsed_matrix.shape[1]-1))
     all_pos_labels = np.full((last_bin+1, 1), -1)
@@ -92,7 +92,8 @@ def normalize_positions(positions, method='minmax'):
 
     if method == 'minmax':
         # Scale to [0, 1]
-        pos_min, pos_max = positions.min(), positions.max()
+        pos_min, pos_max = positions.min()
+        pos_max = positions.max()
         if pos_max > pos_min:
             return (positions - pos_min) / (pos_max - pos_min)
         else:
@@ -133,13 +134,14 @@ if __name__ == '__main__':
     parser.add_argument("--include-all-pos", action='store_true', help="flag to include empty positions, will also be collapsed")
     parser.add_argument("--positional-embed", action='store_true', help="flag to include positional embed")
     parser.add_argument("--ref-fasta", type=str, help="path to reference fasta (required for --include-all-pos to obtain chr lengths)")
+    parser.add_argument("--bin-size", type=int, default=256, help="bin size")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
     chr_lengths = chrom_lengths(args.ref_fasta)
 
     for ps4g_file in os.listdir(args.ps4g_dir):
-        sample_name = ps4g_file.split(".ps4g")[0]
+        sample_name = ps4g_file.replace(".ps4g", "").replace("_ps4g.txt", "")
 
         try: ps4g_df = load_ps4g_file(f"{args.ps4g_dir}/{ps4g_file}")
         except Exception as e:
@@ -167,7 +169,7 @@ if __name__ == '__main__':
             elif args.include_all_pos:
                 collapsed_matrix, unique_pos = collapse_matrix_inference(matrix, positions)
                 length = chr_lengths[chr]
-                all_pos_matrix, all_positions = include_all_pos_inference(collapsed_matrix, unique_pos, length)
+                all_pos_matrix, all_positions = include_all_pos_inference(collapsed_matrix, unique_pos, length, bin_size=args.bin_size)
                 if args.positional_embed:
                     all_pos_matrix = add_positional_embedding(all_pos_matrix, all_positions)
                 np.save(f"{args.output_dir}/{sample_name}_{chr}_matrix.npy", all_pos_matrix)

@@ -16,8 +16,7 @@ def chrom_lengths(fasta_file, exclude_scaffolds=True):
         for line in f:
             name, length, *_ = line.rstrip("\n").split("\t")
             if exclude_scaffolds:
-                # adjust this predicate to your naming (e.g., maize chromosomes "chr1..chr10")
-                if name.startswith("chr"):
+                if name.lower().startswith(("chr", "chromosome")):
                     chrom_dict[name] = int(length)
             else:
                 chrom_dict[name] = int(length)

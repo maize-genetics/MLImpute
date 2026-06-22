@@ -2,15 +2,14 @@ import pandas as pd
 import subprocess
 import os
 import argparse
-from python.cross.chrom_lengths import chrom_lengths_dicts
+from src.python.cross.chrom_lengths import chrom_lengths_dicts
 
 """
 create a bed file to track fasta sequence to assembly
 columns = fa_chr, fa_start, fa_end, parent_chr, parent_start, parent_end, parent
 """
 def build_fasta_keys(parents, founder):
-    fasta_df = pd.DataFrame(
-columns=["fa_chr", "fa_start", "fa_end", "parent_chr", "parent_start", "parent_end", "parent", "seg_len"])
+    fasta_df = pd.DataFrame(columns=["fa_chr", "fa_start", "fa_end", "parent_chr", "parent_start", "parent_end", "parent", "seg_len"])
 
     founder_df = pd.DataFrame(columns=["ref_chr", "ref_start", "ref_end", "parent_chr", "parent_start", "parent_end", "founder"])
     key = []

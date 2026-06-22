@@ -99,7 +99,7 @@ def output_collapse_bed(bed_df, output_bed):
     ranges_df.to_csv(output_bed, sep="\t", index=False)
 
 
-def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_regions = True):
+def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_regions = True, bin_size=256):
     '''
     ps4g_file: name of the ps4g file for the imputed sample
     output_bed: name of the desired output bed of imputed path
@@ -109,7 +109,7 @@ def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_re
     writes predictions to bed file
     '''
     chroms = pd.read_csv(ps4g_file, sep="\t", comment="#")['refContig']
-    positions = pd.read_csv(ps4g_file, sep="\t", comment="#")['refPosBinned'] * 256
+    positions = pd.read_csv(ps4g_file, sep="\t", comment="#")['refPosBinned'] * bin_size
     index_array = build_index_lookup(ps4g_file)
     index_array.append(None) # add extra index to represent "unlabelled" prediction
     output_bed_file(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions)
