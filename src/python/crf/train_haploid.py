@@ -25,9 +25,80 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import Dataset, DataLoader
 
-from python.crf.train_crf import FounderPathEncoder, NeuralCRF
+from python.crf.train_crf import FounderPathEncoder
 
-NEG_INF = -1e4
+
+# --------------------------------------------------------------------------- #
+#  Vectorized CRF — JIT-compiled to remove Python loop overhead over T        #
+# --------------------------------------------------------------------------- #
+
+@torch.jit.script
+def _crf_nll(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
+             stay_bonus: torch.Tensor, tags: torch.Tensor) -> torch.Tensor:
+    """
+    CRF NLL without materializing the full [B,T,K,K] transition tensor.
+
+    Partition (log_Z): sequential forward pass, O(B*K^2) per step.
+    Score: fully vectorized — tr[b,t,tags[t-1],tags[t]] reduces to a
+    1-D switch mask, no K×K materialization needed.
+    emis: [B,T,K]  c: [B,T]  nsw: [K,K]  tags: [B,T]
+    """
+    B, T, K = emis.shape
+    stay_mask = (nsw == 0).float()
+
+    # Forward pass (partition)
+    a = emis[:, 0]
+    for t in range(1, T):
+        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None]
+        a = emis[:, t] + torch.logsumexp(a.unsqueeze(2) + tr_t, dim=1)
+    log_Z = torch.logsumexp(a, dim=1)
+
+    # Score of true path — fully vectorized, no K×K materialization
+    bi = torch.arange(B, device=emis.device)
+    t_idx = torch.arange(T, device=emis.device)
+    emis_score = emis[bi.unsqueeze(1), t_idx.unsqueeze(0), tags].sum(1)  # [B]
+    # tr[b,t,i,j] = 0 if i==j else -c[b,t]; nsw[i,j] = 1 if i!=j
+    switches = (tags[:, :-1] != tags[:, 1:]).float()  # [B, T-1]
+    tr_score = (-c[:, 1:] * switches + stay_bonus * (1.0 - switches)).sum(1)  # [B]
+
+    return (log_Z - emis_score - tr_score).mean()
+
+
+@torch.jit.script
+def _crf_viterbi(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
+                 stay_bonus: torch.Tensor) -> torch.Tensor:
+    """Viterbi decode without materializing [B,T,K,K]. emis:[B,T,K] -> [B,T]"""
+    B, T, K = emis.shape
+    stay_mask = (nsw == 0).float()
+    delta = emis[:, 0]
+    bp = torch.zeros(T - 1, B, K, dtype=torch.long, device=emis.device)
+    for t in range(1, T):
+        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None]
+        sc = delta.unsqueeze(2) + tr_t
+        best, idx = sc.max(dim=1)
+        delta = emis[:, t] + best
+        bp[t - 1] = idx
+    path = torch.zeros(B, T, dtype=torch.long, device=emis.device)
+    path[:, T - 1] = delta.argmax(dim=1)
+    for t in range(T - 2, -1, -1):
+        path[:, t] = bp[t].gather(1, path[:, t + 1].unsqueeze(1)).squeeze(1)
+    return path
+
+
+class NeuralCRF(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.stay_bonus = nn.Parameter(torch.tensor(2.0))
+
+    def nll(self, emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
+            tags: torch.Tensor) -> torch.Tensor:
+        return _crf_nll(emis, c, nsw, self.stay_bonus, tags)
+
+    @torch.no_grad()
+    def viterbi(self, emis: torch.Tensor, c: torch.Tensor,
+                nsw: torch.Tensor) -> torch.Tensor:
+        return _crf_viterbi(emis, c, nsw, self.stay_bonus)
+
 
 INBRED_PREFIXES = [
     'B97', 'CML103', 'CML228', 'CML247', 'CML277', 'CML322', 'CML333',
@@ -162,18 +233,17 @@ class GRITSCRFHaploid(pl.LightningModule):
         X_pad = torch.cat([X, torch.zeros(B, T, 1, device=X.device)], dim=-1)  # [B,T,K]
         founder_mask = torch.ones(B, K, device=X.device)
         emis_f, g, c = self.encoder(X_pad, founder_mask)  # emis_f [B,T,K]
-        tr = self.crf._trans(c, self.nsw)                 # [B,T,K,K]
-        return emis_f, tr, g, c
+        return emis_f, g, c
 
     def _step(self, batch):
         X, tags = batch["input_embeds"], batch["labels"]
-        emis_f, tr, g, c = self(X)
-        crf_loss = self.crf.nll(emis_f, tr, tags)
+        emis_f, g, c = self(X)
+        crf_loss = self.crf.nll(emis_f, c, self.nsw, tags)
         gate_loss = self.gate_reg * (1.0 - g).mean()
-        return crf_loss + gate_loss, crf_loss, g, c, emis_f, tr
+        return crf_loss + gate_loss, crf_loss, g, c, emis_f
 
     def training_step(self, batch, batch_idx):
-        loss, crf_loss, g, c, _, _ = self._step(batch)
+        loss, crf_loss, g, c, _ = self._step(batch)
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/crf_loss", crf_loss)
         self.log("train/gate", g.mean())
@@ -182,9 +252,9 @@ class GRITSCRFHaploid(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, crf_loss, g, c, emis_f, tr = self._step(batch)
+        loss, crf_loss, g, c, emis_f = self._step(batch)
         tags = batch["labels"]
-        pred = self.crf.viterbi(emis_f, tr)
+        pred = self.crf.viterbi(emis_f, c, self.nsw)
         acc = (pred == tags).float().mean()
         self.log("val/loss", loss, prog_bar=True)
         self.log("val/crf_loss", crf_loss)
@@ -239,6 +309,8 @@ def main():
     p.add_argument("--gate-reg",    type=float, default=0.05)
     p.add_argument("--max-epochs",  type=int, default=50)
     p.add_argument("--patience",    type=int, default=10)
+    p.add_argument("--devices",     type=int, default=1,
+                   help="Number of GPUs (default 1; use 1 to avoid DDP overhead)")
     args = p.parse_args()
 
     workdir = Path(args.workdir)
@@ -285,7 +357,7 @@ def main():
         callbacks=callbacks,
         logger=TensorBoardLogger(str(log_dir), name="e1-haploid"),
         accelerator="auto",
-        devices="auto",
+        devices=args.devices,
         precision="16-mixed",
         gradient_clip_val=1.0,
     )
