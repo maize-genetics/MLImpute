@@ -2,9 +2,9 @@
 
 > **Audience:** Claude Code. This is an execution spec for the diploid neural-CRF
 > founder-path imputer on the `crf-relatedness` branch. **Last reconciled with the
-> code: 2026-06-22.** Build incrementally, one experiment at a time, and do not
-> start an experiment until the previous one's acceptance criteria are met and
-> logged in `RESULTS.md`.
+> code: 2026-06-23** (see §0 Progress log). Build incrementally, one experiment at a
+> time, and do not start an experiment until the previous one's acceptance criteria
+> are met and logged in `RESULTS.md`.
 >
 > **What changed since the original draft:** the simulator and PS4G→matrix wiring
 > are no longer stubs — they are implemented in `src/python/cross/`. The current
@@ -23,6 +23,52 @@
 > `P=(K+1)(K+2)/2` pair states with `nsw =` min-over-orderings. Never fork the
 > encoder or add a per-founder-index parameter; the haploid milestone must not close
 > the door on the diploid path.
+
+---
+
+## 0. Progress log
+
+### 2026-06-23 — Haploid encoder architecture validated on a synthetic allele-sharing sim
+
+A controlled probe of the E1 encoder, ahead of scoring on the `cross/` pipeline data.
+Built a well-posed standalone simulator and used it to isolate the emission vs.
+transition mechanism. **This is pre-E1 architecture validation, not E1 completion** —
+no HMM baseline, no `cross/` data, no `metrics.py` yet, so E1's acceptance criteria
+(§5 E1) remain open.
+
+- **New simulator `crf/simulate_alleles.py`** (separate from the `cross/` PS4G pipeline;
+  the `cross/` set remains the data source of record for scored experiments). Emits
+  `[windows, sites, K+2]` int8: K binary allele-match features + H1 + H2 founder labels.
+  Each window is a piecewise-constant founder path observed only through a noisy
+  allele-match pattern; the true founder matches the sample allele on `1-bad_frac` of
+  sites. Controls: `--allele-sharing`, `--inbreeding` (F), `--bad-frac`,
+  `--min/--max-crossovers`. Default 100k×512×26 inbred set written to
+  `data/training/sim_alleles.npy`.
+- **`train_haploid.py` wired to it.** `PreWindowedHaploidDataset` now accepts the
+  `(N,T,K+2)` diploid layout and predicts **H1** (col K; H2 ignored — valid because the
+  sim is inbred, H1≡H2); `make_splits` validates/reports the layout.
+- **Key architecture finding — emissions must be time-local.** The original
+  `FounderPathEncoder` emission key is averaged over the window
+  (`e = cells.mean(dim=1)`), which cannot localize *which* founder is active at site
+  `t` once the path switches within a window (sim averages ~6 crossovers/512). Result:
+  the emission gate collapses to ~0.12 and the CRF falls back on its smoothing prior →
+  **val acc 0.42**. Added a flagged per-site emission key
+  (`time_local_emis`, `einsum("btd,btkd->btk", H, cells)`): the gate snaps to 1.0 and
+  2-epoch **val acc → 0.99**. The binary 0/1 allele-match representation was kept (it is
+  the right signal); the fix is purely in how the per-site founder score is formed.
+- **Training-stability fix.** With emissions active, `precision="16-mixed"` overflowed
+  the CRF partition `logsumexp` and training diverged (loss 2.9→61, val acc→random).
+  Switched default to **`bf16-mixed`**, added `--warmup-steps` (linear) and lowered LR
+  to 1e-4 → stable, no divergence. New `train_haploid.py` flags: `--time-local-emis`,
+  `--warmup-steps`, `--precision`. The shared `FounderPathEncoder` change is **off by
+  default** so the maize/`cross/` path is unchanged.
+- Numbers logged in `docs/RESULTS.md` (E1-probe rows).
+
+**Next (Step 2 → folds into E2):** add a variable per-site recombination-rate map to
+`simulate_alleles.py` spanning ~100× (hot/cold regions), emit it as a `dbp`-style
+covariate track, and feed it into `recomb_head` so the transition cost `c_t` — and
+thus the transition↔emission balance — adapts to local LD instead of collapsing to a
+constant (`c≈5`, as observed). See §5 E2.
 
 ---
 
@@ -49,6 +95,7 @@ conditioning) into learnable behavior.
 | Area | Where | Notes |
 |------|-------|-------|
 | Recombination-mosaic simulation | `cross/pick_crossovers.py` | Crossover spacing model (`min_spacing`/`max_spacing`), tail-safe. |
+| Synthetic allele-sharing sim | `crf/simulate_alleles.py` | Standalone well-posed probe (binary allele-match features + H1/H2 labels); used for E1 architecture validation, **not** the scored data source. Uniform recombination so far (§0). |
 | Recombined founder FASTAs | `cross/write_fastas.py` | Concatenates parent assembly sequence per mosaic. |
 | PS4G parsing | `ps4g_io/ps4g.py` | `load_ps4g_file`, `extract_metadata` (gamete↔index map). |
 | PS4G → training matrix | `cross/build_training_data.py`, `cross/ps4g_to_matrix.py` | Answer-key build, position collapse, all-positions fill, optional positional-embed column. |
@@ -73,15 +120,15 @@ conditioning) into learnable behavior.
 
 Per the current session decision, the plan does not modify code. These are recorded
 so experiments account for them and a later cleanup pass can target them:
-- **No haploid code path yet.** `LabeledDatasetDiploid` always collapses the label
-  columns to pair indices and `GRITSCRFModel` always builds `pair_idx`/`nsw` over
-  `P` states. The haploid milestone (E1) needs a single-hap dataset/label path and a
-  `K`-state `nsw` — both feed the *same* encoder and `NeuralCRF`, so this is an added
-  branch, not a new model.
+- ~~**No haploid code path yet.**~~ **RESOLVED (2026-06-23):** `train_haploid.py`
+  provides the single-hap dataset/label path (`PreWindowedHaploidDataset`) and the
+  `K`-state `nsw`, feeding the same shared `FounderPathEncoder` + `NeuralCRF`.
+  `train_crf.py` (diploid) still collapses labels to pair indices — unchanged.
 - `forward()` is invoked twice per `training_step` in `train_crf.py`.
 - Debug `print()` calls fire inside `forward()` every pass.
-- Hardcoded data paths + inline `config` dict in `main()`; no argparse/YAML yet,
-  which conflicts with the `--workdir` + config-driven rules in `CLAUDE.md`.
+- Hardcoded data paths + inline `config` dict in `train_crf.main()`; no YAML yet.
+  (`train_haploid.py` **does** use argparse + `--workdir`; the diploid entry point
+  still needs it.)
 - Import convention is split repo-wide: `crf/` uses `from python.<module>`,
   `cross/` and several `supervised/` files use `from src.python.<module>`. Pick one
   before `baselines.py` imports across both trees.
@@ -187,6 +234,10 @@ of them (§4.2).
 - **Decision informed:** baseline bar + measurement validity. **This is the gate.**
 
 ### E1 — Haploid training milestone + structured-layer ablation (the central test)
+- **Status (2026-06-23):** *in progress.* Encoder trains end-to-end on the synthetic
+  allele-sharing sim (val acc 0.99, §0). **Still open before E1 closes:** HMM baseline
+  + `metrics.py` (E0 gate), training on the `cross/` data source, the no-transition
+  ablation arm, and the E4b diploid-load check.
 - **Objective:** get the system trained end-to-end on **haploid** data, and answer
   the central question — does the neural-CRF prior match/beat the HMM at small param
   count? This is the first real training run.
@@ -203,6 +254,10 @@ of them (§4.2).
 - **Decision informed:** is "neuralize the HMM" the right direction at all?
 
 ### E2 — Recombination-rate heterogeneity
+- **Status (2026-06-23):** *next up* — the "Step 2" in §0. On the synthetic sim, `c_t`
+  collapsed to a constant (`c≈5`) because recombination there is spatially uniform;
+  E2 adds a ~100× variable rate map (in `simulate_alleles.py` and/or `cross/`) so
+  `c_t` has signal to track.
 - **Objective:** replace hand-split regions with learned `c_t`.
 - **Implement:** train across simulated rate regimes spanning ~2 orders of magnitude
   (vary `min_spacing`/`max_spacing` in `pick_crossovers`); feed `dbp` into the
