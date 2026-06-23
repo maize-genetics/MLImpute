@@ -27,7 +27,7 @@ so imports use `from python.<module>...`, never `from src.python...`.
 to an explicit `--workdir` directory — never to hardcoded paths.**
 
 - Training scripts must accept `--workdir <path>` (argparse).
-- Default workdir is `./workdir` relative to the project root.
+- Default workdir is `/workdir/esb33/`.
 - Sub-structure inside workdir:
   ```
   workdir/
