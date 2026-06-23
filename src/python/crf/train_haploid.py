@@ -160,10 +160,14 @@ class LabeledDatasetHaploid(Dataset):
 
 class PreWindowedHaploidDataset(Dataset):
     """
-    Wraps a pre-windowed (N, T, K+1) int8 array.
-      cols 0:K  — founder read counts (features)
-      col  K    — haploid founder label 0..K-1  (values >= K clamped to K = unknown)
-    No windowing needed; each row is already one training sample.
+    Wraps a pre-windowed int8 array; each row is already one training sample.
+
+    Two layouts are accepted, both predicting a single founder path (col K):
+      (N, T, K+1)  haploid : cols 0:K features, col K label
+      (N, T, K+2)  diploid : cols 0:K features, col K = H1, col K+1 = H2
+                             — H1 is the target; H2 is ignored (inbred data has
+                             H1==H2, so the H1 path is well-defined).
+    Label values >= K are clamped to K (unknown state).
     """
     def __init__(self, data: np.ndarray, num_parents: int = 24):
         self.data = data
@@ -173,9 +177,9 @@ class PreWindowedHaploidDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        row = self.data[idx]                                    # (T, K+1)
+        row = self.data[idx]                                    # (T, K+1 or K+2)
         features = torch.tensor(row[:, :self.K], dtype=torch.float32)
-        labels = row[:, self.K].astype(np.int64)
+        labels = row[:, self.K].astype(np.int64)               # col K = H1 path
         labels = np.clip(labels, 0, self.K)                    # noise >= K → unknown
         return {"input_embeds": features,
                 "labels": torch.tensor(labels, dtype=torch.long)}
@@ -184,13 +188,19 @@ class PreWindowedHaploidDataset(Dataset):
 def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float):
     data = np.load(path, allow_pickle=True, mmap_mode="r")
     N = len(data)
+    ncol = data.shape[-1]
+    if ncol not in (num_parents + 1, num_parents + 2):
+        raise ValueError(
+            f"{Path(path).name} has {ncol} cols; expected K+1={num_parents + 1} "
+            f"(haploid) or K+2={num_parents + 2} (diploid) for K={num_parents}")
+    layout = "diploid (predicting H1)" if ncol == num_parents + 2 else "haploid"
     n_test  = int(N * test_frac)
     n_val   = int(N * val_frac)
     n_train = N - n_val - n_test
     train_ds = PreWindowedHaploidDataset(data[:n_train],                num_parents)
     val_ds   = PreWindowedHaploidDataset(data[n_train:n_train + n_val], num_parents)
     test_ds  = PreWindowedHaploidDataset(data[n_train + n_val:],        num_parents)
-    print(f"Dataset {Path(path).name}: N={N:,}")
+    print(f"Dataset {Path(path).name}: N={N:,}  cols={ncol}  layout={layout}")
     print(f"  train={n_train:,}  val={n_val:,}  test={n_test:,}")
     return train_ds, val_ds, test_ds
 
@@ -207,16 +217,19 @@ class GRITSCRFHaploid(pl.LightningModule):
     """
 
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
-                 lr=3e-4, weight_decay=1e-5, gate_reg=0.05):
+                 lr=3e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
+                 warmup_steps=0):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
         self.lr = lr
         self.weight_decay = weight_decay
         self.gate_reg = gate_reg
+        self.warmup_steps = warmup_steps
 
         K = num_parents + 1  # +1 for unknown state
-        self.encoder = FounderPathEncoder(d_model, n_heads, n_layers)
+        self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
+                                          time_local_emis=time_local_emis)
         self.crf = NeuralCRF()
 
         # nsw[i,j] = number of haplotype switches between state i and state j.
@@ -265,6 +278,14 @@ class GRITSCRFHaploid(pl.LightningModule):
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr,
                                 weight_decay=self.weight_decay)
+        if self.warmup_steps > 0:
+            # Linear warmup then constant — stabilizes the now-active emission
+            # pathway in the first steps after the gate opens.
+            w = self.warmup_steps
+            lam = lambda step: min(1.0, (step + 1) / w)
+            sched = torch.optim.lr_scheduler.LambdaLR(opt, lam)
+            return {"optimizer": opt,
+                    "lr_scheduler": {"scheduler": sched, "interval": "step"}}
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
             opt, mode='min', factor=0.5, patience=5)
         return {"optimizer": opt, "lr_scheduler": sched, "monitor": "val/loss"}
@@ -307,6 +328,12 @@ def main():
     p.add_argument("--n-layers",    type=int, default=6)
     p.add_argument("--lr",          type=float, default=3e-4)
     p.add_argument("--gate-reg",    type=float, default=0.05)
+    p.add_argument("--time-local-emis", action="store_true",
+                   help="Per-site founder emission key (for within-window founder switches)")
+    p.add_argument("--warmup-steps", type=int, default=0,
+                   help="Linear LR warmup steps (0 = plateau scheduler)")
+    p.add_argument("--precision",   default="bf16-mixed",
+                   help="Lightning precision (bf16-mixed avoids fp16 logsumexp overflow)")
     p.add_argument("--max-epochs",  type=int, default=50)
     p.add_argument("--patience",    type=int, default=10)
     p.add_argument("--devices",     type=int, default=1,
@@ -344,6 +371,8 @@ def main():
         n_layers=args.n_layers,
         lr=args.lr,
         gate_reg=args.gate_reg,
+        time_local_emis=args.time_local_emis,
+        warmup_steps=args.warmup_steps,
     )
 
     callbacks = [
@@ -358,7 +387,7 @@ def main():
         logger=TensorBoardLogger(str(log_dir), name="e1-haploid"),
         accelerator="auto",
         devices=args.devices,
-        precision="16-mixed",
+        precision=args.precision,
         gradient_clip_val=1.0,
     )
 

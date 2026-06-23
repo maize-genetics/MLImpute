@@ -155,9 +155,11 @@ class LabeledDatasetDiploid(Dataset):
 # --------------------------------------------------------------------------- #
 
 class FounderPathEncoder(nn.Module):
-    def __init__(self, d_model=128, n_heads=4, n_layers=4, ext_dim=0):
+    def __init__(self, d_model=128, n_heads=4, n_layers=4, ext_dim=0,
+                 time_local_emis=False):
         super().__init__()
         self.d_model = d_model
+        self.time_local_emis = time_local_emis
         self.cell = nn.Sequential(nn.Linear(1, d_model), nn.GELU(),
                                   nn.Linear(d_model, d_model))
         self.ext = nn.Linear(ext_dim, d_model) if ext_dim > 0 else None
@@ -191,12 +193,20 @@ class FounderPathEncoder(nn.Module):
         h = h.reshape(B, T, self.d_model) + self._posenc(T, self.d_model, X.device)
         H = self.pos_encoder(h)
 
-        e = cells.mean(dim=1)
-        if self.ext is not None and ext_emb is not None:
-            e = e + self.ext(ext_emb)
-        e = e.masked_fill(~founder_mask.bool().unsqueeze(-1), 0.0)
-
-        emis = torch.einsum("btd,bkd->btk", H, e) * self.scale
+        if self.time_local_emis:
+            # Per-site founder key: emission at site t scores founder f using
+            # its cell embedding AT t, not averaged over the window. Required
+            # when the active founder switches within a window (recombination).
+            if self.ext is not None and ext_emb is not None:
+                raise NotImplementedError("ext_emb unsupported with time_local_emis")
+            cf_local = cells.masked_fill(~founder_mask.bool().view(B, 1, K, 1), 0.0)
+            emis = torch.einsum("btd,btkd->btk", H, cf_local) * self.scale
+        else:
+            e = cells.mean(dim=1)
+            if self.ext is not None and ext_emb is not None:
+                e = e + self.ext(ext_emb)
+            e = e.masked_fill(~founder_mask.bool().unsqueeze(-1), 0.0)
+            emis = torch.einsum("btd,bkd->btk", H, e) * self.scale
         emis = emis.masked_fill(~founder_mask.bool().unsqueeze(1), NEG_INF)
 
         g = torch.sigmoid(self.gate_head(H)).squeeze(-1)
