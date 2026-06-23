@@ -19,6 +19,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+
+torch.set_float32_matmul_precision("medium")
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import Dataset, DataLoader
@@ -79,6 +81,47 @@ class LabeledDatasetHaploid(Dataset):
         labels = torch.tensor(mat[:, self.num_parents].astype(np.int64), dtype=torch.long)
         labels[labels == -1] = self.num_parents  # unknown → last index
         return {"input_embeds": features, "labels": labels}
+
+
+# --------------------------------------------------------------------------- #
+#  Pre-windowed dataset  (N, 512, 25) — primary data source                   #
+# --------------------------------------------------------------------------- #
+
+class PreWindowedHaploidDataset(Dataset):
+    """
+    Wraps a pre-windowed (N, T, K+1) int8 array.
+      cols 0:K  — founder read counts (features)
+      col  K    — haploid founder label 0..K-1  (values >= K clamped to K = unknown)
+    No windowing needed; each row is already one training sample.
+    """
+    def __init__(self, data: np.ndarray, num_parents: int = 24):
+        self.data = data
+        self.K = num_parents
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        row = self.data[idx]                                    # (T, K+1)
+        features = torch.tensor(row[:, :self.K], dtype=torch.float32)
+        labels = row[:, self.K].astype(np.int64)
+        labels = np.clip(labels, 0, self.K)                    # noise >= K → unknown
+        return {"input_embeds": features,
+                "labels": torch.tensor(labels, dtype=torch.long)}
+
+
+def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float):
+    data = np.load(path, allow_pickle=True, mmap_mode="r")
+    N = len(data)
+    n_test  = int(N * test_frac)
+    n_val   = int(N * val_frac)
+    n_train = N - n_val - n_test
+    train_ds = PreWindowedHaploidDataset(data[:n_train],                num_parents)
+    val_ds   = PreWindowedHaploidDataset(data[n_train:n_train + n_val], num_parents)
+    test_ds  = PreWindowedHaploidDataset(data[n_train + n_val:],        num_parents)
+    print(f"Dataset {Path(path).name}: N={N:,}")
+    print(f"  train={n_train:,}  val={n_val:,}  test={n_test:,}")
+    return train_ds, val_ds, test_ds
 
 
 # --------------------------------------------------------------------------- #
@@ -174,14 +217,21 @@ def list_inbred_files(data_dir, val_chr="10"):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--workdir",    default="/workdir/esb33")
-    p.add_argument("--data-dir",   default="/workdir/smm477/ML-data/training")
-    p.add_argument("--val-chr",    default="10",  help="Chromosome held out for val")
-    p.add_argument("--num-parents", type=int, default=24)
+    p.add_argument("--workdir",     default="/workdir/esb33")
+    # Pre-windowed single-file mode (preferred)
+    p.add_argument("--data",        default=None,
+                   help="Pre-windowed (N,512,25) .npy file; uses 80/10/10 sequential split")
+    p.add_argument("--val-frac",    type=float, default=0.10)
+    p.add_argument("--test-frac",   type=float, default=0.10)
+    # Legacy per-file mode
+    p.add_argument("--data-dir",    default="/workdir/smm477/ML-data/training")
+    p.add_argument("--val-chr",     default="10")
     p.add_argument("--window-size", type=int, default=512)
     p.add_argument("--step-size",   type=int, default=128)
-    p.add_argument("--batch-size",  type=int, default=32)
-    p.add_argument("--num-workers", type=int, default=8)
+    # Shared
+    p.add_argument("--num-parents", type=int, default=24)
+    p.add_argument("--batch-size",  type=int, default=64)
+    p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--d-model",     type=int, default=256)
     p.add_argument("--n-heads",     type=int, default=8)
     p.add_argument("--n-layers",    type=int, default=6)
@@ -197,18 +247,23 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    train_files, val_files = list_inbred_files(args.data_dir, args.val_chr)
-    print(f"Train files: {len(train_files)}  |  Val files (chr{args.val_chr}): {len(val_files)}")
-
-    train_ds = LabeledDatasetHaploid(args.data_dir, train_files,
-                                     args.window_size, args.num_parents, args.step_size)
-    val_ds   = LabeledDatasetHaploid(args.data_dir, val_files,
-                                     args.window_size, args.num_parents, args.step_size)
+    if args.data:
+        train_ds, val_ds, _ = make_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac)
+    else:
+        train_files, val_files = list_inbred_files(args.data_dir, args.val_chr)
+        print(f"Train files: {len(train_files)}  |  Val files (chr{args.val_chr}): {len(val_files)}")
+        train_ds = LabeledDatasetHaploid(args.data_dir, train_files,
+                                         args.window_size, args.num_parents, args.step_size)
+        val_ds   = LabeledDatasetHaploid(args.data_dir, val_files,
+                                         args.window_size, args.num_parents, args.step_size)
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                              num_workers=args.num_workers, pin_memory=True)
+                              num_workers=args.num_workers, pin_memory=True,
+                              persistent_workers=True)
     val_loader   = DataLoader(val_ds,   batch_size=args.batch_size, shuffle=False,
-                              num_workers=args.num_workers, pin_memory=True)
+                              num_workers=args.num_workers, pin_memory=True,
+                              persistent_workers=True)
 
     model = GRITSCRFHaploid(
         num_parents=args.num_parents,
