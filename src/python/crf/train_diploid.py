@@ -4,12 +4,13 @@ E4 diploid training — joint pair-state CRF on the shared FounderPathEncoder.
 The encoder is unchanged (one emis_f [B,T,K] per founder). The diploid layer
 forms pair-state emissions emis_p[b,t,(i,j)] = emis_f[i] + emis_f[j] over the
 P = K(K+1)/2 unordered founder pairs, and decodes a pair path with a CRF whose
-transition allows AT MOST ONE chromosome to switch per step (two-switch moves
-banned), exactly the Li–Stephens diploid mosaic.
+transition cost is -c * (#chromosomes that switch), nsw in {0,1,2}. A two-
+chromosome switch therefore costs exp(-2c) = exp(-c)^2 — two INDEPENDENT
+chromosome switches, matching the generative sim (no hard ban).
 
-Reuses the state-count-agnostic forward/Viterbi structure from train_haploid,
-extended with a static [P,P] ban mask. Only [B,P,P] is materialized per
-timestep (never [B,T,P,P]).
+Reuses the state-count-agnostic forward/Viterbi structure from train_haploid
+with a pair switch matrix. Only [B,P,P] is materialized per timestep (never
+[B,T,P,P]).
 
 Data: (N, T, K+2) — cols 0:K features, col K = H1, col K+1 = H2 (make_splits).
 
@@ -36,49 +37,47 @@ from torch.utils.data import Dataset, DataLoader
 from python.crf.train_crf import FounderPathEncoder
 from python.crf.train_haploid import make_splits
 
-BAN = 1e4  # additive penalty for a banned (two-chromosome-switch) transition
-
-
 # --------------------------------------------------------------------------- #
-#  Pair-state CRF — same recursion as haploid, plus a static [P,P] ban mask    #
+#  Pair-state CRF — state-count-agnostic recursion with a pair switch matrix.  #
+#  Transition cost -c*nsw, nsw in {0,1,2}: a two-chromosome switch costs        #
+#  exp(-2c) = exp(-c)^2, i.e. two INDEPENDENT chromosome switches (matches the  #
+#  generative sim). No hard ban — simultaneous switches are rare, not illegal.  #
 # --------------------------------------------------------------------------- #
 
 @torch.jit.script
 def _dcrf_nll(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
-              ban: torch.Tensor, stay_bonus: torch.Tensor,
-              tags: torch.Tensor) -> torch.Tensor:
-    """Pair-state CRF NLL. emis [B,T,P], c [B,T], nsw/ban/stay [P,P], tags [B,T]."""
+              stay_bonus: torch.Tensor, tags: torch.Tensor) -> torch.Tensor:
+    """Pair-state CRF NLL. emis [B,T,P], c [B,T], nsw/stay [P,P], tags [B,T]."""
     B, T, P = emis.shape
     stay_mask = (nsw == 0).float()
     a = emis[:, 0]
     for t in range(1, T):
-        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None] + ban[None]
+        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None]
         a = emis[:, t] + torch.logsumexp(a.unsqueeze(2) + tr_t, dim=1)
     log_Z = torch.logsumexp(a, dim=1)
 
     bi = torch.arange(B, device=emis.device)
     t_idx = torch.arange(T, device=emis.device)
     emis_score = emis[bi.unsqueeze(1), t_idx.unsqueeze(0), tags].sum(1)
-    # transition score along the true path (gathered per step)
+    # transition score along the true path: -c*nsw[prev,next] + stay where equal
     prev = tags[:, :-1]
     nxt = tags[:, 1:]
     nsw_path = nsw[prev, nxt]                                   # [B,T-1]
-    ban_path = ban[prev, nxt]
     stay_path = (nsw_path == 0).float()
-    tr_score = (-c[:, 1:] * nsw_path + stay_bonus * stay_path + ban_path).sum(1)
+    tr_score = (-c[:, 1:] * nsw_path + stay_bonus * stay_path).sum(1)
     return (log_Z - emis_score - tr_score).mean()
 
 
 @torch.jit.script
 def _dcrf_viterbi(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
-                  ban: torch.Tensor, stay_bonus: torch.Tensor) -> torch.Tensor:
+                  stay_bonus: torch.Tensor) -> torch.Tensor:
     """Pair-state Viterbi. emis [B,T,P] -> [B,T] pair indices."""
     B, T, P = emis.shape
     stay_mask = (nsw == 0).float()
     delta = emis[:, 0]
     bp = torch.zeros(T - 1, B, P, dtype=torch.long, device=emis.device)
     for t in range(1, T):
-        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None] + ban[None]
+        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None]
         sc = delta.unsqueeze(2) + tr_t
         best, idx = sc.max(dim=1)
         delta = emis[:, t] + best
@@ -95,7 +94,6 @@ def build_pair_tables(K):
       pi, pj      [P]      sorted member indices of each pair (i<=j)
       pair_table  [K,K]    (a,b) -> pair index (order-insensitive)
       nsw_pair    [P,P]    min #chromosome switches between pairs (0,1,2)
-      ban         [P,P]    BAN where nsw==2 else 0
     """
     pairs = [(i, j) for i in range(K) for j in range(i, K)]
     P = len(pairs)
@@ -113,8 +111,7 @@ def build_pair_tables(K):
         for q, (c, d) in enumerate(pairs):
             s = min((a != c) + (b != d), (a != d) + (b != c))
             nsw[p, q] = float(s)
-    ban = torch.where(nsw == 2, torch.full_like(nsw, BAN), torch.zeros_like(nsw))
-    return pi, pj, pair_table, nsw, ban
+    return pi, pj, pair_table, nsw
 
 
 # --------------------------------------------------------------------------- #
@@ -178,12 +175,11 @@ class GRITSCRFDiploid(pl.LightningModule):
                                           time_local_emis=time_local_emis)
         self.stay_bonus = nn.Parameter(torch.tensor(2.0))
 
-        pi, pj, pair_table, nsw, ban = build_pair_tables(K)
+        pi, pj, pair_table, nsw = build_pair_tables(K)
         self.register_buffer("pi", pi)
         self.register_buffer("pj", pj)
         self.register_buffer("pair_table", pair_table)
         self.register_buffer("nsw_pair", nsw)
-        self.register_buffer("ban", ban)
         self.P = pi.numel()
         n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"GRITSCRFDiploid: K={K} states, P={self.P} pair-states, "
@@ -205,7 +201,7 @@ class GRITSCRFDiploid(pl.LightningModule):
         X, h1, h2 = batch["input_embeds"], batch["h1"], batch["h2"]
         emis_p, g, c = self(X)
         tags = self._pair_labels(h1, h2)
-        crf = _dcrf_nll(emis_p, c, self.nsw_pair, self.ban, self.stay_bonus, tags)
+        crf = _dcrf_nll(emis_p, c, self.nsw_pair, self.stay_bonus, tags)
         loss = crf + self.gate_reg * (1.0 - g).mean()
         return loss, crf, g, c, emis_p, tags
 
@@ -218,7 +214,7 @@ class GRITSCRFDiploid(pl.LightningModule):
 
     @torch.no_grad()
     def _accuracy(self, emis_p, c, h1, h2):
-        pred = _dcrf_viterbi(emis_p, c, self.nsw_pair, self.ban, self.stay_bonus)
+        pred = _dcrf_viterbi(emis_p, c, self.nsw_pair, self.stay_bonus)
         pair_true = self.pair_table[h1, h2]
         pair_acc = (pred == pair_true).float().mean()
         # per-haplotype: both stored sorted (pi<=pj), compare to sorted truth
