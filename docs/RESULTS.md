@@ -121,6 +121,32 @@ Absolute recall is low for everyone (~0.25): many true switches sit in
 low/zero-coverage stretches where position is not identifiable at ±2.
 - **Branch:** `crf-relatedness`.
 
+### E1-maize stratified by window difficulty (`eval_stratified.py`, test split)
+
+Founder acc within bands of true breakpoints/window (full-test mean 5.65,
+median 2). **The CRF's win is entirely in low-recombination windows.**
+
+| stratum (true bp) | % win | crf-full | crf-d128 | crf-windowc | HMM | CRF−HMM |
+|---|---:|---:|---:|---:|---:|---:|
+| **[0,2] easy** | 55.4% | **0.802** | 0.793 | 0.796 | 0.673 | **+12.9** |
+| [3,5] medium | 16.0% | 0.608 | 0.595 | 0.582 | 0.601 | +0.7 |
+| [6+] hard | 28.6% | 0.490 | 0.472 | 0.456 | **0.509** | −1.9 |
+
+- **Easy windows (the majority): CRF ≫ HMM (+12.9).** The HMM **over-segments** —
+  in the [0,2] stratum it predicts **24,485** breakpoints vs the CRF's ~6,400,
+  hallucinating switches in near-constant windows (bp precision ±2: HMM 0.106 vs
+  CRF 0.27–0.34). The learned input-conditional `c` suppresses switching where
+  there is no evidence; the fixed Li–Stephens prior cannot.
+- **Hard windows (6+): HMM slightly wins** (0.509 vs 0.490), but both are ~0.5 —
+  the regime where the dense-switch "truth" is itself likely noisy/low-quality
+  (some windows have up to 166 labelled switches in 512 sites).
+- **The overall 0.682 vs 0.614 win is carried by the easy majority.** The CRF's
+  value is *not over-calling recombination*, not better tracking of rapid
+  switching. In the [0,2] band, per-window `c` gives the best bp precision
+  (0.340) and F1 (0.284) — conservatism is an asset when few switches exist —
+  yet per-site `c` still edges it on founder acc (0.802 vs 0.796).
+- **Branch:** `crf-relatedness`.
+
 ## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
 
 **Not a scored E1 result.** A controlled architecture probe on
