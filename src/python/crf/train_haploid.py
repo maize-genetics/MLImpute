@@ -249,7 +249,8 @@ class GRITSCRFHaploid(pl.LightningModule):
 
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=3e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
-                 warmup_steps=0, recomb_aux_weight=0.0):
+                 warmup_steps=0, recomb_aux_weight=0.0, window_c=False,
+                 no_transition=False):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
@@ -258,11 +259,19 @@ class GRITSCRFHaploid(pl.LightningModule):
         self.gate_reg = gate_reg
         self.warmup_steps = warmup_steps
         self.recomb_aux_weight = recomb_aux_weight
+        self.no_transition = no_transition
 
         K = num_parents + 1  # +1 for unknown state
         self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
-                                          time_local_emis=time_local_emis)
+                                          time_local_emis=time_local_emis,
+                                          window_c=window_c)
         self.crf = NeuralCRF()
+        if no_transition:
+            # Pure per-site emission classifier: zero & freeze the switch terms
+            # so tr_t == 0 (Viterbi → per-site argmax; partition → independent
+            # softmax). c is also zeroed at decode/score time (see decode()).
+            nn.init.zeros_(self.crf.stay_bonus)
+            self.crf.stay_bonus.requires_grad_(False)
 
         # nsw[i,j] = number of haplotype switches between state i and state j.
         # For haploid K states: 0 if i==j, 1 otherwise.
@@ -280,10 +289,21 @@ class GRITSCRFHaploid(pl.LightningModule):
         emis_f, g, c = self.encoder(X_pad, founder_mask)  # emis_f [B,T,K]
         return emis_f, g, c
 
+    def _c_eff(self, c):
+        """Transition cost actually used by the CRF: zeroed for the
+        no-transition arm so the model is a pure per-site emission classifier."""
+        return torch.zeros_like(c) if self.no_transition else c
+
+    @torch.no_grad()
+    def decode(self, emis_f, c):
+        """Viterbi path, respecting the no_transition arm. Shared by validation
+        and the standalone test evaluator so all decoding paths are identical."""
+        return self.crf.viterbi(emis_f, self._c_eff(c), self.nsw)
+
     def _step(self, batch):
         X, tags = batch["input_embeds"], batch["labels"]
         emis_f, g, c = self(X)
-        crf_loss = self.crf.nll(emis_f, c, self.nsw, tags)
+        crf_loss = self.crf.nll(emis_f, self._c_eff(c), self.nsw, tags)
         gate_loss = self.gate_reg * (1.0 - g).mean()
         loss = crf_loss + gate_loss
         # Auxiliary supervision: push c_t to anti-correlate with the hidden recomb
@@ -309,7 +329,7 @@ class GRITSCRFHaploid(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         loss, crf_loss, g, c, emis_f, corr = self._step(batch)
         tags = batch["labels"]
-        pred = self.crf.viterbi(emis_f, c, self.nsw)
+        pred = self.decode(emis_f, c)
         acc = (pred == tags).float().mean()
         self.log("val/loss", loss, prog_bar=True)
         self.log("val/crf_loss", crf_loss)
@@ -376,6 +396,14 @@ def main():
     p.add_argument("--gate-reg",    type=float, default=0.05)
     p.add_argument("--time-local-emis", action="store_true",
                    help="Per-site founder emission key (for within-window founder switches)")
+    p.add_argument("--window-c", action="store_true",
+                   help="Single transition potential per window (pool features "
+                        "over T) instead of a per-site c_t.")
+    p.add_argument("--no-transition", action="store_true",
+                   help="Disable transition potentials (stay_bonus=0, c=0): the "
+                        "CRF reduces to a per-site emission classifier.")
+    p.add_argument("--run-name", default="e1-haploid",
+                   help="Sub-dir name for checkpoints and TB logs (one per arm).")
     p.add_argument("--warmup-steps", type=int, default=0,
                    help="Linear LR warmup steps (0 = plateau scheduler)")
     p.add_argument("--recomb-aux-weight", type=float, default=0.0,
@@ -392,7 +420,7 @@ def main():
     args = p.parse_args()
 
     workdir = Path(args.workdir)
-    ckpt_dir = workdir / "checkpoints" / "e1-haploid"
+    ckpt_dir = workdir / "checkpoints" / args.run_name
     log_dir  = workdir / "logs"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -426,6 +454,8 @@ def main():
         time_local_emis=args.time_local_emis,
         warmup_steps=args.warmup_steps,
         recomb_aux_weight=args.recomb_aux_weight,
+        window_c=args.window_c,
+        no_transition=args.no_transition,
     )
 
     callbacks = [
@@ -437,7 +467,7 @@ def main():
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         callbacks=callbacks,
-        logger=TensorBoardLogger(str(log_dir), name="e1-haploid"),
+        logger=TensorBoardLogger(str(log_dir), name=args.run_name),
         accelerator="auto",
         devices=args.devices,
         precision=args.precision,

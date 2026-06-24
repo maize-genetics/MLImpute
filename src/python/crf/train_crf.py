@@ -156,10 +156,11 @@ class LabeledDatasetDiploid(Dataset):
 
 class FounderPathEncoder(nn.Module):
     def __init__(self, d_model=128, n_heads=4, n_layers=4, ext_dim=0,
-                 time_local_emis=False):
+                 time_local_emis=False, window_c=False):
         super().__init__()
         self.d_model = d_model
         self.time_local_emis = time_local_emis
+        self.window_c = window_c
         self.cell = nn.Sequential(nn.Linear(1, d_model), nn.GELU(),
                                   nn.Linear(d_model, d_model))
         self.ext = nn.Linear(ext_dim, d_model) if ext_dim > 0 else None
@@ -219,7 +220,13 @@ class FounderPathEncoder(nn.Module):
         if dbp is None:
             dbp = torch.ones(B, T, 1, device=X.device)
         feats = torch.cat([H, depth, ent, torch.log1p(dbp)], dim=-1)
-        c = F.softplus(self.recomb_head(feats)).squeeze(-1)
+        if self.window_c:
+            # Single transition potential per window: pool features over T, emit
+            # one c, broadcast back to [B,T]. The CRF still receives [B,T].
+            c = F.softplus(self.recomb_head(feats.mean(dim=1))).squeeze(-1)  # [B]
+            c = c.unsqueeze(1).expand(B, T)
+        else:
+            c = F.softplus(self.recomb_head(feats)).squeeze(-1)              # [B,T]
         return emis, g, c
 
     def _entropy(self, emis, founder_mask):
