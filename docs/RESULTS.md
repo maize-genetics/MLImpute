@@ -17,6 +17,7 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 | **E1-probe-coal** | **CRF, coalescent mini-hap SFS (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.863** | — | — | — | — | ~5.0 it/s |
 | **E2-probe-coal** | **CRF, coalescent + variable recomb (span 100)** | 5.07M | **0.833**‡ | — | Spearman(c_t,rate) **+0.002** | — | — | ~5.0 it/s |
 | **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 5)** | 5.07M | **0.835**§ | — | val recomb_corr **+0.005** (no change) | — | — | ~5.0 it/s |
+| **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 200)** | 5.07M | **0.838** | — | Spearman(c_t,rate) **−0.001** (no change) | — | — | ~5.0 it/s |
 | E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
 | E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
 
@@ -187,4 +188,29 @@ to switch) can break the `c_t`-collapses-to-a-constant failure mode. It does not
     --max-epochs 3 --recomb-aux-weight 5.0
   ```
 - **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/...ckpt`
+- **Branch:** `crf-relatedness`.
+
+### E2b retry — larger aux weight (200) + stability (2026-06-24)
+
+Follow-up to the weight-5 null: a smoke sweep (`sweep_recomb_aux.py`, 300 steps,
+3k windows) showed the aux loss *can* break the constant-`c` collapse — `c`'s
+spatial sd rose with weight (0.09→0.51 at w=500) — but `recomb_corr` saturated at
+≈−0.02 by weight 50, i.e. the added variance is not aligned with the rate. Full
+run at **weight 200** (`version_13`, 3 epochs, same recipe):
+
+- **val/acc:** 0.288 → 0.834 → 0.838 — **stable** this time (the higher weight
+  removed the alternating-epoch divergence seen at weight 5).
+- **val/recomb_corr:** 0.0008 / 0.0033 / 0.0001 — still pinned at ~0.
+- **eval_recomb.py (2k held-out):** `c_t` mean 6.187, **sd 0.016** (collapsed
+  again on held-out data), **Spearman(c_t, rate) = −0.0005**, cold−hot decile gap
+  0.000. The training-time `c` variance was overfitting, not rate-tracking.
+- **Verdict:** a corr-based auxiliary loss does **not** make `c_t` track the
+  hidden rate at any weight tried (5–500). Raising the weight only adds
+  unaligned variance (and, usefully, stabilizes training). The bottleneck is
+  upstream — the hot/cold feature contrast is too weak (match-persist gap 0.023,
+  E2-probe-coal). Next levers should target the *features*: larger `--recomb-span`
+  / smaller `--recomb-tile` for sharper hot/cold contrast, or a direct per-site
+  rate-regression head supervised against the hidden track, before retrying the
+  transition-cost coupling.
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/loss=13.514.ckpt`
 - **Branch:** `crf-relatedness`.
