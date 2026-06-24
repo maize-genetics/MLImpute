@@ -14,6 +14,7 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 | E1-probe | CRF, window-avg emis (fp16, lr 3e-4) | 5.07M | 0.419 | — | — | — | — | ~5.1 it/s |
 | E1-probe | CRF, time-local emis (fp16, lr 3e-4) | 5.07M | 0.04–0.21† | — | — | — | — | ~5.1 it/s |
 | **E1-probe** | **CRF, time-local emis (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.990** | — | — | — | — | ~5.1 it/s |
+| **E1-probe-coal** | **CRF, coalescent mini-hap SFS (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.863** | — | — | — | — | ~5.0 it/s |
 | E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
 | E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
 
@@ -60,3 +61,39 @@ true H1 path), not the §4.3 panel-masked metric.
   ```
 - **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=00-val/loss=9.466.ckpt`
 - **Commit:** `ce381d5` (branch `crf-relatedness`).
+
+---
+
+## E1-probe-coal — Coalescent mini-haplotype (SFS) sim (2026-06-23)
+
+**Not a scored E1 result.** Same encoder probe as E1-probe, but on the harder
+**coalescent mini-haplotype** features (`--sharing-model coalescent`): each site is a
+150bp read of `read_snps=8` biallelic SNPs (per-SNP derived freq ~ Beta(0.3, 1) SFS),
+and a founder "matches" only on an exact full-read agreement. Founders are mosaics of
+`ancestors=6` ancestral lineages, so they share haplotype tracts by descent — real
+LD + founder relatedness rather than per-site independent sharing.
+
+- **Data:** `data/training/sim_coal.npy` — 100k × 512 × 26 (K=24 + H1 + H2),
+  `inbreeding=1.0`, crossovers 2–10/window. True-founder match **0.964** (per-site
+  oracle ceiling); **match LD lag-1 = 0.436** (vs ≈0 for the independent sim) —
+  confirms the reads form allele-sharing tracts. Split 80k/10k/10k.
+- **Model:** `GRITSCRFHaploid`, d=256, L=6, 5.07M params, K=25 states. 3 epochs,
+  time-local emis, bf16-mixed, lr 1e-4, warmup 500.
+- **Result:** val acc **0.863** (epoch 2, best `val/loss=11.169`). Below the 0.99 of
+  the independent sim and the 0.964 per-site oracle — expected: relatedness makes
+  multiple founders match the same read, so the true founder is no longer point-wise
+  identifiable and the model must lean on temporal continuity. This is the intended
+  harder, more realistic setting for the relatedness work.
+- **Fix applied:** `simulate_alleles.py` was missing the `--read-snps` CLI flag and
+  the `main()→simulate()` call dropped the `read_snps` positional, shifting
+  `error_block` into the read-length slot (a float → `rng.beta` crash). Both fixed.
+- **Repro:**
+  ```bash
+  pixi run -- python src/python/crf/simulate_alleles.py --workdir /workdir/esb33 \
+    --windows 100000 --sharing-model coalescent --out sim_coal.npy
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_coal.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 3
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/loss=11.169.ckpt`
+- **Branch:** `crf-relatedness` (sim fix + run uncommitted at time of writing).

@@ -189,11 +189,15 @@ def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float):
     data = np.load(path, allow_pickle=True, mmap_mode="r")
     N = len(data)
     ncol = data.shape[-1]
-    if ncol not in (num_parents + 1, num_parents + 2):
+    if ncol not in (num_parents + 1, num_parents + 2, num_parents + 3):
         raise ValueError(
             f"{Path(path).name} has {ncol} cols; expected K+1={num_parents + 1} "
-            f"(haploid) or K+2={num_parents + 2} (diploid) for K={num_parents}")
-    layout = "diploid (predicting H1)" if ncol == num_parents + 2 else "haploid"
+            f"(haploid), K+2={num_parents + 2} (diploid), or K+3={num_parents + 3} "
+            f"(diploid + recomb track) for K={num_parents}")
+    layout = {num_parents + 1: "haploid",
+              num_parents + 2: "diploid (predicting H1)",
+              num_parents + 3: "diploid + hidden recomb track (eval-only, "
+                               "cols>K+1 not fed to model)"}[ncol]
     n_test  = int(N * test_frac)
     n_val   = int(N * val_frac)
     n_train = N - n_val - n_test
