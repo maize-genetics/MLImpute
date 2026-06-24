@@ -209,8 +209,11 @@ class PreWindowedHaploidDataset(Dataset):
         return out
 
 
-def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float):
+def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float,
+                limit_n: int = 0):
     data = np.load(path, allow_pickle=True, mmap_mode="r")
+    if limit_n and limit_n < len(data):
+        data = data[:limit_n]  # file is pre-shuffled; head slice is a random subset
     N = len(data)
     ncol = data.shape[-1]
     if ncol not in (num_parents + 1, num_parents + 2, num_parents + 3):
@@ -354,6 +357,9 @@ def main():
                    help="Pre-windowed (N,512,25) .npy file; uses 80/10/10 sequential split")
     p.add_argument("--val-frac",    type=float, default=0.10)
     p.add_argument("--test-frac",   type=float, default=0.10)
+    p.add_argument("--limit-n",     type=int, default=0,
+                   help="Cap total observations before splitting (0 = all). "
+                        "File is pre-shuffled, so this is a random subset.")
     # Legacy per-file mode
     p.add_argument("--data-dir",    default="/workdir/smm477/ML-data/training")
     p.add_argument("--val-chr",     default="10")
@@ -393,7 +399,8 @@ def main():
 
     if args.data:
         train_ds, val_ds, _ = make_splits(
-            args.data, args.num_parents, args.val_frac, args.test_frac)
+            args.data, args.num_parents, args.val_frac, args.test_frac,
+            limit_n=args.limit_n)
     else:
         train_files, val_files = list_inbred_files(args.data_dir, args.val_chr)
         print(f"Train files: {len(train_files)}  |  Val files (chr{args.val_chr}): {len(val_files)}")
