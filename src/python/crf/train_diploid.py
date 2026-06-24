@@ -161,7 +161,7 @@ def make_diploid_splits(path, num_parents, val_frac, test_frac, limit_n=0):
 class GRITSCRFDiploid(pl.LightningModule):
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=1e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
-                 warmup_steps=0):
+                 warmup_steps=0, homo_penalty=0.0):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
@@ -169,6 +169,7 @@ class GRITSCRFDiploid(pl.LightningModule):
         self.weight_decay = weight_decay
         self.gate_reg = gate_reg
         self.warmup_steps = warmup_steps
+        self.homo_penalty = homo_penalty
 
         K = num_parents + 1                          # +1 unknown, matches encoder
         self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
@@ -180,6 +181,11 @@ class GRITSCRFDiploid(pl.LightningModule):
         self.register_buffer("pj", pj)
         self.register_buffer("pair_table", pair_table)
         self.register_buffer("nsw_pair", nsw)
+        # Het prior: with one read/site the emission emis_f[i]+emis_f[j] is
+        # maximized by the homozygous pair of the observed founder, so without a
+        # counter-force the decode collapses to all-homozygous. Subtract a
+        # constant from homozygous pair-states (i==j), matching diploid_hmm.
+        self.register_buffer("homo_mask", (pi == pj).float())
         self.P = pi.numel()
         n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"GRITSCRFDiploid: K={K} states, P={self.P} pair-states, "
@@ -192,6 +198,8 @@ class GRITSCRFDiploid(pl.LightningModule):
         founder_mask = torch.ones(B, K, device=X.device)
         emis_f, g, c = self.encoder(X_pad, founder_mask)         # [B,T,K]
         emis_p = emis_f[..., self.pi] + emis_f[..., self.pj]     # [B,T,P]
+        if self.homo_penalty != 0.0:
+            emis_p = emis_p - self.homo_penalty * self.homo_mask
         return emis_p, g, c
 
     def _pair_labels(self, h1, h2):
@@ -263,6 +271,9 @@ def parse_args():
     p.add_argument("--gate-reg", type=float, default=0.05)
     p.add_argument("--time-local-emis", action="store_true")
     p.add_argument("--warmup-steps", type=int, default=0)
+    p.add_argument("--homo-penalty", type=float, default=0.0,
+                   help="Subtract from homozygous pair emissions (het prior); "
+                        "counters the all-homozygous collapse of single-read diploid.")
     p.add_argument("--precision", default="bf16-mixed")
     p.add_argument("--max-epochs", type=int, default=5)
     p.add_argument("--patience", type=int, default=10)
@@ -290,7 +301,8 @@ def main():
     model = GRITSCRFDiploid(
         num_parents=args.num_parents, d_model=args.d_model, n_heads=args.n_heads,
         n_layers=args.n_layers, lr=args.lr, gate_reg=args.gate_reg,
-        time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps)
+        time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps,
+        homo_penalty=args.homo_penalty)
 
     callbacks = [
         ModelCheckpoint(dirpath=str(ckpt_dir), monitor="val/loss", mode="min",
