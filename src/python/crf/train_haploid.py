@@ -85,6 +85,22 @@ def _crf_viterbi(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
     return path
 
 
+def _window_corr(c: torch.Tensor, log_rate: torch.Tensor) -> torch.Tensor:
+    """Mean per-window Pearson correlation between transition cost c_t and the
+    (log) hidden recombination rate. Site 0 is dropped (no transition there),
+    matching eval_recomb.py. Scale/shift-invariant in c, so it supervises the
+    *ranking* (hot ⇒ cheap to switch) without pinning c's absolute scale.
+    Minimizing the returned value drives c_t → anti-correlated with the rate.
+    """
+    c = c[:, 1:]
+    r = log_rate[:, 1:]
+    cc = c - c.mean(1, keepdim=True)
+    rr = r - r.mean(1, keepdim=True)
+    num = (cc * rr).sum(1)
+    den = torch.sqrt((cc * cc).sum(1) * (rr * rr).sum(1) + 1e-8)
+    return (num / (den + 1e-8)).mean()
+
+
 class NeuralCRF(nn.Module):
     def __init__(self):
         super().__init__()
@@ -172,17 +188,25 @@ class PreWindowedHaploidDataset(Dataset):
     def __init__(self, data: np.ndarray, num_parents: int = 24):
         self.data = data
         self.K = num_parents
+        # K+3 layout carries the hidden true recomb rate in col K+2. It is NEVER a
+        # model input; exposed here only as an auxiliary training target for c_t.
+        self.has_rate = data.shape[-1] == num_parents + 3
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        row = self.data[idx]                                    # (T, K+1 or K+2)
+        row = self.data[idx]                                    # (T, K+1 / K+2 / K+3)
         features = torch.tensor(row[:, :self.K], dtype=torch.float32)
         labels = row[:, self.K].astype(np.int64)               # col K = H1 path
         labels = np.clip(labels, 0, self.K)                    # noise >= K → unknown
-        return {"input_embeds": features,
-                "labels": torch.tensor(labels, dtype=torch.long)}
+        out = {"input_embeds": features,
+               "labels": torch.tensor(labels, dtype=torch.long)}
+        if self.has_rate:
+            rate = row[:, self.K + 2].astype(np.float32)       # hidden true rate
+            out["log_rate"] = torch.tensor(
+                np.log(np.clip(rate, 1.0, None)), dtype=torch.float32)
+        return out
 
 
 def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float):
@@ -222,7 +246,7 @@ class GRITSCRFHaploid(pl.LightningModule):
 
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=3e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
-                 warmup_steps=0):
+                 warmup_steps=0, recomb_aux_weight=0.0):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
@@ -230,6 +254,7 @@ class GRITSCRFHaploid(pl.LightningModule):
         self.weight_decay = weight_decay
         self.gate_reg = gate_reg
         self.warmup_steps = warmup_steps
+        self.recomb_aux_weight = recomb_aux_weight
 
         K = num_parents + 1  # +1 for unknown state
         self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
@@ -257,19 +282,29 @@ class GRITSCRFHaploid(pl.LightningModule):
         emis_f, g, c = self(X)
         crf_loss = self.crf.nll(emis_f, c, self.nsw, tags)
         gate_loss = self.gate_reg * (1.0 - g).mean()
-        return crf_loss + gate_loss, crf_loss, g, c, emis_f
+        loss = crf_loss + gate_loss
+        # Auxiliary supervision: push c_t to anti-correlate with the hidden recomb
+        # rate (target only — the rate is never fed into the forward pass). corr in
+        # [-1,1]; minimizing it drives hot regions toward low switch cost.
+        corr = c.new_zeros(())
+        if "log_rate" in batch:
+            corr = _window_corr(c, batch["log_rate"])
+            if self.recomb_aux_weight > 0:
+                loss = loss + self.recomb_aux_weight * corr
+        return loss, crf_loss, g, c, emis_f, corr
 
     def training_step(self, batch, batch_idx):
-        loss, crf_loss, g, c, _ = self._step(batch)
+        loss, crf_loss, g, c, _, corr = self._step(batch)
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/crf_loss", crf_loss)
         self.log("train/gate", g.mean())
         self.log("train/recomb", c.mean())
+        self.log("train/recomb_corr", corr, prog_bar=True)
         self.log("train/stay_bonus", self.crf.stay_bonus)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, crf_loss, g, c, emis_f = self._step(batch)
+        loss, crf_loss, g, c, emis_f, corr = self._step(batch)
         tags = batch["labels"]
         pred = self.crf.viterbi(emis_f, c, self.nsw)
         acc = (pred == tags).float().mean()
@@ -277,6 +312,7 @@ class GRITSCRFHaploid(pl.LightningModule):
         self.log("val/crf_loss", crf_loss)
         self.log("val/acc", acc, prog_bar=True)
         self.log("val/gate", g.mean())
+        self.log("val/recomb_corr", corr, prog_bar=True)
         return loss
 
     def configure_optimizers(self):
@@ -336,6 +372,11 @@ def main():
                    help="Per-site founder emission key (for within-window founder switches)")
     p.add_argument("--warmup-steps", type=int, default=0,
                    help="Linear LR warmup steps (0 = plateau scheduler)")
+    p.add_argument("--recomb-aux-weight", type=float, default=0.0,
+                   help="Weight on the recomb_head auxiliary loss: per-window "
+                        "Pearson corr(c_t, hidden log-rate), minimized so c_t "
+                        "anti-correlates with the rate. Needs the K+3 layout "
+                        "(--recomb-span>1 sim). 0 = off.")
     p.add_argument("--precision",   default="bf16-mixed",
                    help="Lightning precision (bf16-mixed avoids fp16 logsumexp overflow)")
     p.add_argument("--max-epochs",  type=int, default=50)
@@ -377,6 +418,7 @@ def main():
         gate_reg=args.gate_reg,
         time_local_emis=args.time_local_emis,
         warmup_steps=args.warmup_steps,
+        recomb_aux_weight=args.recomb_aux_weight,
     )
 
     callbacks = [

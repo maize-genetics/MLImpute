@@ -16,11 +16,15 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 | **E1-probe** | **CRF, time-local emis (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.990** | — | — | — | — | ~5.1 it/s |
 | **E1-probe-coal** | **CRF, coalescent mini-hap SFS (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.863** | — | — | — | — | ~5.0 it/s |
 | **E2-probe-coal** | **CRF, coalescent + variable recomb (span 100)** | 5.07M | **0.833**‡ | — | Spearman(c_t,rate) **+0.002** | — | — | ~5.0 it/s |
+| **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 5)** | 5.07M | **0.835**§ | — | val recomb_corr **+0.005** (no change) | — | — | ~5.0 it/s |
 | E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
 | E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
 
 ‡ best epoch (epoch 1) val acc; the run became unstable and diverged at epoch 2
 (train loss bouncing 11↔58, val acc → 0.04). Reported from the epoch-1 checkpoint.
+
+§ best epoch (epoch 2) val acc; same alternating-epoch instability (val acc
+0.815 / 0.10 / 0.835 / 0.04 at val steps 1–4). Reported from the best epoch.
 
 † diverged mid-training (fp16 overflow in the CRF partition `logsumexp`); val acc
 decayed to random by epoch 1. Listed to document the failure mode, not as a result.
@@ -142,3 +146,45 @@ the transition cost `c_t`. Evaluated with `eval_recomb.py` on the epoch-1 checkp
   ```
 - **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=01-val/loss=15.044.ckpt`
 - **Branch:** `crf-relatedness` (uncommitted at time of writing).
+
+---
+
+## E2b-probe-coal — recomb_head auxiliary loss on c_t (2026-06-24)
+
+**Negative result.** Direct follow-up to E2-probe-coal: add an explicit auxiliary
+loss that pushes the inferred transition cost `c_t` to anti-correlate with the
+hidden recombination rate, testing whether *supervising the ranking* (hot ⇒ cheap
+to switch) can break the `c_t`-collapses-to-a-constant failure mode. It does not.
+
+- **Mechanism:** `_window_corr(c, log_rate)` = mean per-window Pearson corr between
+  `c_t` and the (log) hidden rate, added to the loss as `recomb_aux_weight * corr`
+  (minimizing it should drive `corr → −1`). Scale/shift-invariant in `c`, so it
+  supervises only the *shape*, never `c`'s absolute scale. The hidden rate is an
+  **auxiliary target only** — `PreWindowedHaploidDataset` exposes it as `log_rate`
+  (col K+2 of the K+3 layout) and it is **never** fed into the forward pass.
+- **Data:** `data/training/sim_coal_e2.npy` (same as E2-probe-coal).
+- **Train:** E1-probe-coal recipe + `--recomb-aux-weight 5.0`. 3 epochs, bf16,
+  lr 1e-4, warmup 500. (`version_12`; `version_11` was a smoke run on the small file.)
+- **Result (TensorBoard `version_12`):**
+  - `val/recomb_corr`: 0.0014 → 0.0016 → 0.0055 → 0.0017 — **never moves off zero.**
+  - `train/recomb_corr`: bounces −0.035…+0.066 with no downward trend — the
+    minimized term exerts no effective pressure.
+  - `train/recomb` (mean `c`): drifts 4.2 → 6.9 (only the *scale* moves; the
+    spatial structure does not).
+  - `val/acc`: 0.815 / 0.10 / 0.835 / 0.04 — same alternating-epoch instability as
+    E2-probe-coal (best 0.835 at epoch 2).
+- **Why it failed (hypothesis):** the aux term is numerically negligible. With
+  `corr ≈ O(0.01)` and weight 5, it contributes ≈0.05 to a CRF loss of ≈14 — three
+  orders of magnitude too small to reshape `c_t`. A constant `c` remains a loss
+  minimum the optimizer is happy to sit in. Next: a far larger weight (100–500)
+  and/or a gradient-magnitude-matched formulation, plus stabilization for the
+  alternating-epoch divergence.
+- **Repro:**
+  ```bash
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_coal_e2.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed \
+    --max-epochs 3 --recomb-aux-weight 5.0
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/...ckpt`
+- **Branch:** `crf-relatedness`.
