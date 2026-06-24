@@ -147,6 +147,40 @@ median 2). **The CRF's win is entirely in low-recombination windows.**
   yet per-site `c` still edges it on founder acc (0.802 vs 0.796).
 - **Branch:** `crf-relatedness`.
 
+## E4-probe — Diploid pair-state CRF on interleaved single-gamete reads (2026-06-24)
+
+**First diploid result.** Joint pair-state decode over P=K(K+1)/2=325 unordered
+founder pairs on the shared `FounderPathEncoder` (`train_diploid.py`).
+emis_p[(i,j)] = emis_f[i]+emis_f[j]; transition cost −c·nsw, nsw∈{0,1,2} (a
+two-chromosome switch costs exp(−c)², i.e. two independent switches — matches the
+sim; no hard ban). Only [B,P,P] materialized per step. Throughput 4.3 it/s,
+23 GB at d256/L6/B64.
+
+- **Data:** `sim_diploid_512.npy` — 100k × 512 × 26, **outbred (F=0)**, coalescent
+  relatedness, ≤4 crossovers/gamete (~146-site blocks). New diploid sim mode:
+  each site is ONE read from a random gamete (`--gamete-balance`), so reads
+  alternate between two independent paths and the model must phase them; the
+  hidden gamete has no per-site signal (97% het sites).
+- **Result (held-out test, penalty 3, 5 epochs):** **pair_acc 0.614**
+  (full diploid pair exactly right), **hap_acc 0.743** (per-haplotype, sorted).
+- **Two bugs fixed (instructive):**
+  1. A hard two-switch *ban* was both sign-inverted (rewarded double-switches,
+     loss → ~5M) and conceptually wrong for independent H1/H2. Removed.
+  2. **Homozygous collapse:** with one read/site, emis_f[i]+emis_f[j] is maximized
+     by the homozygous pair (a,a)=2·emis_f[a] of the *observed* founder, so decode
+     went 100% homozygous (true het 97%), recovering only the observed gamete
+     (pair_acc 0.04, hap_acc 0.46). A homozygous penalty / het prior
+     (`--homo-penalty`, matching `diploid_hmm`) fixes it: penalty 3 → pair_acc
+     0.04→0.61, hap_acc 0.46→0.74, predicted-homozygous 100%→0.1%. Penalty 6
+     ≈ tied; 3 marginally better.
+- **Repro:** `train_diploid.py --data sim_diploid_512.npy --time-local-emis
+  --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 5
+  --homo-penalty 3 --run-name diploid-h3`
+- **Open:** diploid HMM baseline (the `diploid_hmm` exists) for a head-to-head;
+  window 1024; per-coverage stratification. **Branch:** `crf-relatedness`.
+
+---
+
 ## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
 
 **Not a scored E1 result.** A controlled architecture probe on
