@@ -20,10 +20,10 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 | **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 200)** | 5.07M | **0.838** | — | Spearman(c_t,rate) **−0.001** (no change) | — | — | ~5.0 it/s |
 | E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
 | E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
-| **E1-maize** | **HMM Li–Stephens baseline** (best p_stay .995/w .5) | ~0 | **0.614** | — | — | — | — | — |
-| **E1-maize** | **CRF full (per-site c, d256/L6)** | 5.07M | **0.682** | — | — | — | — | ~7 it/s |
-| **E1-maize** | **CRF small (d128/L4)** | 0.88M | **0.669** | — | — | — | — | — |
-| **E1-maize** | **CRF per-window c (d256/L6)** | 5.07M | **0.665** | — | — | — | — | — |
+| **E1-maize** | **HMM Li–Stephens baseline** (best p_stay .995/w .5) | ~0 | **0.614** | — | 0.33/0.20 (F1 .25) | — | — | — |
+| **E1-maize** | **CRF full (per-site c, d256/L6)** | 5.07M | **0.682** | — | **0.59/0.25 (F1 .35)** | — | — | ~7 it/s |
+| **E1-maize** | **CRF small (d128/L4)** | 0.88M | **0.669** | — | 0.59/0.24 (F1 .34) | — | — | — |
+| **E1-maize** | **CRF per-window c (d256/L6)** | 5.07M | **0.665** | — | 0.59/0.19 (F1 .29) | — | — | — |
 | **E1-maize** | **CRF large (d384/L12)** | 22M | **0.662**¶ | — | — | — | — | — |
 | **E1-maize** | **CRF no-transition (d256/L6)** | 5.07M | **0.284** | — | — | — | — | — |
 
@@ -94,6 +94,31 @@ test split** (`eval_test.py`); HMM scored on the same split (`eval_hmm.py`).
   `unknown` 25th CRF state never matches a label (labels 0–23) so costs the CRF a
   hair vs the HMM's 24 states. Not a headline mean±sd vs HMM (that needs ≥3 seeds,
   PLAN §8).
+- **Branch:** `crf-relatedness`.
+
+### E1-maize breakpoint precision/recall (`metrics.py`, test split)
+
+A breakpoint = a site where the path switches founders. Predicted vs true switch
+positions, position tolerance ±tol (`eval_test.py`/`eval_hmm.py`, true bp =
+141,229 over the 25k windows ≈ 5.6/window).
+
+| Model | bp predicted | P (±2) | R (±2) | F1 (±2) | F1 (±0) |
+|---|---:|---:|---:|---:|---:|
+| **CRF full (per-site c)** | 45,551 | 0.587 | **0.250** | **0.351** | 0.153 |
+| CRF small (d128/L4) | 42,970 | 0.588 | 0.236 | 0.337 | 0.149 |
+| CRF per-window c | 35,233 | 0.594 | 0.190 | 0.288 | 0.133 |
+| HMM Li–Stephens | 76,789 | 0.333 | 0.203 | 0.252 | 0.119 |
+
+**This is where learned transitions show their biggest edge.** The CRF's F1 is
+~1.4× the HMM's (0.351 vs 0.252 at ±2) and its precision ~1.76× (0.587 vs 0.333):
+the HMM **over-fires** switches (77k predicted, low precision) while the CRF
+predicts ~40% fewer yet recovers more true ones. All CRF arms share ~0.59
+precision; **recall** is what separates them — and per-window `c` has the lowest
+(0.190) because a single window-level switch cost can't be lowered *at* a
+breakpoint, so it under-fires. Per-site `c` recovers more switches at equal
+precision (R 0.250 vs 0.190) — the mechanistic reason it wins on founder acc.
+Absolute recall is low for everyone (~0.25): many true switches sit in
+low/zero-coverage stretches where position is not identifiable at ±2.
 - **Branch:** `crf-relatedness`.
 
 ## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
