@@ -16,7 +16,17 @@ q = (p*K - 1) / (K - 1), so the expected fraction of matching founders is p.
 
 Inbreeding coefficient F controls haplotype identity: with probability F the two
 haplotypes (H1, H2) share one path (fully inbred when F=1); otherwise H2 is an
-independent path and a founder matches if it equals either H1 or H2.
+independent path.
+
+Diploid read sampling: each of the T positions is ONE read drawn from a single
+gamete — H1's chromosome with prob `--gamete-balance`, else H2's. The site's
+feature is the allele-match pattern of that one gamete's founder only (not both).
+So in an outbred window (F=0) consecutive reads alternate between two independent
+founder paths, and the model must disentangle the interleaved sharing patterns
+using continuity within each path. Hemizygosity/allele-dropout is intrinsic (only
+one chromosome is seen per site); `--bad-frac` adds explicit corrupt/missing
+reads. When F=1 (h1==h2) the active founder is identical for both gametes, so the
+output is unchanged from the haploid layout (backward compatible).
 
 Recombination-rate heterogeneity (E2): with --recomb-span > 1 the breakpoints are
 placed proportional to a per-window, per-site recombination-rate map that is
@@ -124,7 +134,7 @@ def _good_mask(rng, n, T, bad_frac, block):
 
 
 def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
-                      h1, h2, rate, good):
+                      h1, h2, rate, good, gamete):
     """Mini-haplotype (read) match features [n, T, K] from a coalescent panel.
 
     Each founder is a piecewise-constant mosaic over A ancestral lineages
@@ -153,14 +163,14 @@ def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
     G = anc_alleles[wi, anc_path, ti]                   # [n,K,T,L] mini-haplotypes
     ii = np.arange(n)[:, None]
     tt = np.arange(T)[None, :]
-    S1 = G[ii, h1, tt]                                  # sample reads [n,T,L]
-    S2 = G[ii, h2, tt]
-    bad = ~good                                         # corrupt the whole read in tracts
+    # One read per site, sampled from the active gamete (H1 if gamete else H2).
+    active = np.where(gamete, h1, h2)                   # [n,T]
+    Sa = G[ii, active, tt]                              # active mini-hap read [n,T,L]
+    bad = ~good                                         # dropout/corrupt whole read in tracts
     fz = f[:, 0]                                        # [n,T,L]
-    S1 = np.where(bad[:, :, None], (rng.random((n, T, L)) < fz).astype(np.int8), S1)
-    S2 = np.where(bad[:, :, None], (rng.random((n, T, L)) < fz).astype(np.int8), S2)
+    Sa = np.where(bad[:, :, None], (rng.random((n, T, L)) < fz).astype(np.int8), Sa)
 
-    match = (G == S1[:, None]).all(-1) | (G == S2[:, None]).all(-1)   # [n,K,T]
+    match = (G == Sa[:, None]).all(-1)                  # [n,K,T] exact full-read match
     return np.transpose(match, (0, 2, 1)).astype(np.int8)
 
 
@@ -168,7 +178,7 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
              inbreeding, allele_sharing, bad_frac, recomb_span=1.0,
              recomb_tile=64, sharing_model="independent", ancestors=6,
              ancestor_crossovers=8, derived_sfs=0.3, read_snps=8,
-             error_block=1.0, chunk=1000):
+             error_block=1.0, gamete_balance=0.5, chunk=1000):
     K = founders
     T = sites
     coalescent = sharing_model == "coalescent"
@@ -203,17 +213,22 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
 
         good = _good_mask(rng, n, T, bad_frac, error_block)
 
+        # Per-site read origin: True => sampled from H1's chromosome, else H2's.
+        # gamete_balance = P(H1). One read per site (diploid low-coverage sampling).
+        gamete = rng.random((n, T)) < gamete_balance
+        active = np.where(gamete, h1, h2)               # observed founder per site
+
         if coalescent:
             feats = _coalescent_feats(
                 rng, n, T, K, ancestors, ancestor_crossovers,
-                derived_sfs, read_snps, h1, h2, rmap, good)
+                derived_sfs, read_snps, h1, h2, rmap, good, gamete)
         else:
-            # Independent background; force the true founder(s) to match on good sites
+            # Independent background; force only the ACTIVE gamete's founder to
+            # match on good sites (one read, from one chromosome).
             feats = (rng.random((n, T, K)) < q).astype(np.int8)
             ii = np.arange(n)[:, None]
             tt = np.arange(T)[None, :]
-            feats[ii, tt, h1] = np.where(good, 1, feats[ii, tt, h1])
-            feats[ii, tt, h2] = np.where(good, 1, feats[ii, tt, h2])
+            feats[ii, tt, active] = np.where(good, 1, feats[ii, tt, active])
 
         out[start:start + n, :, :K] = feats
         out[start:start + n, :, K] = h1.astype(np.int8)
@@ -236,7 +251,11 @@ def parse_args():
     p.add_argument("--min-crossovers", type=int, default=2)
     p.add_argument("--max-crossovers", type=int, default=10)
     p.add_argument("--inbreeding", type=float, default=1.0,
-                   help="Inbreeding coefficient F in [0,1]; P(H1==H2 path)")
+                   help="Inbreeding coefficient F in [0,1]; P(H1==H2 path). "
+                        "F=0 → fully outbred diploid (interleaved single-gamete reads)")
+    p.add_argument("--gamete-balance", type=float, default=0.5,
+                   help="P(a site's read is sampled from H1's chromosome); 0.5 = even. "
+                        "Skew simulates one chromosome dominating coverage.")
     p.add_argument("--allele-sharing", type=float, default=0.2,
                    help="Average fraction of founders sharing the sample allele")
     p.add_argument("--sharing-model", choices=["independent", "coalescent"],
@@ -277,7 +296,7 @@ def main():
         args.inbreeding, args.allele_sharing, args.bad_frac,
         args.recomb_span, args.recomb_tile,
         args.sharing_model, args.ancestors, args.ancestor_crossovers,
-        args.derived_sfs, args.read_snps, args.error_block)
+        args.derived_sfs, args.read_snps, args.error_block, args.gamete_balance)
 
     out_dir = Path(args.workdir) / "data" / "training"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -291,15 +310,22 @@ def main():
     h2 = data[:, :, K + 1].astype(np.int64)
     ii = np.arange(data.shape[0])[:, None]
     tt = np.arange(args.sites)[None, :]
-    true_match = feats[ii, tt, h1]
+    m1 = feats[ii, tt, h1]                       # H1 founder match indicator
+    m2 = feats[ii, tt, h2]                       # H2 founder match indicator
+    either = np.maximum(m1, m2)                  # active gamete is one of the two
+    het = (h1 != h2)                             # heterozygous sites
     switches = (h1[:, 1:] != h1[:, :-1]).sum(1)
 
     print(f"\nWrote {out_path}")
     print(f"  shape={data.shape}  dtype={data.dtype}  "
           f"size={data.nbytes / 1e9:.2f} GB")
     print(f"  mean allele sharing : {feats.mean():.4f}  (target {args.allele_sharing})")
-    print(f"  true-founder match  : {true_match.mean():.4f}  "
-          f"(expect ~{1 - args.bad_frac + args.bad_frac * (args.allele_sharing * K - 1) / (K - 1):.4f})")
+    print(f"  either-founder match: {either.mean():.4f}  "
+          f"(active gamete forced on good sites; expect ~{1 - args.bad_frac:.3f}+)")
+    print(f"  H1 / H2 match (het) : {m1[het].mean():.4f} / {m2[het].mean():.4f}  "
+          f"(gamete-balance {args.gamete_balance}; only the sampled gamete is forced)")
+    print(f"  het-site fraction   : {het.mean():.4f}  "
+          f"(F={args.inbreeding}; 0 ⇒ mostly het, interleaved reads)")
     print(f"  crossovers/window   : mean={switches.mean():.2f}  "
           f"min={switches.min()}  max={switches.max()}")
     print(f"  H1==H2 fraction     : {(h1 == h2).all(1).mean():.4f}  "
