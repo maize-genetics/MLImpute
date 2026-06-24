@@ -15,8 +15,12 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 | E1-probe | CRF, time-local emis (fp16, lr 3e-4) | 5.07M | 0.04–0.21† | — | — | — | — | ~5.1 it/s |
 | **E1-probe** | **CRF, time-local emis (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.990** | — | — | — | — | ~5.1 it/s |
 | **E1-probe-coal** | **CRF, coalescent mini-hap SFS (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.863** | — | — | — | — | ~5.0 it/s |
+| **E2-probe-coal** | **CRF, coalescent + variable recomb (span 100)** | 5.07M | **0.833**‡ | — | Spearman(c_t,rate) **+0.002** | — | — | ~5.0 it/s |
 | E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
 | E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
+
+‡ best epoch (epoch 1) val acc; the run became unstable and diverged at epoch 2
+(train loss bouncing 11↔58, val acc → 0.04). Reported from the epoch-1 checkpoint.
 
 † diverged mid-training (fp16 overflow in the CRF partition `logsumexp`); val acc
 decayed to random by epoch 1. Listed to document the failure mode, not as a result.
@@ -97,3 +101,44 @@ LD + founder relatedness rather than per-site independent sharing.
   ```
 - **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/loss=11.169.ckpt`
 - **Branch:** `crf-relatedness` (sim fix + run uncommitted at time of writing).
+
+---
+
+## E2-probe-coal — Does inferred c_t track the hidden recomb rate? (2026-06-24)
+
+**Negative result.** Coalescent mini-haplotype features **+** the E2 hidden variable
+recombination-rate map (`--recomb-span 100`), to test whether the encoder infers
+local recombination from the allele-match patterns (LD breakdown) and feeds it into
+the transition cost `c_t`. Evaluated with `eval_recomb.py` on the epoch-1 checkpoint.
+
+- **Data:** `data/training/sim_coal_e2.npy` — 100k × 512 × 27 (K=24 + H1 + H2 +
+  hidden rate). Hidden rate 1–100 (mean 21.5); `corr(rate, switch)=0.10` (breakpoints
+  do follow the rate); **match-persist hot/cold = 0.734 / 0.757** — the rate *is*
+  observable in the features, but the hot–cold gap is small (0.023).
+- **Train:** same recipe as E1-probe-coal. val acc 0.833 at epoch 1 (best), then the
+  run diverged at epoch 2 (instability, not fp16 — this is bf16).
+- **Eval (`eval_recomb.py`, 2k held-out windows):**
+  - `c_t` **collapsed to a near-constant**: mean 4.376, sd 0.012 (range 4.33–4.41).
+  - `Spearman(c_t, hidden rate)  = +0.002` (expected strong negative) → **no tracking**.
+  - `Spearman(c_t, true switch)  = -0.002` → does not localize breakpoints either.
+  - cold-decile vs hot-decile mean `c_t`: 4.376 vs 4.376 (gap 0.000).
+- **Takeaway:** the encoder does **not** infer local recombination rate; the
+  transition cost collapses to a global constant (~4.4), the same failure mode flagged
+  in E1-probe (`c≈5`). A constant `c` is sufficient to reach 0.83 founder acc, so there
+  is no training pressure to make `c` input-dependent. Making `c_t` track the hidden
+  rate is the open E2 problem — candidate levers: stronger hot/cold feature contrast
+  (larger `--recomb-span` / smaller `--recomb-tile`), an explicit `recomb_head`
+  auxiliary loss, longer/stabilized training, or a richer transition parameterization.
+- **Repro:**
+  ```bash
+  pixi run -- python src/python/crf/simulate_alleles.py --workdir /workdir/esb33 \
+    --windows 100000 --sharing-model coalescent --recomb-span 100 --out sim_coal_e2.npy
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_coal_e2.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 3
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/eval_recomb.py --ckpt <epoch-1 ckpt> \
+    --data /workdir/esb33/data/training/sim_coal_e2.npy
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=01-val/loss=15.044.ckpt`
+- **Branch:** `crf-relatedness` (uncommitted at time of writing).
