@@ -20,6 +20,12 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 | **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 200)** | 5.07M | **0.838** | — | Spearman(c_t,rate) **−0.001** (no change) | — | — | ~5.0 it/s |
 | E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
 | E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
+| **E1-maize** | **HMM Li–Stephens baseline** (best p_stay .995/w .5) | ~0 | **0.614** | — | — | — | — | — |
+| **E1-maize** | **CRF full (per-site c, d256/L6)** | 5.07M | **0.682** | — | — | — | — | ~7 it/s |
+| **E1-maize** | **CRF small (d128/L4)** | 0.88M | **0.669** | — | — | — | — | — |
+| **E1-maize** | **CRF per-window c (d256/L6)** | 5.07M | **0.665** | — | — | — | — | — |
+| **E1-maize** | **CRF large (d384/L12)** | 22M | **0.662**¶ | — | — | — | — | — |
+| **E1-maize** | **CRF no-transition (d256/L6)** | 5.07M | **0.284** | — | — | — | — | — |
 
 ‡ best epoch (epoch 1) val acc; the run became unstable and diverged at epoch 2
 (train loss bouncing 11↔58, val acc → 0.04). Reported from the epoch-1 checkpoint.
@@ -30,7 +36,65 @@ Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most d
 † diverged mid-training (fp16 overflow in the CRF partition `logsumexp`); val acc
 decayed to random by epoch 1. Listed to document the failure mode, not as a result.
 
+¶ stopped on its final epoch (still rising, undertrained for its capacity at the
+5-epoch budget); reported from the best (epoch-3) checkpoint. Not converged.
+
 ---
+
+## E1-maize — Best architectures vs HMM on REAL maize data (2026-06-24)
+
+**First real-data, baselined result.** All arms trained on a 200k random subset
+(`--limit-n 250000` → 200k train / 25k val / 25k **test**) of
+`fullMaizeDataset_all_diploid.npy` (the correct K+2 layout: cols 0–23 founder read
+counts, col 24 = H1, col 25 = H2; inbred so H1==H2, 0% zero-depth, ~76-site
+haplotype blocks). Same recipe for every CRF arm: d-default time-local emis,
+bf16, lr 1e-4, warmup 500, batch 64, **5 epochs** (not converged — val acc still
+rising; single seed). **Founder acc = Viterbi vs. true H1 on the identical 25k
+test split** (`eval_test.py`); HMM scored on the same split (`eval_hmm.py`).
+
+| Arm | params | **test acc** | emis-only | Δ vs HMM |
+|---|---:|---:|---:|---:|
+| CRF full (per-site `c`) | 5.07M | **0.682** | 0.254 | **+6.7** |
+| CRF small (d128/L4) | 0.88M | 0.669 | 0.267 | +5.5 |
+| CRF per-window `c` | 5.07M | 0.665 | 0.262 | +5.0 |
+| CRF large (d384/L12)¶ | 22M | 0.662 | 0.284 | +4.8 |
+| **HMM Li–Stephens (best)** | ~0 | **0.614** | 0.284 | — |
+| CRF no-transition | 5.07M | 0.284 | 0.284 | −33.0 |
+
+**Takeaways:**
+1. **CRF beats a well-tuned Li–Stephens HMM at ≪ parameters.** The HMM sweep
+   (p_stay ∈ {.97,.99,.995,.999} × weight ∈ {.5,1,2}) peaked at **0.614**
+   (p_stay .995 / w .5) and was nearly flat in p_stay — the empirical switch rate
+   0.0111 (⇒ p_stay≈0.989) confirms it is fairly tuned. Even the **0.88M** CRF
+   beats it by **+5.5**; the 5M full model by **+6.7**. This is PLAN.md's core
+   hypothesis confirmed on real data.
+2. **Transitions do the heavy lifting; learned transitions beat fixed ones.**
+   Per-site emission alone caps at ~0.28 (CRF no-transition 0.284 ≡ HMM
+   emission-only 0.284 — most sites are low/zero coverage). Smoothing lifts this
+   to 0.614 (HMM, fixed stay/switch) vs 0.682 (CRF, learned input-conditional
+   `c`). The CRF extracts ~7 more points from the same transition mechanism.
+3. **`c` does NOT collapse on real data** (unlike synthetic E2). For the 0.88M
+   arm: `c` mean 5.30, global sd 0.91 (range 1.0–7.1), within-window spatial sd
+   **0.485**, between-window sd of the per-window mean **0.758**. The encoder
+   genuinely modulates switch cost — mostly per-window, but with real
+   within-window structure.
+4. **Per-site `c` > per-window `c` here (0.682 vs 0.665).** The opposite of the
+   synthetic E2 finding: because `c` doesn't collapse on real maize, the
+   within-window variation (sd 0.485) carries useful signal and removing it costs
+   ~1.7 pts. Per-window `c` trains smoother (monotonic, no plateau-then-jump) but
+   tops out lower at this budget.
+5. **5M is the sweet spot at 5 epochs.** 0.88M nearly matches it (−1.2 pts at
+   5.6× fewer params); 22M *underperforms* (0.662) — undertrained for its
+   capacity at the fixed 5-epoch budget.
+- **Repro:** `train_haploid.py --data <…all_diploid.npy> --limit-n 250000
+  --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed
+  --max-epochs 5 --run-name <arm> [--window-c | --no-transition | --d-model …]`;
+  then `eval_test.py --ckpt <best> --split test` and `eval_hmm.py --split test`.
+- **Caveats:** 5-epoch / single-seed / 200k-subset snapshot, not converged; the
+  `unknown` 25th CRF state never matches a label (labels 0–23) so costs the CRF a
+  hair vs the HMM's 24 states. Not a headline mean±sd vs HMM (that needs ≥3 seeds,
+  PLAN §8).
+- **Branch:** `crf-relatedness`.
 
 ## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
 
