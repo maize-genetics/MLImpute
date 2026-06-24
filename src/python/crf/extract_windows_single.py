@@ -3,13 +3,14 @@
 Extract windows from numpy arrays in nested directories and save as single file.
 Handles arrays of shape (time_steps, numParents) or (time_steps, numParents+1) and ensures
 output windows have shape (window_size, numParents+2).
+
+This version includes comprehensive debugging and validation to ensure data integrity.
 """
 
 import numpy as np
 import os
 import argparse
 from pathlib import Path
-from numpy.lib.stride_tricks import sliding_window_view
 from tqdm import tqdm
 import random
 from typing import List, Optional
@@ -18,6 +19,64 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def debug_array_format(data: np.ndarray, filename: str = "", max_rows: int = 5):
+    """Debug function to inspect array format."""
+    logger.info(f"Debugging array {filename}:")
+    logger.info(f"  Shape: {data.shape}")
+    logger.info(f"  Dtype: {data.dtype}")
+
+    if data.ndim == 2:
+        # Show statistics for each column
+        for col in range(min(data.shape[1], 10)):  # Show first 10 columns
+            col_data = data[:, col]
+            unique_vals = np.unique(col_data)
+            logger.info(f"  Column {col}: min={col_data.min():.3f}, max={col_data.max():.3f}, "
+                        f"unique_count={len(unique_vals)}")
+
+            # If column is mostly zeros, that's suspicious
+            zero_count = np.sum(col_data == 0)
+            zero_pct = zero_count / len(col_data) * 100
+            if zero_pct > 90:
+                logger.warning(f"    Column {col} is {zero_pct:.1f}% zeros!")
+
+        # Show a few sample rows
+        logger.info(f"  Sample rows:")
+        for i in range(min(max_rows, data.shape[0])):
+            logger.info(f"    Row {i}: {data[i]}")
+
+
+def check_zero_positions_in_windows(windows: np.ndarray, window_descriptions: str = ""):
+    """
+    Check for positions within windows where all features are zero.
+
+    Args:
+        windows: Array of shape (n_windows, window_size, n_features)
+        window_descriptions: Description for logging
+
+    Returns:
+        List of (window_idx, position_idx) tuples where all features are zero
+    """
+    logger.info(f"Checking for zero positions in {window_descriptions}...")
+
+    zero_positions = []
+
+    for win_idx in range(windows.shape[0]):
+        for pos_idx in range(windows.shape[1]):  # For each position in the window
+            position_data = windows[win_idx, pos_idx, :]  # All features at this position
+
+            if np.all(position_data == 0):
+                zero_positions.append((win_idx, pos_idx))
+                if len(zero_positions) <= 10:  # Only log first 10 to avoid spam
+                    logger.error(f"Position {pos_idx} in window {win_idx} has ALL ZERO features: {position_data}")
+
+    if zero_positions:
+        logger.error(f"Found {len(zero_positions)} positions with all-zero features!")
+    else:
+        logger.info(f"✅ No positions found with all-zero features in {len(windows)} windows")
+
+    return zero_positions
 
 
 def standardize_array_format(data: np.ndarray, num_parents: int) -> np.ndarray:
@@ -36,10 +95,16 @@ def standardize_array_format(data: np.ndarray, num_parents: int) -> np.ndarray:
 
     time_steps, n_features = data.shape
 
+    logger.debug(f"Standardizing array: input shape {data.shape}, expecting {num_parents} parents")
+
     if n_features == num_parents + 1:
         # Haploid case: duplicate the last column to make diploid
         parents_data = data[:, :num_parents]  # First numParents columns
         haploid_label = data[:, -1:]  # Last column
+
+        # Debug the label column
+        unique_labels = np.unique(haploid_label)
+        logger.debug(f"Haploid labels - unique values: {unique_labels}")
 
         # Duplicate haploid label to create diploid labels
         diploid_labels = np.concatenate([haploid_label, haploid_label], axis=1)
@@ -51,10 +116,15 @@ def standardize_array_format(data: np.ndarray, num_parents: int) -> np.ndarray:
     elif n_features == num_parents + 2:
         # Already diploid case: use as-is
         result = data
+
+        # Debug the label columns
+        label1_unique = np.unique(data[:, -2])
+        label2_unique = np.unique(data[:, -1])
+        logger.debug(f"Diploid labels - label1 unique: {label1_unique}, label2 unique: {label2_unique}")
         logger.debug(f"Already diploid format: {data.shape}")
 
     elif n_features == num_parents:
-        # No labels case: this shouldn't happen for labeled data, but handle gracefully
+        # No labels case: this shouldn't happen for labeled data
         raise ValueError(
             f"Array has no label columns: expected {num_parents}+1 or {num_parents}+2 features, got {n_features}")
 
@@ -62,11 +132,21 @@ def standardize_array_format(data: np.ndarray, num_parents: int) -> np.ndarray:
         raise ValueError(
             f"Unexpected number of features: expected {num_parents}+1 or {num_parents}+2, got {n_features}")
 
+    # Verify no positions have all zeros (this would be problematic)
+    zero_positions = []
+    for i in range(min(1000, result.shape[0])):  # Check first 1000 positions
+        if np.all(result[i, :] == 0):
+            zero_positions.append(i)
+
+    if zero_positions:
+        logger.error(f"Found {len(zero_positions)} positions with all-zero features in standardized data!")
+        logger.error(f"Zero positions: {zero_positions[:10]}...")  # Show first 10
+
     return result
 
 
 def extract_windows_2d(data: np.ndarray, window_size: int = 512, step_size: int = 512,
-                       num_parents: int = 24) -> np.ndarray:
+                       num_parents: int = 24, debug: bool = False) -> np.ndarray:
     """
     Extract windows from 2D array and standardize format.
 
@@ -75,27 +155,87 @@ def extract_windows_2d(data: np.ndarray, window_size: int = 512, step_size: int 
         window_size: Size of each window along the first dimension
         step_size: Step between windows along the first dimension
         num_parents: Number of parent columns
+        debug: Whether to add debug output
 
     Returns:
         Array of windows with shape (n_windows, window_size, num_parents+2)
     """
+    if debug:
+        logger.info(f"Input data shape: {data.shape}")
+
+        # Check for zero positions in input data
+        logger.info("Checking input data for positions with all-zero features...")
+        zero_input_positions = []
+        for i in range(min(100, data.shape[0])):  # Check first 100 positions
+            if np.all(data[i, :] == 0):
+                zero_input_positions.append(i)
+
+        if zero_input_positions:
+            logger.error(f"Input data has {len(zero_input_positions)} positions with all-zero features!")
+        else:
+            logger.info("✅ No positions with all-zero features in input data")
+
     # First standardize the array format
     standardized_data = standardize_array_format(data, num_parents)
+
+    if debug:
+        logger.info(f"Standardized data shape: {standardized_data.shape}")
 
     time_steps, num_features = standardized_data.shape
 
     if time_steps < window_size:
+        logger.warning(f"Data too short: {time_steps} < {window_size}")
         return np.array([]).reshape(0, window_size, num_features)
 
-    # Use sliding_window_view along the first axis only
-    windows = sliding_window_view(standardized_data, window_shape=window_size, axis=0)
+    # Calculate number of windows
+    num_windows = (time_steps - window_size) // step_size + 1
 
-    # Select every step_size-th window
-    selected_windows = windows[::step_size]
+    if debug:
+        logger.info(f"Will extract {num_windows} windows")
 
-    # Reshape to (n_windows, window_size, num_features)
-    n_windows = selected_windows.shape[0]
-    return selected_windows.reshape(n_windows, window_size, num_features)
+    # Extract windows using simple slicing (no sliding_window_view complications)
+    windows = []
+    for i in range(num_windows):
+        start_idx = i * step_size
+        end_idx = start_idx + window_size
+        window = standardized_data[start_idx:end_idx].copy()  # Shape: (window_size, num_features)
+
+        if debug and i < 3:  # Debug first few windows
+            logger.info(f"Window {i} indices: [{start_idx}:{end_idx}]")
+            logger.info(f"Window {i} shape: {window.shape}")
+
+            # Check each position in this window for all-zero features
+            zero_positions_in_window = []
+            for pos in range(window.shape[0]):
+                if np.all(window[pos, :] == 0):
+                    zero_positions_in_window.append(pos)
+
+            if zero_positions_in_window:
+                logger.error(f"Window {i} has {len(zero_positions_in_window)} positions with all-zero features!")
+                for pos in zero_positions_in_window[:3]:  # Show first 3
+                    global_pos = start_idx + pos
+                    logger.error(f"  Position {pos} (global {global_pos}): {window[pos, :]}")
+            else:
+                logger.info(f"✅ Window {i} has no positions with all-zero features")
+
+        windows.append(window)
+
+    if windows:
+        result = np.stack(windows, axis=0)  # Shape: (n_windows, window_size, num_features)
+
+        if debug or True:  # Always check this in production
+            logger.info(f"Final result shape: {result.shape}")
+
+            # Check final result for positions with all-zero features
+            zero_positions = check_zero_positions_in_windows(result, "EXTRACTED WINDOWS")
+
+            if zero_positions:
+                logger.error(f"CRITICAL: Found {len(zero_positions)} positions with all-zero features in final result!")
+                return np.array([]).reshape(0, window_size, num_features)  # Return empty on error
+
+        return result
+    else:
+        return np.array([]).reshape(0, window_size, num_features)
 
 
 def get_array_info(data: np.ndarray) -> str:
@@ -183,6 +323,67 @@ def estimate_total_windows(npy_files: List[Path], window_size: int, step_size: i
     return estimated_total_windows, estimated_memory_gb, detected_dtype
 
 
+def test_single_file(file_path: Path, num_parents: int, window_size: int = 512, step_size: int = 512):
+    """Test window extraction on a single file with detailed debugging."""
+    logger.info(f"Testing file: {file_path}")
+
+    # Load original data
+    data = np.load(file_path)
+    logger.info(f"Loaded data shape: {data.shape}")
+    debug_array_format(data, str(file_path.name))
+
+    # Extract windows with debugging
+    windows = extract_windows_2d(data, window_size, step_size, num_parents, debug=True)
+
+    if len(windows) > 0:
+        logger.info(f"Successfully extracted {len(windows)} windows")
+
+        # Test a few windows
+        for i in range(min(3, len(windows))):
+            window = windows[i]
+            logger.info(f"Window {i} shape: {window.shape}")
+
+            # Check labels
+            labels = window[:, num_parents:]
+            unique_labels_col1 = np.unique(labels[:, 0])
+            unique_labels_col2 = np.unique(labels[:, 1]) if labels.shape[1] > 1 else []
+
+            logger.info(f"Window {i} label column 1 unique values: {unique_labels_col1}")
+            logger.info(f"Window {i} label column 2 unique values: {unique_labels_col2}")
+
+    return windows
+
+
+def comprehensive_debug_test(file_path: Path, num_parents: int, window_size: int = 512, step_size: int = 512):
+    """Comprehensive debugging to find positions with all-zero features."""
+    logger.info(f"=== COMPREHENSIVE DEBUG TEST FOR ZERO POSITIONS ===")
+    logger.info(f"File: {file_path}")
+
+    # Load and inspect original data
+    data = np.load(file_path)
+    logger.info(f"Original data shape: {data.shape}")
+
+    # Check for positions with all-zero features in original data
+    logger.info("Checking original data for positions with all-zero features...")
+    zero_positions_original = []
+
+    for i in range(min(10000, data.shape[0])):  # Check first 10k positions
+        if np.all(data[i, :] == 0):
+            zero_positions_original.append(i)
+
+    if zero_positions_original:
+        logger.error(f"Found {len(zero_positions_original)} positions with all-zero features in ORIGINAL data!")
+        logger.error(f"First few zero positions: {zero_positions_original[:20]}")
+    else:
+        logger.info("✅ No positions with all-zero features found in original data")
+
+    # Now run the actual extraction
+    logger.info("Running actual window extraction...")
+    windows = extract_windows_2d(data, window_size, step_size, num_parents, debug=True)
+
+    return windows
+
+
 def process_all_files_to_single_array(directory_path: Path, window_size: int = 512,
                                       step_size: int = 512, num_parents: int = 24,
                                       shuffle: bool = True, random_seed: int = None,
@@ -228,6 +429,7 @@ def process_all_files_to_single_array(directory_path: Path, window_size: int = 5
     all_windows = []
     total_windows = 0
     processed_files = 0
+    failed_files = 0
 
     logger.info("Processing files and collecting windows...")
 
@@ -260,8 +462,10 @@ def process_all_files_to_single_array(directory_path: Path, window_size: int = 5
 
         except Exception as e:
             logger.error(f"Error processing {npy_file}: {e}")
+            failed_files += 1
 
-    logger.info(f"Processed {processed_files} files, extracted {total_windows} total windows")
+    logger.info(f"Processed {processed_files} files successfully, {failed_files} files failed")
+    logger.info(f"Extracted {total_windows} total windows")
 
     if not all_windows:
         logger.error("No windows were extracted!")
@@ -278,6 +482,17 @@ def process_all_files_to_single_array(directory_path: Path, window_size: int = 5
         expected_shape = (total_windows, window_size, num_parents + 2)
         if final_array.shape != expected_shape:
             logger.warning(f"Final shape {final_array.shape} differs from expected {expected_shape}")
+
+        # CRITICAL: Check for zero positions in final result
+        logger.info("Performing final validation...")
+        zero_positions = check_zero_positions_in_windows(final_array, "FINAL CONCATENATED RESULT")
+
+        if zero_positions:
+            logger.error(
+                f"CRITICAL ERROR: Final result contains {len(zero_positions)} positions with all-zero features!")
+            logger.error("This indicates a serious problem with the data or processing!")
+            # You might want to raise an exception here or return empty array
+            # raise ValueError("Final result contains invalid zero positions!")
 
     except Exception as e:
         logger.error(f"Error concatenating arrays: {e}")
@@ -336,16 +551,16 @@ Examples:
   # With overlapping windows
   python extract_windows_single.py /path/to/input /path/to/output/windows.npy --num-parents 24 --step-size 256
 
-  # Different number of parents
-  python extract_windows_single.py /path/to/input /path/to/output/windows.npy --num-parents 10
+  # Test single file for debugging
+  python extract_windows_single.py --test-file /path/to/file.npy --num-parents 24
 
-  # Without shuffling (preserve file order)
-  python extract_windows_single.py /path/to/input /path/to/output/windows.npy --num-parents 24 --no-shuffle
+  # Comprehensive debugging
+  python extract_windows_single.py --comprehensive-debug /path/to/file.npy --num-parents 24
         """
     )
-    parser.add_argument("--input_dir", type=str,
+    parser.add_argument("--input_dir", type=str, nargs='?',
                         help="Input directory containing .npy files")
-    parser.add_argument("--output_file", type=str,
+    parser.add_argument("--output_file", type=str, nargs='?',
                         help="Output .npy file path")
     parser.add_argument("--num-parents", type=int, required=True,
                         help="Number of parent columns in the data")
@@ -359,6 +574,10 @@ Examples:
                         help="Random seed for shuffling (default: 42)")
     parser.add_argument("--max-memory-gb", type=float, default=16.0,
                         help="Maximum memory to use in GB (default: 16.0)")
+    parser.add_argument("--test-file", type=str, default=None,
+                        help="Test window extraction on a single file (debugging)")
+    parser.add_argument("--comprehensive-debug", type=str, default=None,
+                        help="Run comprehensive debugging on a single file")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Enable verbose logging")
 
@@ -366,6 +585,43 @@ Examples:
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # Handle test modes
+    if args.test_file:
+        test_file_path = Path(args.test_file)
+        if not test_file_path.exists():
+            logger.error(f"Test file does not exist: {test_file_path}")
+            return 1
+
+        logger.info("=== SINGLE FILE TEST MODE ===")
+        windows = test_single_file(test_file_path, args.num_parents, args.window_size, args.step_size)
+
+        if len(windows) > 0:
+            logger.info("✅ Single file test completed successfully")
+        else:
+            logger.error("✗ Single file test failed")
+        return 0
+
+    if args.comprehensive_debug:
+        debug_file_path = Path(args.comprehensive_debug)
+        if not debug_file_path.exists():
+            logger.error(f"Debug file does not exist: {debug_file_path}")
+            return 1
+
+        logger.info("=== COMPREHENSIVE DEBUG MODE ===")
+        windows = comprehensive_debug_test(debug_file_path, args.num_parents, args.window_size, args.step_size)
+
+        if len(windows) > 0:
+            zero_positions = check_zero_positions_in_windows(windows, "DEBUG RESULT")
+            logger.info(f"Debug complete: {len(zero_positions)} zero positions found")
+
+        return 0
+
+    # Normal processing mode
+    if not args.input_dir or not args.output_file:
+        logger.error("Input directory and output file are required for normal processing")
+        parser.print_help()
+        return 1
 
     input_path = Path(args.input_dir)
     output_path = Path(args.output_file)
