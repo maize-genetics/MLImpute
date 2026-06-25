@@ -181,6 +181,70 @@ sim; no hard ban). Only [B,P,P] materialized per step. Throughput 4.3 it/s,
 
 ---
 
+## E4-probe-baseline — Diploid CRF vs HMM head-to-head + d128/L4 capacity (2026-06-24)
+
+Closes the E4-probe "open" items: a diploid Li–Stephens HMM baseline and a
+small-capacity CRF arm, both scored on the **same held-out test split** of
+`sim_diploid_512.npy` (100k×512×26, deterministic 80k/10k/10k head-slice, test
+= last 10k windows).
+
+- **New scorer `eval_diploid_hmm.py`** — diploid Li–Stephens baseline. Emission
+  `log_e[i]+log_e[j] − homo_penalty·(i==j)`; **factored** per-chromosome
+  transition (independent stay/switch, so a two-chromosome switch costs
+  `p_switch²`) built from the same `build_pair_tables` `nsw` table the CRF uses
+  — i.e. the CRF and HMM share the transition *model*, differing only in learned
+  vs fixed potentials. Sweeps `p_stay × weight × homo_penalty`, reports best
+  pair_acc. hap_acc uses the sorted (lo≤hi) convention from
+  `train_diploid.py:_accuracy` so it is directly comparable.
+- **New scorer `eval_test_diploid.py`** — held-out evaluator for
+  `GRITSCRFDiploid` checkpoints (mirrors `eval_test.py`), reusing the model's own
+  `_dcrf_viterbi` + sorted hap_acc and logging predicted-homozygous fraction.
+
+| arm | params | test pair_acc | test hap_acc |
+|---|---:|---:|---:|
+| CRF full d256/L6 (E4-probe, hp=3) | 5.07M | 0.614 | 0.743 |
+| **CRF d128/L4 (hp=3)** | **0.88M** | **0.618** | **0.746** |
+| **Diploid HMM Li–Stephens (best)** | ~0 | **0.552** | **0.700** |
+
+- **Findings:**
+  - **CRF beats the diploid HMM by +6.5 pair / +4.6 hap** — the same
+    qualitative win as haploid (E1-maize), now in the phase-ambiguous
+    single-read-per-site diploid setting.
+  - **Capacity is not the bottleneck:** the 0.88M d128/L4 model ties (slightly
+    edges) the 5.07M d256/L6 model. Consistent with the haploid result where the
+    0.88M arm also nearly matched the full model. The diploid win comes from the
+    structured pair-state prior, not parameters.
+  - Best HMM config `p_stay=0.99, w=0.5, homo_penalty=0.5`. HMM is **insensitive
+    to homo_penalty** (factored transition already disfavors the all-homozygous
+    path) but very sensitive to emission `weight` (sharper emissions overwhelm the
+    het prior → pair_acc collapses to ~0.2–0.3). The CRF's predicted-homozygous
+    fraction is 0.0005 (true het ~97%), i.e. the learned het prior is well-calibrated.
+- **Repro:**
+  ```bash
+  # baseline
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 .pixi/envs/gpu/bin/python \
+    src/python/crf/eval_diploid_hmm.py \
+    --data /workdir/esb33/data/training/sim_diploid_512.npy \
+    --limit-n 100000 --split test
+  # d128/L4 CRF
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES=1 .pixi/envs/gpu/bin/python \
+    src/python/crf/train_diploid.py \
+    --data /workdir/esb33/data/training/sim_diploid_512.npy --limit-n 100000 \
+    --d-model 128 --n-heads 4 --n-layers 4 --homo-penalty 3 --time-local-emis \
+    --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 5 \
+    --run-name diploid-d128l4
+  # eval the CRF checkpoint
+  LD_LIBRARY_PATH=.pixi/envs/gpu/lib PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 \
+    .pixi/envs/gpu/bin/python src/python/crf/eval_test_diploid.py \
+    --ckpt '<workdir>/checkpoints/diploid-d128l4/d-epoch=04-val/loss=89.181.ckpt' \
+    --data .../sim_diploid_512.npy --limit-n 100000 --split test --tag diploid-d128l4
+  ```
+- **Env note:** the bare env Python needs `LD_LIBRARY_PATH=.pixi/envs/gpu/lib`
+  for the eval (scipy pulls a newer `libstdc++`); using it directly avoids a
+  reproducible `pixi run` NFS hang on this cluster. **Branch:** `crf-relatedness`.
+
+---
+
 ## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
 
 **Not a scored E1 result.** A controlled architecture probe on

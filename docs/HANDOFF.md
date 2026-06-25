@@ -57,23 +57,50 @@ F=0, ≤4 crossovers/gamete, coalescent).
 - `src/python/crf/simulate_alleles.py` — sim; diploid via `--inbreeding 0`
   `--gamete-balance`; coalescent relatedness; `--recomb-span` hidden-rate (E2).
 - `src/python/crf/eval_test.py` — CRF test eval (Viterbi + emission-only + bp P/R).
-- `src/python/crf/eval_hmm.py` — Li–Stephens HMM baseline scorer (per-window,
-  sweeps p_stay/weight).
+- `src/python/crf/eval_hmm.py` — haploid Li–Stephens HMM baseline scorer
+  (per-window, sweeps p_stay/weight).
+- `src/python/crf/eval_diploid_hmm.py` — diploid Li–Stephens baseline (factored
+  per-chromosome transition; sweeps p_stay×weight×homo_penalty).
+- `src/python/crf/eval_test_diploid.py` — held-out evaluator for
+  `GRITSCRFDiploid` checkpoints (pair_acc / sorted hap_acc / homo-pred fraction).
 - `src/python/crf/eval_stratified.py` — compare arms by true-breakpoint band.
 - `src/python/crf/metrics.py` — breakpoint precision/recall (±tol).
 - `src/python/crf/train_crf.py` — shared `FounderPathEncoder` (don't rewrite);
   `--window-c` lives here.
 
+### 3. Diploid HMM baseline + d128/L4 capacity — DONE (E4-probe-baseline, 2026-06-24)
+New scorers `eval_diploid_hmm.py` (Li–Stephens baseline, factored per-chromosome
+transition, sweeps p_stay×weight×homo_penalty) and `eval_test_diploid.py`
+(held-out `GRITSCRFDiploid` evaluator). Same test split of `sim_diploid_512.npy`.
+
+| arm | params | test pair_acc | test hap_acc |
+|---|---:|---:|---:|
+| CRF full d256/L6 (hp=3) | 5.07M | 0.614 | 0.743 |
+| **CRF d128/L4 (hp=3)** | 0.88M | **0.618** | **0.746** |
+| **Diploid HMM (best)** | ~0 | 0.552 | 0.700 |
+
+CRF beats the diploid HMM by **+6.5 pair / +4.6 hap**; the 0.88M model ties the
+5.07M one (capacity is not the bottleneck — same as haploid). Best HMM:
+p_stay=0.99, w=0.5, hp=0.5. CRF predicted-homozygous fraction 0.0005 (well-
+calibrated het prior). See RESULTS.md "E4-probe-baseline".
+
 ## Next steps (prioritized — user-approved direction is diploid)
-1. **Diploid HMM baseline** — wrap `hmm/hmm_impute.py:diploid_hmm` like
-   `eval_hmm.py` (per-window, batched, same test split, with `homo_penalty`) to
-   get a CRF-vs-HMM head-to-head in the diploid setting. (Mirrors what made the
-   haploid story land.)
-2. **Window 1024** — user wants to test whether larger windows help diploid
+1. **Window 1024** — user wants to test whether larger windows help diploid
    phasing: regenerate sim with `--sites 1024` and retrain.
-3. **Per-coverage stratification** — does the CRF edge grow at low depth?
-4. Deferred: ≥3-seed / converged / full-data headline (PLAN §8); relatedness
+2. **Per-coverage stratification** — does the CRF edge grow at low depth?
+3. Deferred: ≥3-seed / converged / full-data headline (PLAN §8); relatedness
    encoder (E5); promote to real diploid maize.
+
+### Future ideas (user-flagged 2026-06-24, also in Claude memory)
+- **Masked-site accuracy (SNP-like metric):** mask a fraction of test sites and
+  check whether the decoded path recovers the correct founder there —
+  complements haplotype-path accuracy. Needs the sim to mark masked/bad sites
+  (extra label column) and the eval to score only on those positions.
+- **Sub-panel / bi-parental sim:** generate *test* sets where each sample
+  descends from only a subset of founders (simplest: bi-parental, K=2). Train on
+  the full panel; keep the feature matrix K-wide (other founders just have zero
+  coverage) so the trained model evaluates unchanged. Add `--founders-subset` to
+  `simulate_alleles.py`.
 
 ## Gotchas
 - The OTHER maize file `…/fullMaizeDataset.npy` (no `_all_diploid`) is BROKEN —
@@ -81,3 +108,8 @@ F=0, ≤4 crossovers/gamete, coalescent).
 - `pixi` binary at `~/.pixi/bin/pixi`; imports use `from python.<mod>` (PYTHONPATH
   set by pixi to `src/`).
 - bf16 required (fp16 overflows the CRF partition logsumexp); lr 1e-4 + warmup 500.
+- `pixi run --environment gpu` HANGS on this cluster's NFS (blocks in `cl_syn` on
+  env resolution, never reaches Python). Workaround: call the env Python directly:
+  `PYTHONPATH=src CUDA_VISIBLE_DEVICES=N .pixi/envs/gpu/bin/python <script>`. For
+  scripts that import scipy (e.g. `eval_test_diploid.py`) also set
+  `LD_LIBRARY_PATH=.pixi/envs/gpu/lib` (bare Python misses the newer libstdc++).
