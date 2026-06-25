@@ -49,7 +49,24 @@ a real-data BUILD problem flagged to zrm22 — unchanged, not what this thread i
    (pred ∈ S). Reuses `make_splits` + the model's `decode()`; slices `.ibd.npy`
    with the identical head-slice/test split.
 
-**WHERE WE PAUSED — a training run is LAUNCHED and should be running:**
+**STATUS 2026-06-25 (resumed): THREAD COMPLETE — hypothesis CONFIRMED, committed
+(`affcf92`), logged to RESULTS.md "E-IBD".** The θ=6 training died at epoch 2/8
+when the prior session ended, but the epoch-2 checkpoint
+(`e-ibd-th6/e1-epoch=02-val/loss=7.115.ckpt`) is already AT the ceiling, so the
+conclusion is robust. Analyzer validated end-to-end. Results:
+- **CRF on the ceiling:** gap (acc−ceiling) ≤ 2.6 pts in every breakpoint band
+  (all = 0.8222 vs 0.8408), and **86–100% of errors are IBD-confusable**. The
+  60–80% in high-recomb bands IS the read-only limit (6+ bp ceiling 0.745, ~3
+  founders IBD-indistinguishable).
+- **θ-sweep (`ceiling_sweep.py`, data-only, no model):** ceiling moves
+  monotonically with relatedness — θ2 0.70 → θ4 0.80 → θ6 0.84 → θ8 0.87 →
+  θ16 0.92 (all-band). Sweep sims at `sim_ewens_th{2,4,8,16}_sweep.npy`.
+- **Conclusion:** the only lever above the ceiling is outside info → quantitative
+  justification for the relatedness encoder (E5/E7). NEXT: build E5 (relatedness
+  matrix conditioning) and show it beats the ceiling on these same sims; optional:
+  finish θ=6 training to epoch 7 for a tighter headline (won't change conclusion).
+
+**(historical) WHERE WE PAUSED — a training run is LAUNCHED and should be running:**
 - Background job generated `/workdir/esb33/data/training/sim_ewens_th6.npy`
   (+`.ibd.npy`): 100k windows, 512 sites, K=24, **coalescent θ=6**, inbred (F=1,
   haploid), crossovers 0–8 (so the [0,2]-bp band is ~⅓ of windows), read-snps 16,
