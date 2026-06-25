@@ -245,6 +245,43 @@ small-capacity CRF arm, both scored on the **same held-out test split** of
 
 ---
 
+## E4-probe-window — Diploid window length 512 vs 1024 (density- vs count-matched) (2026-06-25)
+
+Does a longer window help diploid phasing? Two 1024-site sims vs the 512 baseline,
+all d128/L4, homo-penalty 3, held-out test:
+- **density-matched** (`sim_diploid_1024.npy`): crossovers 2–8 (per-site recomb
+  density held constant vs 512's 1–4) — tests "more context, same local structure."
+- **count-matched** (`sim_diploid_1024_cm.npy`): crossovers 1–4 (same as 512 →
+  ~2× longer haplotype blocks, ~410 sites) — tests "more context to phase the
+  *same* recombination."
+
+| arm | 512 | 1024 density | 1024 count-matched |
+|---|---|---|---|
+| Diploid HMM (best sweep) | 0.552 / 0.700 | 0.586 / 0.724 | 0.593 / 0.729 |
+| CRF d128/L4 | 0.618 / 0.746 | **0.643 / 0.764** | 0.629 / 0.754 |
+| CRF − HMM (pair / hap) | +6.6 / +4.6 | +5.7 / +4.0 | +3.6 / +2.5 |
+
+- **Window length helps the CRF** (both 1024 > 512), but **longer *blocks* do not
+  help beyond what length already gives**: count-matched (0.629) is *below*
+  density-matched (0.643) despite 2× longer blocks. The gain is from more
+  context/observations per window, not longer phasing runs.
+- **The HMM benefits *more* from length than the CRF** — the CRF lead shrinks
+  from +6.6 (512) to +3.6 (count-matched 1024). Longer windows reduce the HMM's
+  per-window boundary truncation (optimal p_stay rises 0.99 → 0.999).
+- **Stability:** count-matched (longer blocks → larger CRF partition) diverged at
+  lr 1e-4 (epoch-2 collapse to 0.05) and still wobbled at lr 5e-5 (collapse at
+  epoch 6, then an untrustworthy epoch-7 "recovery": val pair_acc 0.763 but
+  held-out **test 0.457** — a 0.31 val/test gap, non-generalizing). The honest
+  count-matched number is the stable epoch-2 checkpoint (val 0.625 ≈ test 0.629).
+  Motivated switching `train_diploid.py` checkpoint/early-stop to **val/pair_acc
+  (max)** so a good model isn't discarded when the partition NLL spikes.
+- **Repro:** `simulate_alleles.py --sites 1024 --min/max-crossovers {2,8 | 1,4}
+  --inbreeding 0 --gamete-balance 0.5 --sharing-model coalescent
+  --ancestor-crossovers {16 | 8}` then the E4-probe-baseline train/eval recipe.
+  **Branch:** `crf-relatedness`.
+
+---
+
 ## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
 
 **Not a scored E1 result.** A controlled architecture probe on
