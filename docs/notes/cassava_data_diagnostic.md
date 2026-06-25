@@ -54,14 +54,18 @@ have NO read from either labelled founder, far above the ~4% modelled error. The
 background (random-founder) presence is similar across all four, so the deficit is
 specific to the TRUE-founder channel: labels and reads disagree.
 
-On the SFS *shape*: the real-data spectrum (singleton-dominated, peak at 1
-founder, hard cutoff at K/2=12) is the CORRECT, expected shape for
-mini-haplotypes — a multi-SNP mini-haplotype is specific and matches few
-founders, so rare-allele dominance is right. The mismatch is on OUR side: the
-sims are bell-shaped / common-allele-tailed and over-share (up to K=24); they
-should be retuned to reproduce the real singleton-dominated, folded spectrum.
-This is a separate simulator-realism task and does NOT bear on the true-founder
-deficit below, which is the real data problem.
+On the SFS *shape*: the real-data spectrum has a hard cutoff at K/2=12. **UPDATE
+(2026-06-25): that cutoff is a FOLDING ARTIFACT, not the correct shape.** The
+build folds the founder-match count to the minor side (support capped at K/2),
+so a read matching K−2 founders is wrongly recorded as matching 2. The real
+spectrum is therefore NOT a valid target either. The correct mini-haplotype
+sharing spectrum is the *unfolded* neutral expectation: singleton-dominated with
+n_i ∝ θ/i and a real tail extending to K (Ewens / coalescent SFS), never folded
+at K/2. So BOTH sides were wrong: our sims are bell-shaped / over-shared (peak at
+~K/A, no real singletons), and the real data is folded (artificial K/2 cap). The
+simulator-realism fix is to derive the unfolded 1/i spectrum from theory (not to
+match the folded real curve). This is a separate task from the true-founder
+deficit below, which remains the real-data build problem.
 
 ## Ruled out: label/index misalignment
 Shifting H1/H2 labels by ±1 makes either-match **worse** (0.72 → 0.36), so the

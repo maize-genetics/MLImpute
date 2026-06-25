@@ -464,3 +464,100 @@ run at **weight 200** (`version_13`, 3 epochs, same recipe):
   transition-cost coupling.
 - **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/loss=13.514.ckpt`
 - **Branch:** `crf-relatedness`.
+
+## E-IBD — Is 60–80% the no-outside-info ceiling? (IBD confusion) (2026-06-25)
+
+**Question.** The haploid CRF tops out around 60–80% founder accuracy in harder
+(high-recombination) windows. Is that a *model* failure, or an *information*
+ceiling — the true founder is identical-by-descent (IBD) with one or more other
+founders across the whole block, so their read columns are bit-identical and **no
+read-only decoder can tell them apart**? If it is a ceiling, the only way past it
+is outside information (genome-wide founder presence / relatedness) — i.e. the
+whole point of the `crf-relatedness` branch.
+
+**What "theta" means (for non-population-geneticists).** `--sharing-theta` (θ) is
+a **relatedness dial** on the simulated founder panel. Picture each founder's
+ancestry as drawing colored marbles from a bag of ancestral lineages: **low θ =
+few colors**, so many founders inherit the *same* ancestor over a block and look
+identical (high relatedness, lots of IBD sharing); **high θ = many colors**, so
+each founder tends to carry its *own* private alleles (low relatedness, little
+sharing). Concretely in the sim, raising θ raises the fraction of "singleton"
+founders (unique alleles) and shrinks the set of look-alike founders. It does
+**not** change the model or the task — only how genetically similar the founders
+are to each other.
+
+**How the ceiling is measured (`analyze_ibd_ceiling.py`).** The Ewens/GEM sim
+(`simulate_alleles.py --sharing-theta`) writes per-site IBD lineage labels to a
+companion `<data>.ibd.npy` (ground truth the model never sees). For each
+constant-founder segment we form the **indistinguishable set** `S_feat` = founders
+whose K-wide read column is bit-identical to the truth over the *entire* segment
+(exactly what a read-only decoder sees). The best any read-only decoder can do is
+guess the truth uniformly out of `S_feat`, so the **ceiling = sites-weighted mean
+of 1/|S_feat|**. Each CRF error is then labelled **IBD-confusable** (predicted
+founder is itself in `S_feat` → unavoidable) or **genuine** (outside `S_feat` →
+recoverable signal the model missed). Reported per true-breakpoint band.
+
+### Result 1 — the CRF sits on the ceiling
+
+Trained haploid CRF (d256/L6, 5.07M), data `sim_ewens_th6.npy` (θ=6, 100k
+windows, 512 sites, K=24, inbred, 0–8 crossovers, 16 read-SNPs), test split.
+**Checkpoint is only epoch 2/8** (training died early) — yet already at the
+ceiling, so finishing training can only close the residual ≤2.6-pt gap, never
+exceed the ceiling.
+
+| band | win | sites | CRF acc | ceiling | gap | meanS | multiS% | errIBD% |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 bp   | 1118 |   572,416 | 0.9937 | 0.9950 | −0.0012 | 1.01 |  0.9% | 100.0% |
+| 1–2 bp | 2291 | 1,172,992 | 0.9092 | 0.9241 | −0.0149 | 1.87 | 11.3% |  86.0% |
+| 3–5 bp | 3315 | 1,697,280 | 0.8007 | 0.8263 | −0.0256 | 2.52 | 25.6% |  90.8% |
+| 6+ bp  | 3276 | 1,677,312 | 0.7246 | 0.7447 | −0.0201 | 2.98 | 36.8% |  93.4% |
+| **all** | 10000 | 5,120,000 | **0.8222** | **0.8408** | **−0.0186** | 2.65 | 23.2% | **91.6%** |
+
+- **Gap ≤ 2.6 pts in every band** — the CRF extracts essentially all the founder
+  identity reads physically carry.
+- **86–100% of errors are IBD-confusable** — almost every mistake is picking a
+  founder bit-identical to the truth across the whole segment; only ~8–14% are
+  recoverable.
+- Accuracy falls with recombination not because the model degrades but because
+  the **ceiling** drops (0.995 → 0.745) as segments shorten and the mean
+  indistinguishable-set size `meanS` grows (1.01 → 2.98). In the 6+ bp band ~3
+  founders are IBD-indistinguishable on average → 74% ceiling. **That is the
+  "60–80% no-outside-info limit."**
+
+### Result 2 — the ceiling moves with relatedness (θ-sweep)
+
+The ceiling is a property of the *data*, so it is computed directly from each sim
++ its IBD labels (`ceiling_sweep.py`, no model needed; 8k windows/θ, same recipe).
+Lower θ = more relatedness = lower ceiling, monotonically:
+
+| θ | mean share | singleton% | ceiling (all) | ceiling (6+ bp) | meanS (all) |
+|---:|---:|---:|---:|---:|---:|
+|  2 | 0.359 |  7.4% | 0.7007 | 0.5757 | 5.44 |
+|  4 | 0.245 | 12.1% | 0.7993 | 0.6915 | 3.35 |
+|  6 | ~0.21 | ~15%  | 0.8388 | 0.7454 | 2.66 |
+|  8 | 0.169 | 19.2% | 0.8673 | 0.7872 | 2.24 |
+| 16 | 0.120 | 30.5% | 0.9207 | 0.8673 | 1.61 |
+
+(θ=6 row from Result 1's full test split; others from the data-only sweep.)
+
+**Verdict — hypothesis CONFIRMED.** The 60–80% plateau is an information ceiling
+set by IBD relatedness among founders, not a model deficiency: the CRF is already
+within ~2 pts of it and ~90% of its errors are provably unavoidable from reads
+alone. The ceiling rises/falls predictably with founder relatedness (θ). The only
+lever above it is **outside information** — genome-wide founder presence /
+relatedness conditioning — which is the quantitative justification for the
+`crf-relatedness` encoder (E5/E7).
+
+- **Repro:**
+  ```bash
+  # ceiling on a trained checkpoint (Result 1)
+  LD_LIBRARY_PATH=.pixi/envs/gpu/lib PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 \
+    .pixi/envs/gpu/bin/python src/python/crf/analyze_ibd_ceiling.py \
+      --ckpt <ckpt> --data /workdir/esb33/data/training/sim_ewens_th6.npy \
+      --split test --max-windows 20000
+  # ceiling-vs-theta (Result 2, no model)
+  PYTHONPATH=src .pixi/envs/gpu/bin/python src/python/crf/ceiling_sweep.py \
+    --data /workdir/esb33/data/training/sim_ewens_th<θ>_sweep.npy --max-windows 8000
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e-ibd-th6/e1-epoch=02-val/loss=7.115.ckpt`.
+- **Branch:** `crf-relatedness`.

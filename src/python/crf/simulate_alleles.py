@@ -111,6 +111,57 @@ def _build_paths(rng, n, T, K, n_cross, rate=None):
     return path
 
 
+def _segment_index(rng, n, T, n_cross, rate=None):
+    """Piecewise-constant segment index [n, T] with n_cross[r] breakpoints/row.
+
+    Breakpoint placement mirrors `_build_paths` (uniform, or Gumbel-top-k by the
+    local rate); returns only the segment index (0..n_cross) per site, leaving
+    the label assignment to the caller.
+    """
+    seg = np.zeros((n, T), dtype=np.int32)
+    for v in np.unique(n_cross):
+        if v == 0:
+            continue
+        rows = np.flatnonzero(n_cross == v)
+        nv = rows.size
+        if rate is None:
+            bp = np.argsort(rng.random((nv, T - 1)), axis=1)[:, :v] + 1
+        else:
+            gum = -np.log(-np.log(rng.random((nv, T - 1))))
+            keys = np.log(rate[rows][:, 1:]) + gum
+            bp = np.argsort(-keys, axis=1)[:, :v] + 1
+        bp.sort(axis=1)
+        sw = np.zeros((nv, T), dtype=np.int32)
+        np.add.at(sw, (np.repeat(np.arange(nv), v), bp.ravel()), 1)
+        seg[rows] = np.cumsum(sw, axis=1)
+    return seg
+
+
+def _gem_lineages(rng, n, K, T, theta, M, anc_nc, rate_rep):
+    """Ewens/GEM(theta) IBD lineage labels [n, K, T].
+
+    Per window: stick-breaking lineage proportions p ~ GEM(theta), truncated to
+    M lineages.  Each founder is a mosaic (segments from `anc_nc` ancestral
+    breakpoints); each segment's lineage is drawn iid from p.  iid assignment
+    from a GEM(theta) measure yields the Ewens partition, whose class-size
+    spectrum is n_i ∝ theta/i — unfolded, singleton-dominated, with a real tail
+    to K (the neutral-coalescent SFS).  Larger theta ⇒ more singletons.
+    """
+    beta = rng.beta(1.0, theta, size=(n, M))
+    rem = np.cumprod(np.concatenate(
+        [np.ones((n, 1)), 1.0 - beta[:, :-1]], axis=1), axis=1)
+    p = beta * rem                                      # [n, M] stick-breaking weights
+    p /= p.sum(axis=1, keepdims=True)                   # normalize truncated tail
+    cdf = np.cumsum(p, axis=1)                          # [n, M]; no giant last class
+
+    seg = _segment_index(rng, n * K, T, anc_nc, rate_rep).reshape(n, K, T)
+    max_seg = int(seg.max()) + 1
+    u = rng.random((n, K, max_seg, 1))
+    lin_seg = (u > cdf[:, None, None, :]).sum(axis=-1)  # [n,K,max_seg] categorical
+    lin_seg = np.clip(lin_seg, None, M - 1)
+    return np.take_along_axis(lin_seg, seg, axis=2).astype(np.int32)
+
+
 def _good_mask(rng, n, T, bad_frac, block):
     """Boolean [n, T] of 'good' (uncorrupted) sites.
 
@@ -134,33 +185,43 @@ def _good_mask(rng, n, T, bad_frac, block):
 
 
 def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
-                      h1, h2, rate, good, gamete):
-    """Mini-haplotype (read) match features [n, T, K] from a coalescent panel.
+                      h1, h2, rate, good, gamete, theta=None, max_lineages=None):
+    """Mini-haplotype match features [n, T, K] + IBD lineage labels [n, K, T].
 
-    Each founder is a piecewise-constant mosaic over A ancestral lineages
-    (built with the same rate map as the sample paths, so recombination
-    hotspots shorten founder IBD tracts).  Founders copying the same ancestor
-    are identical-by-descent → shared haplotype tracts (LD + relatedness).
+    Each founder is a piecewise-constant mosaic over ancestral lineages (same
+    rate map as the sample paths, so recombination hotspots shorten founder IBD
+    tracts).  Two founders on the same lineage at a site are identical-by-descent
+    → identical mini-haplotype.  Lineage model:
+      * theta is None → A fixed ancestors, each founder iid-uniform over them
+        (legacy island model; sharing peaks near K/A → bell-shaped SFS).
+      * theta set     → Ewens/GEM(theta) partition: class sizes ~ theta/i, an
+        unfolded singleton-dominated SFS with a tail to K (neutral-coalescent
+        shape, derived from theory rather than matched to folded real data).
 
-    Each position is a 150bp read spanning `read_snps` (L) biallelic SNPs whose
-    per-SNP derived-allele frequencies ~ Beta(sfs_shape, 1) (sfs_shape < 1 ⇒
-    rare derived / many shared common alleles).  A founder "matches" a read
-    only if its mini-haplotype agrees across ALL L SNPs (RopeBWT exact match),
-    so multi-SNP reads are rare composites → a full-read match is a strong IBD
-    signal, not a common-allele coincidence.  Returns feats[n, T, K].
+    Each position is a read spanning `read_snps` (L) biallelic SNPs whose per-SNP
+    derived-allele frequencies ~ Beta(sfs_shape, 1).  A founder "matches" a read
+    only if its mini-haplotype agrees across ALL L SNPs (RopeBWT exact match), so
+    a full-read match is a strong IBD signal, not a common-allele coincidence
+    (different lineages can still coincide → thin homoplasy).  The returned
+    `lineage` is the per-site IBD ground truth for the ceiling analysis.
     """
     L = read_snps
     anc_nc = rng.poisson(anc_cx, n * K).clip(0, T - 1).astype(np.int64)
     rate_rep = None if rate is None else np.repeat(rate, K, axis=0)
-    anc_path = _build_paths(rng, n * K, T, A, anc_nc, rate_rep)
-    anc_path = anc_path.reshape(n, K, T).astype(np.int32)
+    if theta is None:
+        M = A
+        lineage = _build_paths(rng, n * K, T, A, anc_nc, rate_rep)
+        lineage = lineage.reshape(n, K, T).astype(np.int32)
+    else:
+        M = max_lineages or K
+        lineage = _gem_lineages(rng, n, K, T, theta, M, anc_nc, rate_rep)
 
     f = rng.beta(sfs_shape, 1.0, size=(n, 1, T, L))     # per-SNP derived freq
-    anc_alleles = (rng.random((n, A, T, L)) < f).astype(np.int8)   # [n,A,T,L]
+    lin_alleles = (rng.random((n, M, T, L)) < f).astype(np.int8)  # [n,M,T,L]
 
     wi = np.arange(n)[:, None, None]
     ti = np.arange(T)[None, None, :]
-    G = anc_alleles[wi, anc_path, ti]                   # [n,K,T,L] mini-haplotypes
+    G = lin_alleles[wi, lineage, ti]                    # [n,K,T,L] mini-haplotypes
     ii = np.arange(n)[:, None]
     tt = np.arange(T)[None, :]
     # One read per site, sampled from the active gamete (H1 if gamete else H2).
@@ -171,14 +232,14 @@ def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
     Sa = np.where(bad[:, :, None], (rng.random((n, T, L)) < fz).astype(np.int8), Sa)
 
     match = (G == Sa[:, None]).all(-1)                  # [n,K,T] exact full-read match
-    return np.transpose(match, (0, 2, 1)).astype(np.int8)
+    return np.transpose(match, (0, 2, 1)).astype(np.int8), lineage
 
 
 def simulate(rng, windows, sites, founders, min_cross, max_cross,
              inbreeding, allele_sharing, bad_frac, recomb_span=1.0,
              recomb_tile=64, sharing_model="independent", ancestors=6,
              ancestor_crossovers=8, derived_sfs=0.3, read_snps=8,
-             error_block=1.0, gamete_balance=0.5, chunk=1000):
+             error_block=1.0, gamete_balance=0.5, sharing_theta=None, chunk=1000):
     K = founders
     T = sites
     coalescent = sharing_model == "coalescent"
@@ -192,6 +253,7 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
     track = recomb_span > 1.0                       # emit hidden true-rate column
     ncol = K + 2 + (1 if track else 0)
     out = np.empty((windows, T, ncol), dtype=np.int8)
+    ibd = np.empty((windows, T, K), dtype=np.int8) if coalescent else None
 
     for start in range(0, windows, chunk):
         n = min(chunk, windows - start)
@@ -219,9 +281,13 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
         active = np.where(gamete, h1, h2)               # observed founder per site
 
         if coalescent:
-            feats = _coalescent_feats(
+            max_lin = (None if sharing_theta is None
+                       else min(64, max(K, int(round(4 * sharing_theta)))))
+            feats, lineage = _coalescent_feats(
                 rng, n, T, K, ancestors, ancestor_crossovers,
-                derived_sfs, read_snps, h1, h2, rmap, good, gamete)
+                derived_sfs, read_snps, h1, h2, rmap, good, gamete,
+                theta=sharing_theta, max_lineages=max_lin)
+            ibd[start:start + n] = np.transpose(lineage, (0, 2, 1)).astype(np.int8)
         else:
             # Independent background; force only the ACTIVE gamete's founder to
             # match on good sites (one read, from one chromosome).
@@ -237,7 +303,7 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
             out[start:start + n, :, K + 2] = np.clip(
                 np.rint(rmap), 1, 127).astype(np.int8)
 
-    return out
+    return out, ibd
 
 
 def parse_args():
@@ -263,7 +329,14 @@ def parse_args():
                    help="independent: per-site random sharing (default). coalescent: "
                         "mosaic-of-ancestors panel → LD tracts + founder relatedness.")
     p.add_argument("--ancestors", type=int, default=6,
-                   help="Coalescent mode: number of ancestral lineages A")
+                   help="Coalescent mode: number of ancestral lineages A (legacy "
+                        "island model, used only when --sharing-theta is unset)")
+    p.add_argument("--sharing-theta", type=float, default=None,
+                   help="Coalescent mode: Ewens/GEM concentration. Set to use the "
+                        "theory-based unfolded SFS (class sizes ~ theta/i, "
+                        "singleton-dominated, tail to K) instead of A fixed "
+                        "ancestors. Larger ⇒ more singletons / less sharing. "
+                        "Also writes <out>.ibd.npy (per-site IBD lineage labels).")
     p.add_argument("--ancestor-crossovers", type=int, default=8,
                    help="Coalescent mode: mean ancestor switches per founder per window")
     p.add_argument("--derived-sfs", type=float, default=0.3,
@@ -290,18 +363,22 @@ def main():
     args = parse_args()
     rng = np.random.default_rng(args.seed)
 
-    data = simulate(
+    data, ibd = simulate(
         rng, args.windows, args.sites, args.founders,
         args.min_crossovers, args.max_crossovers,
         args.inbreeding, args.allele_sharing, args.bad_frac,
         args.recomb_span, args.recomb_tile,
         args.sharing_model, args.ancestors, args.ancestor_crossovers,
-        args.derived_sfs, args.read_snps, args.error_block, args.gamete_balance)
+        args.derived_sfs, args.read_snps, args.error_block, args.gamete_balance,
+        args.sharing_theta)
 
     out_dir = Path(args.workdir) / "data" / "training"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / args.out
     np.save(out_path, data)
+    if ibd is not None:
+        ibd_path = out_dir / (Path(args.out).stem + ".ibd.npy")
+        np.save(ibd_path, ibd)
 
     # Verification summary
     K = args.founders
@@ -320,6 +397,15 @@ def main():
     print(f"  shape={data.shape}  dtype={data.dtype}  "
           f"size={data.nbytes / 1e9:.2f} GB")
     print(f"  mean allele sharing : {feats.mean():.4f}  (target {args.allele_sharing})")
+    share = (feats != 0).sum(axis=2).ravel()     # # founders matching, per site
+    nz = share[share > 0]
+    if nz.size:
+        sing = float((nz == 1).mean())
+        print(f"  sharing SFS         : singleton {sing*100:.1f}%  "
+              f"median {int(np.median(nz))}  mean {nz.mean():.2f}  max {int(nz.max())}  "
+              f"(theta={args.sharing_theta}; want singleton-dominated, tail→K)")
+    if ibd is not None:
+        print(f"  IBD truth           → {ibd_path}  shape={ibd.shape}")
     print(f"  either-founder match: {either.mean():.4f}  "
           f"(active gamete forced on good sites; expect ~{1 - args.bad_frac:.3f}+)")
     print(f"  H1 / H2 match (het) : {m1[het].mean():.4f} / {m2[het].mean():.4f}  "

@@ -1,3 +1,99 @@
+# Session handoff — crf-relatedness (2026-06-25, IBD-ceiling)
+
+Status snapshot for resuming work. Full per-experiment detail is in
+[`docs/RESULTS.md`](RESULTS.md); experiment spec in [`docs/PLAN.md`](PLAN.md).
+The 2026-06-24 snapshot (E1-maize, E4-probe diploid, window-1024) is below; this
+top section is the active thread.
+
+## ACTIVE (2026-06-25): IBD-ceiling experiment — "is 60–80% the no-outside-info limit?"
+
+**The question (user-set).** In low-recombination ([0,2]-bp / 512) windows the
+haploid CRF tops out ~60–80% founder acc. Hypothesis: the residual errors are
+**IBD confusion** — the true founder is identical-by-descent with ≥1 other
+founder across the whole block, so their reads are bit-identical and *no*
+read-only decoder can separate them. If so, 60–80% is at/near the ceiling
+reachable **without outside information** (relatedness / genome-wide founder
+presence — i.e. the whole reason for the `crf-relatedness` branch). The sim has
+ground-truth IBD, so the ceiling is computable exactly.
+
+**Prerequisite done — corrected the SFS record.** The real maize/cassava
+allele-sharing SFS has a hard cutoff at K/2=12. **That cutoff is a FOLDING
+ARTIFACT in the build, not the correct shape** (match count folded to the minor
+side). So the real SFS is NOT a valid target. BOTH sides were wrong: our old sim
+is bell-shaped/over-shared (peak ~K/A), real is folded. Correct target = the
+*unfolded* neutral SFS (n_i ∝ θ/i, singleton-dominated, real tail to K), derived
+from theory. Updated `docs/notes/cassava_data_diagnostic.md` and the memory note.
+(The separate **true-founder deficit**, sim 96% either-match vs real 72%, remains
+a real-data BUILD problem flagged to zrm22 — unchanged, not what this thread is.)
+
+**Built this session (UNCOMMITTED — see `git status`):**
+1. `crf/simulate_alleles.py` — new Ewens/GEM(θ) sharing model via
+   `--sharing-theta`. Replaces the fixed-`A` ancestor island model: per-window
+   stick-breaking lineage proportions (GEM), founders are mosaics whose segments
+   draw iid lineages → Ewens partition, class sizes ∝ θ/i (unfolded,
+   singleton-dominated, tail→K). Larger θ = more singletons / less IBD. Also
+   writes a companion **`<out>.ibd.npy`** = per-site IBD lineage labels [N,T,K]
+   (the ceiling ground truth). New helpers `_segment_index`, `_gem_lineages`;
+   `_coalescent_feats` now returns `(feats, lineage)`; `simulate` returns
+   `(out, ibd)`. **Bug fixed mid-session:** original truncation forced the last
+   stick to 1.0 → one giant spurious class → sharing *rose* with θ. Now the
+   truncated stick weights are **normalized** (no giant class); θ-sweep is
+   monotonic: θ=2→0.36 mean share / 7% singleton; θ=8→0.17 / 19%; θ=16→0.12 /
+   30%; max sharing always 24 (tail to K, no fold). ✓
+2. `crf/analyze_ibd_ceiling.py` — NEW. For each constant-founder segment forms
+   the indistinguishable set S (feature-based: founders whose K-wide feature
+   column is bit-identical to truth over the whole segment = what a read-only
+   decoder sees; IBD-based: same lineage over the segment = the mechanism).
+   Reports per breakpoint band: CRF acc, **ceiling = mean 1/|S_feat|**, gap,
+   mean |S|, %sites with |S|>1, and **%errors that are IBD-confusable**
+   (pred ∈ S). Reuses `make_splits` + the model's `decode()`; slices `.ibd.npy`
+   with the identical head-slice/test split.
+
+**WHERE WE PAUSED — a training run is LAUNCHED and should be running:**
+- Background job generated `/workdir/esb33/data/training/sim_ewens_th6.npy`
+  (+`.ibd.npy`): 100k windows, 512 sites, K=24, **coalescent θ=6**, inbred (F=1,
+  haploid), crossovers 0–8 (so the [0,2]-bp band is ~⅓ of windows), read-snps 16,
+  ancestor-crossovers 4, seed 0. Then trains the full **d256/L6 (5M)** haploid
+  CRF: `--time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed
+  --batch-size 64 --max-epochs 8 --run-name e-ibd-th6` on GPU 0.
+- **The analyzer was NOT yet validated end-to-end** (the earlier smoke run was
+  killed before producing a checkpoint). First thing on resume: confirm a
+  checkpoint exists, then run the analyzer (command below) and sanity-check the
+  table (ceiling ≥ CRF acc? does meanS>1 concentrate in [0,2]-bp? are most errors
+  IBD-confusable?).
+
+**RESUME COMMANDS:**
+```bash
+# 1. find the trained checkpoint
+ls "/workdir/esb33/checkpoints/e-ibd-th6/"     # e1-epoch=NN-val/loss=*.ckpt (val/ is a subdir)
+
+# 2. run the IBD-ceiling analysis on the test split
+CKPT=$(ls /workdir/esb33/checkpoints/e-ibd-th6/e1-*-val/loss=*.ckpt | sort | head -1)
+LD_LIBRARY_PATH=.pixi/envs/gpu/lib PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 \
+  .pixi/envs/gpu/bin/python src/python/crf/analyze_ibd_ceiling.py \
+    --ckpt "$CKPT" --data /workdir/esb33/data/training/sim_ewens_th6.npy \
+    --split test --max-windows 20000
+# writes <workdir>/results/ibd_ceiling.txt
+```
+
+**INTERPRETATION when results land:** if in the [0,2]-bp band CRF acc ≈ ceiling,
+meanS>1, and most errors are IBD-confusable → hypothesis CONFIRMED: 60–80% is the
+no-outside-info limit, motivating the relatedness/global-conditioning encoder
+(E5/E7). If there's a real gap (errors NOT IBD-confusable) → the model is leaving
+recoverable signal on the table, so improve the model first. Then: sweep θ
+(less/more relatedness shifts the ceiling), log to RESULTS.md (new section
+"E-IBD"), and update `crf/sfs_sharing.py` to overlay the unfolded-Ewens sim.
+
+**Open knobs / notes:**
+- θ=6 was a first guess (median sharing 4, 15% singletons). If the [0,2]-bp band
+  is already ~100% (ceiling trivial) lower θ (more IBD); if CRF ≪ ceiling
+  everywhere, the task may be too hard — raise θ or read-snps.
+- The analyzer currently supports `--split test` only for the IBD slice.
+- All four task-list items: #1 record ✓, #2 Ewens model ✓, #3 analyzer built
+  (validation pending), #4 run+log (in progress — training launched).
+
+---
+
 # Session handoff — crf-relatedness (2026-06-24)
 
 Status snapshot for resuming work. Full per-experiment detail is in
