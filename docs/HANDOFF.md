@@ -87,7 +87,14 @@ calibrated het prior). See RESULTS.md "E4-probe-baseline".
 ## Next steps (prioritized — user-approved direction is diploid)
 1. **Window 1024** — user wants to test whether larger windows help diploid
    phasing: regenerate sim with `--sites 1024` and retrain.
-2. **Per-coverage stratification** — does the CRF edge grow at low depth?
+2. **Founder × read matrix (new direction, 2026-06-24).** User wants the real
+   matrix to be **founder × read**: the sequence axis runs over reads, not
+   collapsed positions. Multiple reads at the same position = multiple
+   observations (NOT summed). Contrast current
+   `cross/ps4g_to_matrix.py:collapse_matrix_inference` which sums same-position
+   rows via `np.add.at`. Coverage then = observation count, position becomes a
+   covariate. **This replaces per-coverage stratification** (dropped — coverage
+   is captured by observation count under this layout).
 3. Deferred: ≥3-seed / converged / full-data headline (PLAN §8); relatedness
    encoder (E5); promote to real diploid maize.
 
@@ -101,6 +108,13 @@ calibrated het prior). See RESULTS.md "E4-probe-baseline".
   the full panel; keep the feature matrix K-wide (other founders just have zero
   coverage) so the trained model evaluates unchanged. Add `--founders-subset` to
   `simulate_alleles.py`.
+- **Proportional within-window positional encoding:** replace/augment the
+  encoder's ordinal sinusoidal PE (keyed on timestep index) with position as the
+  *fraction of the way through the window* (~[0,1]), NOT absolute genomic
+  coordinates. User preference. Robust to variable window spans and gives two
+  reads at the same position the same encoding (needed for the founder×read
+  layout). Feed via the unused `dbp` hook in `FounderPathEncoder`
+  (`crf/train_crf.py`); needs a per-observation position column.
 
 ## Gotchas
 - The OTHER maize file `…/fullMaizeDataset.npy` (no `_all_diploid`) is BROKEN —

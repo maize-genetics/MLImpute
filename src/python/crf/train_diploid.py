@@ -304,10 +304,14 @@ def main():
         time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps,
         homo_penalty=args.homo_penalty)
 
+    # Checkpoint/stop on val/pair_acc (max): the CRF partition NLL can spike on
+    # long-block data even as Viterbi accuracy stays good, so selecting on loss
+    # can discard the best model. Accuracy is the quantity we report.
     callbacks = [
-        ModelCheckpoint(dirpath=str(ckpt_dir), monitor="val/loss", mode="min",
-                        save_top_k=2, filename="d-{epoch:02d}-{val/loss:.3f}"),
-        EarlyStopping(monitor="val/loss", mode="min", patience=args.patience),
+        ModelCheckpoint(dirpath=str(ckpt_dir), monitor="val/pair_acc",
+                        mode="max", save_top_k=2,
+                        filename="d-{epoch:02d}-{val/pair_acc:.4f}"),
+        EarlyStopping(monitor="val/pair_acc", mode="max", patience=args.patience),
     ]
     trainer = pl.Trainer(
         max_epochs=args.max_epochs, callbacks=callbacks,
