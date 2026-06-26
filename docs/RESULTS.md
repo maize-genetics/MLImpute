@@ -763,6 +763,48 @@ inbreeding in the sim and retrain so the regime is in-distribution, then re-meas
   `e7-mixF-adaptive-stable` (best-val 0.5954, ep6).
 - **Branch:** `crf-relatedness`.
 
+### E7-diag — Can the encoder force het through the transition cost? No — it's an emission tie (2026-06-26)
+
+**The question.** Why can't the encoder set the local CRF transition cost `c` to force
+heterozygosity, instead of relying on the `homo_penalty` crutch? Pulled the crutch:
+trained the diploid CRF with **`--homo-penalty 0`** under the stable recipe
+(`--cosine-decay --spike-skip`), measured by-F and instrumented `c` (`diag_c_het.py`,
+mean `c` at true-het vs homozygous loci, and predicted-het vs true-het fraction).
+
+**Result — total collapse to homozygous, identical to hp0:**
+
+| F bucket | pair_acc | c@het | c@homo | c_ratio | predHet | trueHet |
+|---|---:|---:|---:|---:|---:|---:|
+| F=1 (inbred) | 0.826 | – | 5.30 | – | 0.000 | 0.000 |
+| 0.66–1 | 0.710 | 5.37 | 5.30 | 1.01 | 0.000 | 0.136 |
+| 0.33–0.66 | 0.476 | 5.37 | 5.33 | 1.01 | 0.000 | 0.422 |
+| **F<0.33 (outbred)** | **0.171** | 5.37 | 5.32 | 1.01 | **0.000** | **0.795** |
+| all | 0.649 | 5.37 | 5.30 | 1.01 | 0.000 | 0.213 |
+
+Two decisive readings: (1) **`predHet = 0.000` everywhere** — even outbred, where
+`trueHet = 0.795`, the model predicts **zero** het loci (outbred pair_acc 0.171 = hp0's
+0.171 exactly). (2) **`c` is flat** (het/homo ratio 1.01) — the encoder makes no attempt
+to raise the transition cost in het regions.
+
+**Why the transition cost can't do it (the mechanism).** Over an alternating-read
+window, **stable-het `{A,B}` and stable-homozygous `{A,A}` have ~equal emission**
+(each ≈ `2n(h+l)`, with `h`/`l` = observed/unobserved founder score) and **both have
+zero pair-transitions.** So no value of `c` can break that tie — `c` is simply not the
+lever for het-vs-homozygous. (`c` only matters for het-vs-homozygous-*flip*; the
+uniformly high `c≈5.3` does suppress the flip, but the model then settles on stable
+*homozygous*, not het.)
+
+**Verdict.** `homo_penalty` is **not** a removable crutch — it is the only thing
+supplying the het signal, and it lives on the *correct* (emission) side. The collapse is
+**not** a stability artifact: stable training reproduces hp0 exactly. **Transition-side
+fixes are ruled out; the fix must be emission-side** — a per-locus, encoder-driven het
+prior (generalizing the global `homo_penalty` / per-individual E7 scale), driven by the
+sustained-alternation pattern the Transformer can already see across the window.
+
+- **Files:** `diag_c_het.py`, `train_diploid.py` (`--homo-penalty 0`).
+- **Checkpoint:** `e7-diag-nopenalty` (best-val 0.6805, ep3).
+- **Branch:** `crf-relatedness`.
+
 ## E8 — Inference speed: the decode dominates, not the encoder (2026-06-25)
 
 **Profile** (`profile_speed.py`, H200, batch 16, d256/L6 haploid), latency split
