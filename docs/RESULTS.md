@@ -744,11 +744,17 @@ by construction), the adaptive-stable model gives (`eval_diploid_byk.py`):
 Few-founder outbred is **not easier** than 24-founder outbred (0.445) — slightly worse
 on pair-acc. Two reasons: (1) **out-of-distribution** — the training panel had *no*
 few-founder outbred individuals (the same confound), so the model never learned the
-regime; this is a generalization gap, not an intrinsic ceiling. (2) `hap_acc` (0.65)
-≫ `pair_acc` (0.39): each haplotype is recovered ~65% but both-at-once rarely — a
-phasing weakness, compounded by IBD between the 2–3 coalescent founders over shared
-segments. **Next:** decouple founder-count from inbreeding in the sim and retrain so
-the few-founder outbred regime is in-distribution, then re-measure.
+regime; this is a generalization gap, not an intrinsic ceiling. (2) the `hap_acc`
+(0.65) ≫ `pair_acc` (0.39) gap is **not phasing** — both metrics are over *unordered*
+pair-states (`pair_table` is order-insensitive, P=325=C(25,2)+25), so the model is
+never asked which founder is on H1 vs H2. The gap is "both founders right" (pair_acc)
+vs "partial credit per founder" (hap_acc): ~1.3 of the 2 founders are recovered per
+site. The model gets *one* founder but not *both* because of the **single-gamete read
+limitation** — at a het site only one homolog is observed, so the unobserved founder
+must be inferred from the prior/neighbors and is often wrong (the "single-read emission
+collapses to homozygous" issue E7 is built around), compounded by IBD between the 2–3
+coalescent founders over shared segments. **Next:** decouple founder-count from
+inbreeding in the sim and retrain so the regime is in-distribution, then re-measure.
 
 - **Files:** `simulate_alleles.py` (`--mixed-inbreeding`, `<out>.finb.npy`),
   `train_diploid.py` (`_het_scale`, `--adaptive-homo`, `--cosine-decay`,
