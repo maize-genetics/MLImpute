@@ -662,3 +662,54 @@ E6 follow-up; the qualitative SNP≫path result above already holds.
 - **Files:** `simulate_alleles.py` (`--emit-snp-panel`), `eval_snp.py`.
 - **Checkpoint:** `<workdir>/checkpoints/e6-base/e1-epoch=00-val/loss=8.028.ckpt`.
 - **Branch:** `crf-relatedness`.
+
+## E7 — Mixed-inbreeding panel: a fixed homozygosity prior can't serve it (2026-06-25)
+
+**Setup.** `sim_e7_mixF` (600 individuals, per-individual F: 50% inbred lines F=1
++ 50% U[0,1]; `--mixed-inbreeding`). Diploid pair-state model (P=325). A single-read
+diploid emission collapses to homozygous, so a het prior (`--homo-penalty`,
+subtracted from homozygous pair-states) is required — but on a mixed-F panel a
+*fixed* prior is wrong for half the data.
+
+**Finding — the fixed prior trades inbred against outbred (pair_acc by F):**
+
+| F bucket | homo-pen=3 | homo-pen=0 | adaptive |
+|---|---:|---:|---:|
+| F=1 (inbred) | 0.188 | **0.818** | 0.757 |
+| 0.66–1 | 0.237 | **0.707** | 0.238 |
+| 0.33–0.66 | 0.320 | 0.476 | 0.279 |
+| F<0.33 (outbred) | **0.445** | 0.171 | 0.388 |
+| **all** | 0.257 | **0.645** | 0.508 |
+
+`homo-pen=3` cripples inbred individuals (whose correct answer *is* homozygous);
+`homo-pen=0` flips it (good on inbred, collapses on the most-outbred). **A single
+fixed prior cannot serve the panel** — the core E7 result, and it answers the
+experiment's question: mixed-inbreeding panels need a *per-individual* prior.
+
+**The het signal is recoverable from reads (validated).** With reads ordered by
+position and gametes evenly mixed, **adjacent-read correlation** distinguishes
+het from homozygous windows: het proxy `= 1 − mean Jaccard(adjacent match-sets)`,
+aggregated per individual, tracks true F at **corr −0.986** (AUC 0.966 inbred vs
+rest; inbred 0.231±0.004, outbred ~0.50). `_het_scale` in `train_diploid.py`.
+
+**But the adaptive penalty does NOT yet resolve it.** Wiring that scale into a
+per-individual homozygous penalty (0 inbred → 3 outbred) underperforms: the
+adaptive arm is worse than `homo-pen=0` even on individuals it should match (0.66–1
+bucket 0.238 vs 0.707). Cause: the **diploid CRF training is bf16-unstable** on this
+mixed long-block data — val pair_acc oscillates (0.69↔0.11 across epochs even at
+lr 5e-5), and the per-sample varying penalty makes the objective harder, so neither
+converges cleanly. The *estimator* is sound; the *integration* into an unstable
+diploid CRF is not.
+
+**Verdict / open.** Fixed prior fails (proven); the het estimator works; the
+adaptive fix needs (a) **stable diploid training** (the partition NLL spikes on
+long homozygous blocks — a real robustness gap, also relevant to E8), and/or (b) a
+better integration — condition the *encoder* on the het scale, or feed it as an
+input, rather than a post-hoc per-sample emission penalty. Deferred.
+
+- **Files:** `simulate_alleles.py` (`--mixed-inbreeding`, `<out>.finb.npy`),
+  `train_diploid.py` (`_het_scale`, `DiploidIndividualDataset`, `--adaptive-homo`),
+  `eval_diploid_byF.py`.
+- **Checkpoints:** `e7-mixF` (hp3), `e7-mixF-hp0b` (hp0, best 0.6915),
+  `e7-mixF-adaptiveb` (adaptive).
+- **Branch:** `crf-relatedness`.

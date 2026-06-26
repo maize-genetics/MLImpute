@@ -154,6 +154,61 @@ def make_diploid_splits(path, num_parents, val_frac, test_frac, limit_n=0):
     return mk(data[:n_tr]), mk(data[n_tr:n_tr + n_val]), mk(data[n_tr + n_val:])
 
 
+# E7: per-individual heterozygosity proxy → adaptive homozygous penalty. Inbred
+# individuals (F=1) have identical gametes, so consecutive single-gamete reads stay
+# on the same founder and their match-founder sets overlap; outbred individuals
+# interleave two gametes, so adjacent reads' match sets disagree more. Aggregated
+# over an individual's windows this tracks (1-F) almost exactly (corr -0.99), and
+# is computed from reads only — so the het prior can be set per individual.
+HET_INBRED, HET_OUTBRED = 0.23, 0.50      # proxy at F=1 and F=0 (sim calibration)
+
+
+def _het_scale(feats_block):
+    """Map an individual's windows [W,T,K] (0/1) to homo-penalty scale in [0,1]:
+    0 for inbred (allow homozygous), 1 for fully outbred (full het prior)."""
+    a, b = feats_block[:, :-1], feats_block[:, 1:]
+    inter = (a * b).sum(-1)
+    uni = ((a + b) > 0).sum(-1)
+    jac = np.where(uni > 0, inter / np.maximum(uni, 1), 1.0)
+    het = float((1.0 - jac).mean())
+    return float(np.clip((het - HET_INBRED) / (HET_OUTBRED - HET_INBRED), 0.0, 1.0))
+
+
+class DiploidIndividualDataset(PreWindowedDiploidDataset):
+    """Diploid dataset + a per-individual adaptive homozygous-penalty scale, from
+    the genome-wide het proxy (reads only). Windows are grouped in blocks of G."""
+    def __init__(self, data, num_parents, windows_per_individual):
+        super().__init__(data, num_parents)
+        G = windows_per_individual
+        if len(data) % G:
+            raise ValueError(f"rows {len(data)} not divisible by windows/ind {G}")
+        self.G = G
+        feats = np.asarray(data[:, :, :num_parents]).reshape(
+            len(data) // G, G, data.shape[1], num_parents).astype(np.float32)
+        self.scale = np.array([_het_scale(feats[i]) for i in range(len(feats))],
+                              dtype=np.float32)
+
+    def __getitem__(self, idx):
+        out = super().__getitem__(idx)
+        out["homo_scale"] = torch.tensor(self.scale[idx // self.G], dtype=torch.float32)
+        return out
+
+
+def make_diploid_individual_splits(path, num_parents, val_frac, test_frac, G, limit_n=0):
+    data = np.load(path, allow_pickle=True, mmap_mode="r")
+    if limit_n:
+        data = data[:(limit_n // G) * G]
+    N = len(data)
+    n_ind = N // G
+    n_test = int(n_ind * test_frac) * G
+    n_val = int(n_ind * val_frac) * G
+    n_tr = N - n_val - n_test
+    mk = lambda a: DiploidIndividualDataset(a, num_parents, G)
+    print(f"Diploid(individual) {Path(path).name}: N={N:,} individuals={n_ind} "
+          f"train={n_tr:,} val={n_val:,} test={n_test:,}")
+    return mk(data[:n_tr]), mk(data[n_tr:n_tr + n_val]), mk(data[n_tr + n_val:])
+
+
 # --------------------------------------------------------------------------- #
 #  Lightning module                                                            #
 # --------------------------------------------------------------------------- #
@@ -191,7 +246,7 @@ class GRITSCRFDiploid(pl.LightningModule):
         print(f"GRITSCRFDiploid: K={K} states, P={self.P} pair-states, "
               f"{n_params:,} params")
 
-    def forward(self, X):
+    def forward(self, X, homo_scale=None):
         B, T, K_feat = X.shape
         K = self.num_parents + 1
         X_pad = torch.cat([X, torch.zeros(B, T, 1, device=X.device)], dim=-1)
@@ -199,7 +254,13 @@ class GRITSCRFDiploid(pl.LightningModule):
         emis_f, g, c = self.encoder(X_pad, founder_mask)         # [B,T,K]
         emis_p = emis_f[..., self.pi] + emis_f[..., self.pj]     # [B,T,P]
         if self.homo_penalty != 0.0:
-            emis_p = emis_p - self.homo_penalty * self.homo_mask
+            # E7: with a per-individual scale (0=inbred → no penalty, 1=outbred →
+            # full het prior), the homozygous penalty adapts to each sample's
+            # inbreeding; without it, the fixed scalar applies to all.
+            pen = self.homo_penalty
+            if homo_scale is not None:
+                pen = pen * homo_scale.view(B, 1, 1)
+            emis_p = emis_p - pen * self.homo_mask
         return emis_p, g, c
 
     def _pair_labels(self, h1, h2):
@@ -207,7 +268,7 @@ class GRITSCRFDiploid(pl.LightningModule):
 
     def _step(self, batch):
         X, h1, h2 = batch["input_embeds"], batch["h1"], batch["h2"]
-        emis_p, g, c = self(X)
+        emis_p, g, c = self(X, batch.get("homo_scale"))
         tags = self._pair_labels(h1, h2)
         crf = _dcrf_nll(emis_p, c, self.nsw_pair, self.stay_bonus, tags)
         loss = crf + self.gate_reg * (1.0 - g).mean()
@@ -274,6 +335,11 @@ def parse_args():
     p.add_argument("--homo-penalty", type=float, default=0.0,
                    help="Subtract from homozygous pair emissions (het prior); "
                         "counters the all-homozygous collapse of single-read diploid.")
+    p.add_argument("--adaptive-homo", action="store_true",
+                   help="E7: scale --homo-penalty per individual by a genome-wide "
+                        "het proxy (0 for inbred lines, 1 for outbred), so one model "
+                        "serves a mixed-inbreeding panel. Needs --windows-per-individual.")
+    p.add_argument("--windows-per-individual", type=int, default=100)
     p.add_argument("--precision", default="bf16-mixed")
     p.add_argument("--max-epochs", type=int, default=5)
     p.add_argument("--patience", type=int, default=10)
@@ -290,9 +356,14 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    train_ds, val_ds, _ = make_diploid_splits(
-        args.data, args.num_parents, args.val_frac, args.test_frac,
-        limit_n=args.limit_n)
+    if args.adaptive_homo:
+        train_ds, val_ds, _ = make_diploid_individual_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac,
+            args.windows_per_individual, limit_n=args.limit_n)
+    else:
+        train_ds, val_ds, _ = make_diploid_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac,
+            limit_n=args.limit_n)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.num_workers, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
