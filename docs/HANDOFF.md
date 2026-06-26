@@ -1,9 +1,36 @@
-# Session handoff — crf-relatedness (2026-06-25, IBD-ceiling)
+# Session handoff — crf-relatedness (2026-06-26, het diagnosis + fix)
 
 Status snapshot for resuming work. Full per-experiment detail is in
 [`docs/RESULTS.md`](RESULTS.md); experiment spec in [`docs/PLAN.md`](PLAN.md).
-The 2026-06-24 snapshot (E1-maize, E4-probe diploid, window-1024) is below; this
-top section is the active thread.
+Older active threads (2026-06-25 IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+
+## ACTIVE (2026-06-26): diploid heterozygosity — diagnosed and fixed
+
+**The question (user-set).** Why couldn't the encoder inform the local CRF *transition*
+probabilities to force heterozygosity? Plant genotyping is ≤1 read/locus, so het must be
+read from the **sustained rapid alternation** of two haplotypes in the single-read stream.
+
+**Diagnosis (RESULTS E7-diag) — definitive.** It can't, and not for lack of training:
+pull the `homo_penalty` crutch (`--homo-penalty 0`, stable recipe) and the model collapses
+to homozygous — `predHet=0.000` even where `trueHet=0.795`; `c` flat het-vs-homo (1.01).
+**Mechanism:** stable-het `{A,B}` and stable-homozygous `{A,A}` have ~equal emission over
+an alternating-read window AND both have zero transitions, so no transition cost can break
+the tie. Het preference must be **emission-side**. (`diag_c_het.py` instruments this.)
+
+**Fix (RESULTS E7-fix) — works, best result yet.** `--learned-het`: a gated `het_head`
+on the encoder emits a **per-locus** het logit from the window context; `softplus(het)`
+becomes a per-site homozygous penalty replacing the fixed/per-individual `homo_penalty`.
+**Outbred pair_acc 0.171 → 0.516** (beats hand-tuned hp3 and per-individual adaptive,
+both 0.445); best all-band 0.689. `predHet` now tracks `trueHet` across F buckets — the
+encoder learned to detect het regions from the alternation pattern. Ckpt `e7-learnedhet`
+(best-val 0.6996, ep4).
+
+**Open / next:** (1) slight inbred over-fire (`predHet 0.21` where true 0; inbred
+0.826→0.753) — tune (sharper prior / het regularization / longer train); (2) diploid tail
+still oscillates → best-val checkpointing; (3) 1M haploid full last-epoch monotonicity
+(EMA/SWA or partition clamp); (4) decoupled-sim retrain for in-distribution few-founder
+outbred. Code: `train_crf.py` (`het_head`/`emit_het`), `train_diploid.py`
+(`--learned-het`), `diag_c_het.py`, `show_window.py`. Latest commit `187569b`.
 
 ## ACTIVE (2026-06-25): IBD-ceiling experiment — "is 60–80% the no-outside-info limit?"
 
