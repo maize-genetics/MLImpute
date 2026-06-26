@@ -728,9 +728,31 @@ did not fully tame the per-sample-penalty diploid objective. Next: calibrate the
 proxy→penalty map (or condition the encoder on the het scale instead of a post-hoc
 emission penalty), and longer warmup / lower lr for the diploid tail.
 
+**Few-founder outbred breakout (the k=2/3 case).** Asked for outbred accuracy when
+an individual has only 2–3 founders: **`sim_e7_mixF` cannot answer it** — founder-count
+and inbreeding are confounded (the k=2/3 individuals are *all* inbred lines; every
+outbred individual has k=14–23). On a dedicated fully-outbred sim (`sim_outbred_k23`,
+`--inbreeding 0 --min-founders 2 --max-founders 3`, coalescent θ=6, 300 inds, held out
+by construction), the adaptive-stable model gives (`eval_diploid_byk.py`):
+
+| k founders | inds | pair_acc | hap_acc |
+|---|---:|---:|---:|
+| k=2 | 139 | 0.372 | 0.659 |
+| k=3 | 161 | 0.402 | 0.647 |
+| k=2–3 | 300 | 0.388 | 0.652 |
+
+Few-founder outbred is **not easier** than 24-founder outbred (0.445) — slightly worse
+on pair-acc. Two reasons: (1) **out-of-distribution** — the training panel had *no*
+few-founder outbred individuals (the same confound), so the model never learned the
+regime; this is a generalization gap, not an intrinsic ceiling. (2) `hap_acc` (0.65)
+≫ `pair_acc` (0.39): each haplotype is recovered ~65% but both-at-once rarely — a
+phasing weakness, compounded by IBD between the 2–3 coalescent founders over shared
+segments. **Next:** decouple founder-count from inbreeding in the sim and retrain so
+the few-founder outbred regime is in-distribution, then re-measure.
+
 - **Files:** `simulate_alleles.py` (`--mixed-inbreeding`, `<out>.finb.npy`),
   `train_diploid.py` (`_het_scale`, `--adaptive-homo`, `--cosine-decay`,
-  `--spike-skip`, `--grad-clip`), `eval_diploid_byF.py`.
+  `--spike-skip`, `--grad-clip`), `eval_diploid_byF.py`, `eval_diploid_byk.py`.
 - **Checkpoints:** `e7-mixF` (hp3), `e7-mixF-hp0b` (hp0, 0.6915),
   `e7-mixF-adaptive-stable` (best-val 0.5954, ep6).
 - **Branch:** `crf-relatedness`.
