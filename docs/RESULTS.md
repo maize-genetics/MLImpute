@@ -805,6 +805,38 @@ sustained-alternation pattern the Transformer can already see across the window.
 - **Checkpoint:** `e7-diag-nopenalty` (best-val 0.6805, ep3).
 - **Branch:** `crf-relatedness`.
 
+### E7-fix — Per-locus learned het prior: the prescribed emission-side fix works (2026-06-26)
+
+The diagnosis said het must come from the emission side, per-locus. Implemented it
+(`--learned-het`): a gated `het_head` on the encoder emits a **per-locus het logit**
+from the window context; `softplus(het)` becomes a per-site homozygous penalty
+replacing the fixed/per-individual `homo_penalty`. Trained on `sim_e7_mixF` with the
+stable recipe (best-val 0.6996 all-band, ep4). By F:
+
+| F bucket | hp0 | hp3 | adaptive | no-pen | **learned-het** | predHet | trueHet |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| F=1 (inbred) | 0.818 | 0.188 | 0.784 | 0.826 | 0.753 | 0.210 | 0.000 |
+| 0.66–1 | 0.707 | 0.237 | 0.372 | 0.710 | 0.711 | 0.316 | 0.136 |
+| 0.33–0.66 | 0.476 | 0.320 | 0.335 | 0.476 | **0.625** | 0.543 | 0.422 |
+| **F<0.33 (outbred)** | 0.171 | 0.445 | 0.445 | 0.171 | **0.516** | 0.843 | 0.795 |
+| all | 0.645 | 0.257 | 0.567 | 0.649 | **0.689** | 0.378 | 0.213 |
+
+**Outbred jumps from the 0.171 collapse to 0.516 — the best of any approach** (beats
+the hand-tuned hp3 and the per-individual adaptive prior, both 0.445), and best
+all-band (0.689). The mechanism is confirmed: **`predHet` now tracks `trueHet`** across
+buckets (outbred 0.843 vs 0.795) — the encoder learned to detect het regions from the
+sustained-alternation pattern and raise the per-locus penalty there, exactly as the
+diagnosis predicted. One cost: it slightly over-fires in inbred (predHet 0.210 vs
+true 0.000), dropping inbred 0.826→0.753 — tunable (sharper prior / het regularization
+/ longer training). Net: **one model, no hand-tuned penalty, het signal learned from
+the reads — strictly better across the outbred range than every prior arm.**
+
+- **Files:** `train_crf.py` (`het_head`, `emit_het`), `train_diploid.py`
+  (`--learned-het`), `diag_c_het.py`.
+- **Checkpoint:** `e7-learnedhet` (best-val 0.6996, ep4).
+- **Open:** the inbred over-fire; diploid tail still oscillates (best-val checkpointing).
+- **Branch:** `crf-relatedness`.
+
 ## E8 — Inference speed: the decode dominates, not the encoder (2026-06-25)
 
 **Profile** (`profile_speed.py`, H200, batch 16, d256/L6 haploid), latency split
