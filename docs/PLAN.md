@@ -406,6 +406,31 @@ speed; the former standalone Mamba2 milestone is folded into E8.
   RESULTS.md.
 - **Decision informed:** is the story complete and communicable end-to-end.
 
+### E10 — Per-read position: disambiguate heterozygosity from recombination
+- **Motivation:** in the diploid eval the model recovers ~1.3 of 2 founders per het
+  site (`hap_acc` ≫ `pair_acc`) — *not* a phasing problem (pair-states are unordered),
+  but the **single-gamete coverage limit**: one read per site means the second homolog's
+  founder is unobserved and must be inferred, and the inference confounds *het* with
+  *recombination*. The current sim emits one read per evenly-spaced integer site, so the
+  signal that separates them never appears.
+- **Key idea (zrm22):** give each read a **relative position float ∈ [0,1]**. Two
+  conflicting reads **close/identical in position ⇒ heterozygous** (two homologs at one
+  locus — both founders directly observed); **far apart ⇒ recombination** (one homolog
+  switched). At co-located conflicts the emission should favor the het pair-state {A,B}.
+- **Implement:**
+  1. *Simulator* — per-read layout: reads drawn from BOTH gametes at Poisson-spaced
+     positions, each `(position, founder-match vector)`; read density a knob (doubles as
+     a coverage sweep). Keep eval-only H1/H2 paths + IBD. (The per-read, not
+     collapsed-[T,K], layout already flagged as a direction.)
+  2. *Encoder* — embed the position float (Fourier features / small MLP) and add it to
+     each read's cell embedding, so attention pooling over co-located reads can drive
+     the het pair-state.
+- **Acceptance:** few-founder outbred `pair_acc` (today's OOD baseline 0.37–0.40) rises
+  toward `hap_acc` as read density increases; the model separates het from recombination
+  (e.g. lower breakpoint false-positives at het runs).
+- **Decision informed:** does observing the second homolog (vs inferring it) close the
+  pair-vs-hap gap — i.e. is the diploid limit coverage-bound, as hypothesised.
+
 ---
 
 ## 6. Default config & parameter budget
