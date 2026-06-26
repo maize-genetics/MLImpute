@@ -335,12 +335,21 @@ class GRITSCRFHaploid(pl.LightningModule):
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=3e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
                  warmup_steps=0, recomb_aux_weight=0.0, window_c=False,
-                 no_transition=False, ext_dim=0, cosine_decay=False):
+                 no_transition=False, ext_dim=0, cosine_decay=False,
+                 spike_skip=False, spike_mult=8.0):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
         self.ext_dim = ext_dim
         self.cosine_decay = cosine_decay
+        # Loss-spike step-skip: drop optimizer steps whose raw grad-norm is
+        # non-finite or >> the running median, so one bad batch can't kick the
+        # model out of the converged basin (RESULTS E8 1M oscillation).
+        self.spike_skip = spike_skip
+        self.spike_mult = spike_mult
+        self._gnorm_ema = -1.0
+        self._gnorm_seen = 0
+        self._n_skipped = 0
         self.lr = lr
         self.weight_decay = weight_decay
         self.gate_reg = gate_reg
@@ -429,6 +438,31 @@ class GRITSCRFHaploid(pl.LightningModule):
         self.log("val/gate", g.mean())
         self.log("val/recomb_corr", corr, prog_bar=True)
         return loss
+
+    def on_before_optimizer_step(self, optimizer):
+        # Runs after backward, BEFORE gradient clipping — so we see the raw
+        # spike. Skip the step (zero grads → no-op update) when the global
+        # grad-norm is non-finite or >> the running EMA of recent good norms.
+        if not self.spike_skip:
+            return
+        norms = [p.grad.detach().norm() for p in self.parameters()
+                 if p.grad is not None]
+        if not norms:
+            return
+        g = float(torch.norm(torch.stack(norms)))
+        warming = self._gnorm_seen < 50          # establish the EMA first
+        bad = (not math.isfinite(g)) or (
+            not warming and self._gnorm_ema > 0 and g > self.spike_mult * self._gnorm_ema)
+        if bad:
+            for p in self.parameters():
+                if p.grad is not None:
+                    p.grad.zero_()
+            self._n_skipped += 1
+            self.log("train/skipped", float(self._n_skipped), prog_bar=True)
+            return
+        # update the running EMA only on accepted (good) steps
+        self._gnorm_ema = g if self._gnorm_ema <= 0 else 0.98 * self._gnorm_ema + 0.02 * g
+        self._gnorm_seen += 1
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr,
@@ -523,6 +557,10 @@ def main():
     p.add_argument("--cosine-decay", action="store_true",
                    help="Warmup then cosine-decay LR to ~0 (settles the basin "
                         "oscillation; needs --warmup-steps > 0)")
+    p.add_argument("--spike-skip", action="store_true",
+                   help="Skip optimizer steps with non-finite or spiking grad-norm")
+    p.add_argument("--spike-mult", type=float, default=8.0,
+                   help="Skip a step if raw grad-norm > this × running EMA")
     p.add_argument("--recomb-aux-weight", type=float, default=0.0,
                    help="Weight on the recomb_head auxiliary loss: per-window "
                         "Pearson corr(c_t, hidden log-rate), minimized so c_t "
@@ -581,6 +619,8 @@ def main():
         no_transition=args.no_transition,
         ext_dim=ext_dim,
         cosine_decay=args.cosine_decay,
+        spike_skip=args.spike_skip,
+        spike_mult=args.spike_mult,
     )
 
     callbacks = [

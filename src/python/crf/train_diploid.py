@@ -22,6 +22,7 @@ Usage:
 """
 
 import argparse
+import math
 from pathlib import Path
 
 import numpy as np
@@ -222,7 +223,8 @@ def make_diploid_individual_splits(path, num_parents, val_frac, test_frac, G, li
 class GRITSCRFDiploid(pl.LightningModule):
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=1e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
-                 warmup_steps=0, homo_penalty=0.0):
+                 warmup_steps=0, homo_penalty=0.0,
+                 cosine_decay=False, spike_skip=False, spike_mult=8.0):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
@@ -231,6 +233,14 @@ class GRITSCRFDiploid(pl.LightningModule):
         self.gate_reg = gate_reg
         self.warmup_steps = warmup_steps
         self.homo_penalty = homo_penalty
+        # Stability recipe ported from E8 haploid (RESULTS E8): cosine-decay-to-0
+        # settles the basin oscillation, spike-skip drops freak-gradient steps.
+        self.cosine_decay = cosine_decay
+        self.spike_skip = spike_skip
+        self.spike_mult = spike_mult
+        self._gnorm_ema = -1.0
+        self._gnorm_seen = 0
+        self._n_skipped = 0
 
         K = num_parents + 1                          # +1 unknown, matches encoder
         self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
@@ -308,12 +318,44 @@ class GRITSCRFDiploid(pl.LightningModule):
         self.log("val/gate", g.mean())
         return loss
 
+    def on_before_optimizer_step(self, optimizer):
+        # See train_haploid: runs before clipping; skip steps whose raw global
+        # grad-norm is non-finite or >> the running EMA of good norms.
+        if not self.spike_skip:
+            return
+        norms = [p.grad.detach().norm() for p in self.parameters()
+                 if p.grad is not None]
+        if not norms:
+            return
+        g = float(torch.norm(torch.stack(norms)))
+        warming = self._gnorm_seen < 50
+        bad = (not math.isfinite(g)) or (
+            not warming and self._gnorm_ema > 0 and g > self.spike_mult * self._gnorm_ema)
+        if bad:
+            for p in self.parameters():
+                if p.grad is not None:
+                    p.grad.zero_()
+            self._n_skipped += 1
+            self.log("train/skipped", float(self._n_skipped), prog_bar=True)
+            return
+        self._gnorm_ema = g if self._gnorm_ema <= 0 else 0.98 * self._gnorm_ema + 0.02 * g
+        self._gnorm_seen += 1
+
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr,
                                 weight_decay=self.weight_decay)
         if self.warmup_steps > 0:
-            sched = torch.optim.lr_scheduler.LambdaLR(
-                opt, lambda s: min(1.0, s / self.warmup_steps))
+            w = self.warmup_steps
+            if self.cosine_decay:
+                total = max(int(self.trainer.estimated_stepping_batches), w + 1)
+                def lam(step: int) -> float:
+                    if step < w:
+                        return (step + 1) / w
+                    prog = (step - w) / max(1, total - w)
+                    return 0.5 * (1.0 + math.cos(math.pi * min(1.0, prog)))
+            else:
+                lam = lambda s: min(1.0, s / w)
+            sched = torch.optim.lr_scheduler.LambdaLR(opt, lam)
             return {"optimizer": opt,
                     "lr_scheduler": {"scheduler": sched, "interval": "step"}}
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -338,6 +380,15 @@ def parse_args():
     p.add_argument("--gate-reg", type=float, default=0.05)
     p.add_argument("--time-local-emis", action="store_true")
     p.add_argument("--warmup-steps", type=int, default=0)
+    p.add_argument("--grad-clip", type=float, default=1.0,
+                   help="Gradient-norm clip value")
+    p.add_argument("--cosine-decay", action="store_true",
+                   help="Warmup then cosine-decay LR to ~0 (E8 stability recipe; "
+                        "needs --warmup-steps > 0)")
+    p.add_argument("--spike-skip", action="store_true",
+                   help="Skip optimizer steps with non-finite or spiking grad-norm")
+    p.add_argument("--spike-mult", type=float, default=8.0,
+                   help="Skip a step if raw grad-norm > this × running EMA")
     p.add_argument("--homo-penalty", type=float, default=0.0,
                    help="Subtract from homozygous pair emissions (het prior); "
                         "counters the all-homozygous collapse of single-read diploid.")
@@ -379,7 +430,8 @@ def main():
         num_parents=args.num_parents, d_model=args.d_model, n_heads=args.n_heads,
         n_layers=args.n_layers, lr=args.lr, gate_reg=args.gate_reg,
         time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps,
-        homo_penalty=args.homo_penalty)
+        homo_penalty=args.homo_penalty, cosine_decay=args.cosine_decay,
+        spike_skip=args.spike_skip, spike_mult=args.spike_mult)
 
     # Checkpoint/stop on val/pair_acc (max): the CRF partition NLL can spike on
     # long-block data even as Viterbi accuracy stays good, so selecting on loss
@@ -394,7 +446,7 @@ def main():
         max_epochs=args.max_epochs, callbacks=callbacks,
         logger=TensorBoardLogger(str(log_dir), name=args.run_name),
         accelerator="auto", devices=args.devices, precision=args.precision,
-        gradient_clip_val=1.0)
+        gradient_clip_val=args.grad_clip)
     trainer.fit(model, train_loader, val_loader)
     print(f"Best checkpoint: {callbacks[0].best_model_path}")
 

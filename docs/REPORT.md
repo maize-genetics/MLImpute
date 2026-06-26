@@ -122,8 +122,13 @@ serve both: `homo_penalty=3` cripples the inbred half (0.19 pair-acc, whose corr
 answer is homozygous) while helping the outbred; `homo_penalty=0` flips it. The
 het signal (adjacent-read correlation) estimates each individual's F from reads
 alone (**corr −0.99** with true F), enabling a **per-individual adaptive penalty**
-(0 for inbred, full for outbred). *[Stable adaptive result pending; see RESULTS.md
-E7.]*
+(0 for inbred, full for outbred). Once trained with the E8 stability recipe (cosine
+-decay + spike-skip, ported to the diploid CRF), the adaptive model reaches the goal
+no fixed prior can: **outbred pair-accuracy 0.445 — equal to the best fixed prior —
+while simultaneously holding inbred at 0.784** (any fixed prior that wins one craters
+the other). Intermediate-F buckets still trail and the diploid tail still needs care
+(proxy→penalty calibration; encoder-side conditioning), but the per-individual prior
+is now validated end-to-end.
 
 ### E8 — Inference speed and 1M-window scale
 

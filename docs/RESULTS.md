@@ -692,26 +692,47 @@ het from homozygous windows: het proxy `= 1 − mean Jaccard(adjacent match-sets
 aggregated per individual, tracks true F at **corr −0.986** (AUC 0.966 inbred vs
 rest; inbred 0.231±0.004, outbred ~0.50). `_het_scale` in `train_diploid.py`.
 
-**But the adaptive penalty does NOT yet resolve it.** Wiring that scale into a
-per-individual homozygous penalty (0 inbred → 3 outbred) underperforms: the
-adaptive arm is worse than `homo-pen=0` even on individuals it should match (0.66–1
-bucket 0.238 vs 0.707). Cause: the **diploid CRF training is bf16-unstable** on this
-mixed long-block data — val pair_acc oscillates (0.69↔0.11 across epochs even at
-lr 5e-5), and the per-sample varying penalty makes the objective harder, so neither
-converges cleanly. The *estimator* is sound; the *integration* into an unstable
-diploid CRF is not.
+**The adaptive penalty was initially blocked by unstable training.** The first
+attempt underperformed (old `adaptive` column) because the **diploid CRF training
+was bf16-unstable** — val pair_acc oscillated 0.69↔0.11 across epochs — so the
+per-individual penalty never converged. The *estimator* was sound; the *integration*
+into an unstable CRF was not.
 
-**Verdict / open.** Fixed prior fails (proven); the het estimator works; the
-adaptive fix needs (a) **stable diploid training** (the partition NLL spikes on
-long homozygous blocks — a real robustness gap, also relevant to E8), and/or (b) a
-better integration — condition the *encoder* on the het scale, or feed it as an
-input, rather than a post-hoc per-sample emission penalty. Deferred.
+### E7-stable — the E8 stability recipe unlocks the adaptive prior (2026-06-26)
+
+Porting the E8 recipe to `train_diploid.py` (fp32 partition + `--cosine-decay`
++ `--spike-skip`; lr 5e-5, warmup 2000, clip 0.5) gave the **smoothest adaptive
+training yet** — a monotonic climb to **0.595** (best-val epoch 6) with **7 freak-
+gradient spikes auto-skipped**, vs the old chaotic oscillation. By inbreeding bucket
+(`eval_diploid_byF.py`, +hap_acc):
+
+| F bucket | hp=3 | hp=0 | adaptive (old) | **adaptive-stable** | hap_acc |
+|---|---:|---:|---:|---:|---:|
+| F=1 (inbred) | 0.188 | **0.818** | 0.757 | **0.784** | 0.821 |
+| 0.66–1 | 0.237 | **0.707** | 0.238 | 0.372 | 0.631 |
+| 0.33–0.66 | 0.320 | 0.476 | 0.279 | 0.335 | 0.598 |
+| **F<0.33 (outbred)** | **0.445** | 0.171 | 0.388 | **0.445** | 0.631 |
+| all | 0.257 | **0.645** | 0.508 | 0.567 | 0.714 |
+
+**The result the adaptive prior was designed for:** one model reaches **outbred
+0.445 — equal to the best any fixed prior managed (hp=3) — while simultaneously
+holding inbred at 0.784** (near hp=0's best 0.818). No fixed prior does both
+(hp=3: outbred 0.445 / inbred 0.188; hp=0: inbred 0.818 / outbred 0.171). The
+adaptive model captures both extremes at once, which is the whole point.
+
+**Honest gaps remaining:** (1) intermediate-F buckets (0.66–1, 0.33–0.66) still
+trail hp=0 — the het-proxy→penalty scaling is miscalibrated in the middle (it should
+interpolate but under-penalizes there); (2) late-epoch training still degrades after
+~epoch 7 (best-val checkpointing required) — cosine+spike-skip greatly improved but
+did not fully tame the per-sample-penalty diploid objective. Next: calibrate the
+proxy→penalty map (or condition the encoder on the het scale instead of a post-hoc
+emission penalty), and longer warmup / lower lr for the diploid tail.
 
 - **Files:** `simulate_alleles.py` (`--mixed-inbreeding`, `<out>.finb.npy`),
-  `train_diploid.py` (`_het_scale`, `DiploidIndividualDataset`, `--adaptive-homo`),
-  `eval_diploid_byF.py`.
-- **Checkpoints:** `e7-mixF` (hp3), `e7-mixF-hp0b` (hp0, best 0.6915),
-  `e7-mixF-adaptiveb` (adaptive).
+  `train_diploid.py` (`_het_scale`, `--adaptive-homo`, `--cosine-decay`,
+  `--spike-skip`, `--grad-clip`), `eval_diploid_byF.py`.
+- **Checkpoints:** `e7-mixF` (hp3), `e7-mixF-hp0b` (hp0, 0.6915),
+  `e7-mixF-adaptive-stable` (best-val 0.5954, ep6).
 - **Branch:** `crf-relatedness`.
 
 ## E8 — Inference speed: the decode dominates, not the encoder (2026-06-25)
