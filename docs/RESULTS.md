@@ -625,3 +625,40 @@ as a soft version (the emission-bias instability says clamp it).
 - **Checkpoint:** baseline `<workdir>/checkpoints/e5-base-th6/e1-epoch=05-val/loss=2.420.ckpt`
   (cutoff is decode-time, no relatedness training needed).
 - **Branch:** `crf-relatedness`.
+
+## E6 — SNP-level imputation accuracy: the IBD ceiling is invisible at the SNP (2026-06-25)
+
+**Premise.** GRITS decodes a founder PATH; standard imputers report per-SNP
+genotype accuracy. We bridge them by composing the decoded path with the founder ×
+SNP allele panel (`simulate_alleles.py --emit-snp-panel` → `<data>.panel.npy`):
+`pred_allele(t,l)=panel[t,decoded_founder(t),l]`. Sim `sim_e6_th6` (30k windows,
+300 individuals, θ=6, inbred); haploid baseline `e6-base` (val acc 0.827).
+
+**Result (3k test windows, `eval_snp.py`).**
+
+| metric | value |
+|---|---:|
+| founder-PATH accuracy | 0.8169 |
+| **SNP genotype concordance** | **0.9998** |
+| gap (IBD-invisible-at-SNP) | **+0.1829** |
+
+**The path-ceiling errors are essentially free at the SNP level.** Where the path
+errs it errs onto a founder that is *bit-identical over the read* (the IBD
+confusion of E-IBD), so that founder's SNP alleles equal the truth's and the
+genotype call stands. The ~18pt path-accuracy deficit collapses to ~0.02pt of SNP
+error. This is the headline argument that GRITS is competitive on the metric the
+field actually uses, **because** its residual path errors are between
+sequence-identical founders.
+
+**Honest caveat — the sim isn't yet a SNP-imputation benchmark.** The coalescent
+sim redraws per-SNP allele frequencies *independently per site* (`f ~ Beta` inside
+`_coalescent_feats`), so there is no persistent per-SNP MAF: all 16 read slots
+average to ~0.23 and MAF-stratified dosage r² is degenerate (one bin, r²≈0.999).
+A Beagle/minimac-comparable number (dosage r² stratified by a stable MAF) needs a
+**fixed founder × SNP panel at persistent genomic positions** plus **diploid
+dosage** (0/1/2). That panel upgrade + the E7 mixed-inbreeding diploid model is the
+E6 follow-up; the qualitative SNP≫path result above already holds.
+
+- **Files:** `simulate_alleles.py` (`--emit-snp-panel`), `eval_snp.py`.
+- **Checkpoint:** `<workdir>/checkpoints/e6-base/e1-epoch=00-val/loss=8.028.ckpt`.
+- **Branch:** `crf-relatedness`.

@@ -286,7 +286,7 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
              ancestor_crossovers=8, derived_sfs=0.3, read_snps=8,
              error_block=1.0, gamete_balance=0.5, sharing_theta=None,
              windows_per_individual=0, min_founders=2, max_founders=24,
-             emit_snp_panel=False, chunk=1000):
+             emit_snp_panel=False, inbreeding_per_window=None, chunk=1000):
     K = founders
     T = sites
     coalescent = sharing_model == "coalescent"
@@ -326,8 +326,10 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
 
         # Second haplotype: identical with prob F (inbred), else independent.
         # Outbred H2 shares the same hidden rate map (same genomic region) and,
-        # under E5 grouping, the same founder subset as H1.
-        inbred = rng.random(n) < inbreeding
+        # under E5 grouping, the same founder subset as H1. E7: a per-window F
+        # (constant within an individual) mixes inbreeding levels across the panel.
+        F = inbreeding if inbreeding_per_window is None else inbreeding_per_window[start:start + n]
+        inbred = rng.random(n) < F
         h2 = h1.copy()
         outbred = np.flatnonzero(~inbred)
         if outbred.size:
@@ -437,6 +439,13 @@ def parse_args():
                    help="E6: also write <out>.panel.npy [N,T,K,L] = each founder's "
                         "per-SNP allele (coalescent mode only), for SNP-level "
                         "imputation-accuracy eval. Large; use a modest --windows.")
+    p.add_argument("--mixed-inbreeding", action="store_true",
+                   help="E7: draw a per-INDIVIDUAL inbreeding coefficient F (a spike "
+                        "at F=1 for inbred lines + Uniform[0,1] for the rest) instead "
+                        "of the single --inbreeding scalar; needs "
+                        "--windows-per-individual. Writes <out>.finb.npy (per-window F).")
+    p.add_argument("--inbred-line-frac", type=float, default=0.5,
+                   help="E7: fraction of individuals that are fully inbred (F=1).")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -444,6 +453,18 @@ def parse_args():
 def main():
     args = parse_args()
     rng = np.random.default_rng(args.seed)
+
+    # E7: per-individual inbreeding coefficient F → per-window F (constant within
+    # an individual). Spike at F=1 (inbred lines) plus Uniform[0,1] for the rest.
+    finb = None
+    if args.mixed_inbreeding:
+        G = args.windows_per_individual
+        if G <= 0:
+            raise SystemExit("--mixed-inbreeding requires --windows-per-individual")
+        n_ind = args.windows // G
+        f_ind = np.where(rng.random(n_ind) < args.inbred_line_frac, 1.0,
+                         rng.random(n_ind))
+        finb = np.repeat(f_ind, G).astype(np.float32)
 
     data, ibd, ind, panel = simulate(
         rng, args.windows, args.sites, args.founders,
@@ -454,7 +475,7 @@ def main():
         args.derived_sfs, args.read_snps, args.error_block, args.gamete_balance,
         args.sharing_theta,
         args.windows_per_individual, args.min_founders, args.max_founders,
-        args.emit_snp_panel)
+        args.emit_snp_panel, inbreeding_per_window=finb)
 
     out_dir = Path(args.workdir) / "data" / "training"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -469,6 +490,12 @@ def main():
     if panel is not None:
         panel_path = out_dir / (Path(args.out).stem + ".panel.npy")
         np.save(panel_path, panel)
+    if finb is not None:
+        finb_path = out_dir / (Path(args.out).stem + ".finb.npy")
+        np.save(finb_path, finb)
+        print(f"  mixed inbreeding    → {finb_path}  "
+              f"F: {(finb == 1).mean()*100:.0f}% inbred lines, "
+              f"mean {finb.mean():.2f}, het-individuals {(finb < 1).mean()*100:.0f}%")
 
     # Verification summary
     K = args.founders
