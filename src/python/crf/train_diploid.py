@@ -328,18 +328,21 @@ class GRITSCRFDiploid(pl.LightningModule):
         if not norms:
             return
         g = float(torch.norm(torch.stack(norms)))
-        warming = self._gnorm_seen < 50
-        bad = (not math.isfinite(g)) or (
-            not warming and self._gnorm_ema > 0 and g > self.spike_mult * self._gnorm_ema)
-        if bad:
+        self._gnorm_seen += 1
+        warming = self._gnorm_seen <= 50
+        thresh = self.spike_mult * self._gnorm_ema if self._gnorm_ema > 0 else float("inf")
+        spike = (not math.isfinite(g)) or (not warming and g > thresh)
+        # Always update the EMA (capped on a spike) so it can't lock low — see
+        # train_haploid for the death-spiral this prevents.
+        g_ema = thresh if (spike and math.isfinite(thresh)) else (g if math.isfinite(g) else thresh)
+        if math.isfinite(g_ema):
+            self._gnorm_ema = g_ema if self._gnorm_ema <= 0 else 0.98 * self._gnorm_ema + 0.02 * g_ema
+        if spike:
             for p in self.parameters():
                 if p.grad is not None:
                     p.grad.zero_()
             self._n_skipped += 1
             self.log("train/skipped", float(self._n_skipped), prog_bar=True)
-            return
-        self._gnorm_ema = g if self._gnorm_ema <= 0 else 0.98 * self._gnorm_ema + 0.02 * g
-        self._gnorm_seen += 1
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr,
