@@ -805,6 +805,7 @@ an **epoch-scale limit cycle**, not a one-time blow-up. Five 1M runs isolate the
 | e8-1M-fp32part | **fp32** | 1e-4 | 500 | 1.0 | const | — (NaN ep1) | *worse* — never learned |
 | e8-1M-fp32-lo | **fp32** | 5e-5 | 2000 | 0.3 | const | 0.823 | oscillates 0.04↔0.82↔0.04 |
 | e8-1M-cosine | fp32 | 5e-5 | 2000 | 0.5 | **cosine→0** | **0.822** | **basin holds ep3–5**, late spike |
+| e8-1M-final2 | fp32 | 5e-5 | 2000 | 0.5 | cosine + **spike-skip** | **0.824** | best ckpt (loss 7.94), holds ep0–2, collapse ep4 |
 
 Findings: (1) the oscillation is **robust to lr magnitude, clip, and partition
 precision** — an **fp32 partition does not fix it** (and at lr 1e-4 the honest larger
@@ -812,14 +813,20 @@ gradients made it *worse*, NaN at ep1), disproving the "bf16 log-partition preci
 hypothesis; (2) the real lever is the **learning-rate schedule** — our warmup ran to a
 *constant* lr, so every late epoch was large enough to escape the converged basin.
 **Warmup + cosine-decay-to-0** holds the basin for **three consecutive epochs**
-(0.822/0.820/0.819, vs a 1-epoch flip for every constant-lr run) before a single rare
-gradient spike (train_loss 17→70) detonates the tail. So cosine decay is a substantial
-partial fix; the remaining lead is **cosine + a loss-spike step-skip** (drop optimizer
-steps whose loss/grad is non-finite or ≫ running mean) to catch the residual spike.
+(0.822/0.820/0.819, vs a 1-epoch flip for every constant-lr run); (3) adding a
+**loss-spike step-skip** (`--spike-skip`; drop steps whose raw grad-norm is non-finite
+or ≫ a running EMA — note the EMA must update *every* step or it death-spirals into
+skipping ~57%, the e8-1M-final bug, now fixed) gives the **best single checkpoint**
+(0.824, val_loss 7.94 — better than cosine-only's 0.822/14.08) at ~1% steps skipped.
+**But neither fully eliminates the collapse:** final2 still detonated at ep4. The
+collapse is therefore not purely a discrete grad-spike (spike-skip would catch it);
+some of it is a smoother drift out of the basin. Full last-epoch monotonicity is still
+open (candidates: weight EMA / SWA, or a hard partition clamp).
 
-Practical rule at scale today: **cosine-decay schedule + checkpoint-on-best-val**
-(`--cosine-decay`); the best-val checkpoint is a valid converged model (0.822). The
-fp32 partition is retained for loss-accuracy but is *not* the stability fix.
+Practical rule at scale today: **cosine-decay + spike-skip + checkpoint-on-best-val**
+(`--cosine-decay --spike-skip`); the best-val checkpoint is a valid converged model
+(**0.824**). The fp32 partition is retained for loss-accuracy but is *not* the
+stability fix.
 
 **Converged headline (best-val checkpoint, val/acc 0.822).** The IBD-ceiling and E5
 story replicate and *tighten* at 10× scale:
