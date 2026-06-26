@@ -236,6 +236,84 @@ def make_splits(path: str, num_parents: int, val_frac: float, test_frac: float,
     return train_ds, val_ds, test_ds
 
 
+def _founder_affinity(feats_block):
+    """E5 relatedness signal: per-founder genome-wide affinity for one individual.
+
+    feats_block [W, T, K] binary match indicators over ALL of an individual's
+    windows. Returns [K, 2] = (raw match rate, founders-mean-centered rate). The
+    raw rate is high for founders the individual descends from (and their
+    consistent IBD-mates) and at background for the rest; centering across founders
+    sharpens that contrast. Both features are bounded ([0,1] and [-1,1]) — a
+    standardized (÷sd) version blows up for individuals whose founders share a
+    near-uniform rate and overflows the bf16 CRF partition. Uses observations only
+    (no labels), so it is computable identically at inference.
+    """
+    r = feats_block.reshape(-1, feats_block.shape[-1]).mean(0).astype(np.float32)  # [K]
+    return np.stack([r, r - r.mean()], axis=-1)                     # [K, 2] bounded
+
+
+class IndividualRelatednessDataset(Dataset):
+    """E5: PreWindowedHaploidDataset + a per-individual founder-affinity ext_emb.
+
+    Windows are grouped into individuals of G consecutive rows (the sim writes
+    them contiguously). For each individual the genome-wide founder affinity is
+    estimated once from its own features and attached to every one of its windows
+    as `ext_emb` [K, ext_dim], conditioning the encoder so it can favour founders
+    the individual actually carries and break within-window IBD ties.
+    """
+    def __init__(self, data: np.ndarray, num_parents: int, windows_per_individual: int):
+        self.data = data
+        self.K = num_parents
+        self.G = windows_per_individual
+        N = len(data)
+        if N % self.G:
+            raise ValueError(f"split rows {N} not divisible by windows/ind {self.G}")
+        n_ind = N // self.G
+        feats = np.asarray(data[:, :, :num_parents]).reshape(n_ind, self.G,
+                                                             data.shape[1], num_parents)
+        self.affinity = np.stack(
+            [_founder_affinity(feats[i]) for i in range(n_ind)]).astype(np.float32)
+        self.ext_dim = self.affinity.shape[-1]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        row = self.data[idx]
+        features = torch.tensor(row[:, :self.K], dtype=torch.float32)
+        labels = np.clip(row[:, self.K].astype(np.int64), 0, self.K)
+        return {"input_embeds": features,
+                "labels": torch.tensor(labels, dtype=torch.long),
+                "ext_emb": torch.tensor(self.affinity[idx // self.G],
+                                        dtype=torch.float32)}
+
+
+def make_individual_splits(path, num_parents, val_frac, test_frac,
+                           windows_per_individual, limit_n=0):
+    """Like make_splits but splits by whole individuals (G contiguous windows),
+
+    so an individual's relatedness estimate never spans the train/test boundary
+    and test individuals are entirely unseen. Returns E5 relatedness datasets.
+    """
+    data = np.load(path, allow_pickle=True, mmap_mode="r")
+    G = windows_per_individual
+    if limit_n:
+        data = data[:(limit_n // G) * G]
+    N = len(data)
+    n_ind = N // G
+    n_test = int(n_ind * test_frac) * G
+    n_val = int(n_ind * val_frac) * G
+    n_train = N - n_val - n_test
+    mk = lambda d: IndividualRelatednessDataset(d, num_parents, G)
+    train_ds = mk(data[:n_train])
+    val_ds = mk(data[n_train:n_train + n_val])
+    test_ds = mk(data[n_train + n_val:])
+    print(f"Dataset {Path(path).name}: N={N:,} individuals={n_ind} "
+          f"windows/ind={G} ext_dim={train_ds.ext_dim}")
+    print(f"  train={n_train:,}  val={n_val:,}  test={n_test:,}")
+    return train_ds, val_ds, test_ds
+
+
 # --------------------------------------------------------------------------- #
 #  Lightning module                                                             #
 # --------------------------------------------------------------------------- #
@@ -250,10 +328,11 @@ class GRITSCRFHaploid(pl.LightningModule):
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=3e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
                  warmup_steps=0, recomb_aux_weight=0.0, window_c=False,
-                 no_transition=False):
+                 no_transition=False, ext_dim=0):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
+        self.ext_dim = ext_dim
         self.lr = lr
         self.weight_decay = weight_decay
         self.gate_reg = gate_reg
@@ -263,6 +342,7 @@ class GRITSCRFHaploid(pl.LightningModule):
 
         K = num_parents + 1  # +1 for unknown state
         self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
+                                          ext_dim=ext_dim,
                                           time_local_emis=time_local_emis,
                                           window_c=window_c)
         self.crf = NeuralCRF()
@@ -281,12 +361,16 @@ class GRITSCRFHaploid(pl.LightningModule):
         n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"GRITSCRFHaploid: K={K} states, {n_params:,} params")
 
-    def forward(self, X):
+    def forward(self, X, ext_emb=None):
         B, T, K_feat = X.shape
         K = self.num_parents + 1
         X_pad = torch.cat([X, torch.zeros(B, T, 1, device=X.device)], dim=-1)  # [B,T,K]
         founder_mask = torch.ones(B, K, device=X.device)
-        emis_f, g, c = self.encoder(X_pad, founder_mask)  # emis_f [B,T,K]
+        if ext_emb is not None:
+            # pad the unknown-founder row (state K-1) with a zero relatedness vector
+            ext_emb = torch.cat(
+                [ext_emb, torch.zeros(B, 1, ext_emb.shape[-1], device=X.device)], dim=1)
+        emis_f, g, c = self.encoder(X_pad, founder_mask, ext_emb=ext_emb)  # emis_f [B,T,K]
         return emis_f, g, c
 
     def _c_eff(self, c):
@@ -302,7 +386,7 @@ class GRITSCRFHaploid(pl.LightningModule):
 
     def _step(self, batch):
         X, tags = batch["input_embeds"], batch["labels"]
-        emis_f, g, c = self(X)
+        emis_f, g, c = self(X, batch.get("ext_emb"))
         crf_loss = self.crf.nll(emis_f, self._c_eff(c), self.nsw, tags)
         gate_loss = self.gate_reg * (1.0 - g).mean()
         loss = crf_loss + gate_loss
@@ -402,6 +486,14 @@ def main():
     p.add_argument("--no-transition", action="store_true",
                    help="Disable transition potentials (stay_bonus=0, c=0): the "
                         "CRF reduces to a per-site emission classifier.")
+    p.add_argument("--relatedness", action="store_true",
+                   help="E5: condition the encoder on a per-individual founder "
+                        "affinity (relatedness) vector estimated genome-wide from "
+                        "the reads. Requires a sim built with "
+                        "--windows-per-individual and the matching value here.")
+    p.add_argument("--windows-per-individual", type=int, default=100,
+                   help="E5: G consecutive windows per individual (must match the "
+                        "value used to build the sim).")
     p.add_argument("--run-name", default="e1-haploid",
                    help="Sub-dir name for checkpoints and TB logs (one per arm).")
     p.add_argument("--warmup-steps", type=int, default=0,
@@ -425,7 +517,13 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.data:
+    ext_dim = 0
+    if args.relatedness:
+        train_ds, val_ds, _ = make_individual_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac,
+            args.windows_per_individual, limit_n=args.limit_n)
+        ext_dim = train_ds.ext_dim
+    elif args.data:
         train_ds, val_ds, _ = make_splits(
             args.data, args.num_parents, args.val_frac, args.test_frac,
             limit_n=args.limit_n)
@@ -456,6 +554,7 @@ def main():
         recomb_aux_weight=args.recomb_aux_weight,
         window_c=args.window_c,
         no_transition=args.no_transition,
+        ext_dim=ext_dim,
     )
 
     callbacks = [

@@ -163,7 +163,16 @@ class FounderPathEncoder(nn.Module):
         self.window_c = window_c
         self.cell = nn.Sequential(nn.Linear(1, d_model), nn.GELU(),
                                   nn.Linear(d_model, d_model))
-        self.ext = nn.Linear(ext_dim, d_model) if ext_dim > 0 else None
+        # E5 relatedness: a DIRECT per-founder additive emission bias from the
+        # affinity vector — added straight to each founder's emission logit (a
+        # genome-wide founder-presence prior), constant over sites. This is far
+        # easier to learn than shifting the emission key (which only helps if the
+        # shift aligns with the per-site hidden state). Zero-init so it starts as a
+        # no-op (identical to the no-ext baseline) and grows gently.
+        self.ext_bias = nn.Linear(ext_dim, 1) if ext_dim > 0 else None
+        if self.ext_bias is not None:
+            nn.init.zeros_(self.ext_bias.weight)
+            nn.init.zeros_(self.ext_bias.bias)
         self.fpool = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
         self.fquery = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
         enc = nn.TransformerEncoderLayer(d_model, n_heads, 4 * d_model,
@@ -198,16 +207,16 @@ class FounderPathEncoder(nn.Module):
             # Per-site founder key: emission at site t scores founder f using
             # its cell embedding AT t, not averaged over the window. Required
             # when the active founder switches within a window (recombination).
-            if self.ext is not None and ext_emb is not None:
-                raise NotImplementedError("ext_emb unsupported with time_local_emis")
             cf_local = cells.masked_fill(~founder_mask.bool().view(B, 1, K, 1), 0.0)
             emis = torch.einsum("btd,btkd->btk", H, cf_local) * self.scale
         else:
             e = cells.mean(dim=1)
-            if self.ext is not None and ext_emb is not None:
-                e = e + self.ext(ext_emb)
             e = e.masked_fill(~founder_mask.bool().unsqueeze(-1), 0.0)
             emis = torch.einsum("btd,bkd->btk", H, e) * self.scale
+        if self.ext_bias is not None and ext_emb is not None:
+            # E5: genome-wide founder-presence prior — one learned scalar per founder
+            # from its affinity, added to every site's emission logit.
+            emis = emis + self.ext_bias(ext_emb).squeeze(-1).unsqueeze(1)   # [B,1,K]
         emis = emis.masked_fill(~founder_mask.bool().unsqueeze(1), NEG_INF)
 
         g = torch.sigmoid(self.gate_head(H)).squeeze(-1)

@@ -111,6 +111,46 @@ def _build_paths(rng, n, T, K, n_cross, rate=None):
     return path
 
 
+def _individual_assignment(rng, windows, G, K, kmin, kmax):
+    """Per-window individual id + founder subset for E5 grouping.
+
+    Every G consecutive windows form one individual that descends from a random
+    subset of k ~ Uniform[kmin, kmax] of the K founders.  Returns:
+      ind   [windows]    int   individual id (window // G)
+      win_k [windows]    int   #founders available to that window's individual
+      sub   [windows, K] int   subset[w, :win_k[w]] = the available founder ids,
+                               the rest are -1 (padding).
+    """
+    n_ind = windows // G
+    if n_ind * G != windows:
+        raise ValueError(
+            f"--windows {windows} not divisible by --windows-per-individual {G}")
+    k_ind = rng.integers(kmin, kmax + 1, n_ind)
+    sub_ind = np.full((n_ind, K), -1, dtype=np.int64)
+    for i in range(n_ind):
+        sub_ind[i, :k_ind[i]] = rng.permutation(K)[:k_ind[i]]
+    ind = np.repeat(np.arange(n_ind), G)
+    return ind, np.repeat(k_ind, G), np.repeat(sub_ind, G, axis=0)
+
+
+def _build_paths_subset(rng, sub, win_k, T, n_cross, rate=None):
+    """Founder paths [m, T] restricted per-row to that row's founder subset.
+
+    sub [m, K] holds each window's available founder ids (padded with -1);
+    win_k [m] their counts.  Paths are built in local index space [0, k) via
+    `_build_paths`, then remapped to the global founder ids — so each individual's
+    windows only ever visit its own founders.
+    """
+    m = sub.shape[0]
+    path = np.empty((m, T), dtype=np.int64)
+    for k in np.unique(win_k):
+        rows = np.flatnonzero(win_k == k)
+        local = _build_paths(rng, rows.size, T, int(k), n_cross[rows],
+                             None if rate is None else rate[rows])
+        path[rows] = np.take_along_axis(sub[rows], local, axis=1)
+    return path
+
+
 def _segment_index(rng, n, T, n_cross, rate=None):
     """Piecewise-constant segment index [n, T] with n_cross[r] breakpoints/row.
 
@@ -185,7 +225,8 @@ def _good_mask(rng, n, T, bad_frac, block):
 
 
 def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
-                      h1, h2, rate, good, gamete, theta=None, max_lineages=None):
+                      h1, h2, rate, good, gamete, theta=None, max_lineages=None,
+                      emit_panel=False):
     """Mini-haplotype match features [n, T, K] + IBD lineage labels [n, K, T].
 
     Each founder is a piecewise-constant mosaic over ancestral lineages (same
@@ -232,14 +273,20 @@ def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
     Sa = np.where(bad[:, :, None], (rng.random((n, T, L)) < fz).astype(np.int8), Sa)
 
     match = (G == Sa[:, None]).all(-1)                  # [n,K,T] exact full-read match
-    return np.transpose(match, (0, 2, 1)).astype(np.int8), lineage
+    # E6: founder × SNP allele panel for SNP-level imputation accuracy. G[w,k,t,l]
+    # is founder k's allele at read t, SNP l — the genotype implied by decoding the
+    # path to founder k. Returned as [n,T,K,L] for per-site indexing (eval only).
+    panel = np.transpose(G, (0, 2, 1, 3)).astype(np.int8) if emit_panel else None
+    return np.transpose(match, (0, 2, 1)).astype(np.int8), lineage, panel
 
 
 def simulate(rng, windows, sites, founders, min_cross, max_cross,
              inbreeding, allele_sharing, bad_frac, recomb_span=1.0,
              recomb_tile=64, sharing_model="independent", ancestors=6,
              ancestor_crossovers=8, derived_sfs=0.3, read_snps=8,
-             error_block=1.0, gamete_balance=0.5, sharing_theta=None, chunk=1000):
+             error_block=1.0, gamete_balance=0.5, sharing_theta=None,
+             windows_per_individual=0, min_founders=2, max_founders=24,
+             emit_snp_panel=False, chunk=1000):
     K = founders
     T = sites
     coalescent = sharing_model == "coalescent"
@@ -250,28 +297,48 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
                 f"allele_sharing={allele_sharing} too low for K={K}; "
                 f"minimum is {1.0 / K:.4f}")
 
+    # E5: assign every G windows to one individual drawing from a founder subset.
+    grouped = windows_per_individual > 0
+    if grouped:
+        if min_founders < 2:
+            raise ValueError("--min-founders must be >= 2")
+        ind, win_k, sub = _individual_assignment(
+            rng, windows, windows_per_individual, K, min_founders, max_founders)
+    ind_out = ind if grouped else None
+
     track = recomb_span > 1.0                       # emit hidden true-rate column
     ncol = K + 2 + (1 if track else 0)
     out = np.empty((windows, T, ncol), dtype=np.int8)
     ibd = np.empty((windows, T, K), dtype=np.int8) if coalescent else None
+    panel_on = emit_snp_panel and coalescent
+    panel = np.empty((windows, T, K, read_snps), dtype=np.int8) if panel_on else None
 
     for start in range(0, windows, chunk):
         n = min(chunk, windows - start)
         rmap = _rate_map(rng, n, T, recomb_span, recomb_tile) if track else None
 
         n_cross = rng.integers(min_cross, max_cross + 1, n)
-        h1 = _build_paths(rng, n, T, K, n_cross, rmap)
+        if grouped:
+            sl = slice(start, start + n)
+            h1 = _build_paths_subset(rng, sub[sl], win_k[sl], T, n_cross, rmap)
+        else:
+            h1 = _build_paths(rng, n, T, K, n_cross, rmap)
 
         # Second haplotype: identical with prob F (inbred), else independent.
-        # Outbred H2 shares the same hidden rate map (same genomic region).
+        # Outbred H2 shares the same hidden rate map (same genomic region) and,
+        # under E5 grouping, the same founder subset as H1.
         inbred = rng.random(n) < inbreeding
         h2 = h1.copy()
         outbred = np.flatnonzero(~inbred)
         if outbred.size:
-            h2[outbred] = _build_paths(
-                rng, outbred.size, T, K,
-                rng.integers(min_cross, max_cross + 1, outbred.size),
-                None if rmap is None else rmap[outbred])
+            nc2 = rng.integers(min_cross, max_cross + 1, outbred.size)
+            r2 = None if rmap is None else rmap[outbred]
+            if grouped:
+                h2[outbred] = _build_paths_subset(
+                    rng, sub[start:start + n][outbred], win_k[start:start + n][outbred],
+                    T, nc2, r2)
+            else:
+                h2[outbred] = _build_paths(rng, outbred.size, T, K, nc2, r2)
 
         good = _good_mask(rng, n, T, bad_frac, error_block)
 
@@ -283,11 +350,13 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
         if coalescent:
             max_lin = (None if sharing_theta is None
                        else min(64, max(K, int(round(4 * sharing_theta)))))
-            feats, lineage = _coalescent_feats(
+            feats, lineage, panel_chunk = _coalescent_feats(
                 rng, n, T, K, ancestors, ancestor_crossovers,
                 derived_sfs, read_snps, h1, h2, rmap, good, gamete,
-                theta=sharing_theta, max_lineages=max_lin)
+                theta=sharing_theta, max_lineages=max_lin, emit_panel=panel_on)
             ibd[start:start + n] = np.transpose(lineage, (0, 2, 1)).astype(np.int8)
+            if panel_on:
+                panel[start:start + n] = panel_chunk
         else:
             # Independent background; force only the ACTIVE gamete's founder to
             # match on good sites (one read, from one chromosome).
@@ -303,7 +372,7 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
             out[start:start + n, :, K + 2] = np.clip(
                 np.rint(rmap), 1, 127).astype(np.int8)
 
-    return out, ibd
+    return out, ibd, ind_out, panel
 
 
 def parse_args():
@@ -355,6 +424,19 @@ def parse_args():
                         "eval-only column. 1 = uniform (E1 layout, no track).")
     p.add_argument("--recomb-tile", type=int, default=64,
                    help="Block size (sites) of constant recomb rate")
+    p.add_argument("--windows-per-individual", type=int, default=0,
+                   help="E5: group every G consecutive windows into one individual "
+                        "whose paths draw only from a per-individual founder subset. "
+                        "0 = off (legacy: each window samples all founders). Also "
+                        "writes <out>.ind.npy (per-window individual id).")
+    p.add_argument("--min-founders", type=int, default=2,
+                   help="E5: min founders contributing to an individual")
+    p.add_argument("--max-founders", type=int, default=24,
+                   help="E5: max founders contributing to an individual")
+    p.add_argument("--emit-snp-panel", action="store_true",
+                   help="E6: also write <out>.panel.npy [N,T,K,L] = each founder's "
+                        "per-SNP allele (coalescent mode only), for SNP-level "
+                        "imputation-accuracy eval. Large; use a modest --windows.")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -363,14 +445,16 @@ def main():
     args = parse_args()
     rng = np.random.default_rng(args.seed)
 
-    data, ibd = simulate(
+    data, ibd, ind, panel = simulate(
         rng, args.windows, args.sites, args.founders,
         args.min_crossovers, args.max_crossovers,
         args.inbreeding, args.allele_sharing, args.bad_frac,
         args.recomb_span, args.recomb_tile,
         args.sharing_model, args.ancestors, args.ancestor_crossovers,
         args.derived_sfs, args.read_snps, args.error_block, args.gamete_balance,
-        args.sharing_theta)
+        args.sharing_theta,
+        args.windows_per_individual, args.min_founders, args.max_founders,
+        args.emit_snp_panel)
 
     out_dir = Path(args.workdir) / "data" / "training"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -379,6 +463,12 @@ def main():
     if ibd is not None:
         ibd_path = out_dir / (Path(args.out).stem + ".ibd.npy")
         np.save(ibd_path, ibd)
+    if ind is not None:
+        ind_path = out_dir / (Path(args.out).stem + ".ind.npy")
+        np.save(ind_path, ind.astype(np.int32))
+    if panel is not None:
+        panel_path = out_dir / (Path(args.out).stem + ".panel.npy")
+        np.save(panel_path, panel)
 
     # Verification summary
     K = args.founders
@@ -406,6 +496,15 @@ def main():
               f"(theta={args.sharing_theta}; want singleton-dominated, tail→K)")
     if ibd is not None:
         print(f"  IBD truth           → {ibd_path}  shape={ibd.shape}")
+    if panel is not None:
+        print(f"  SNP panel           → {panel_path}  shape={panel.shape}  "
+              f"size={panel.nbytes / 1e9:.2f} GB")
+    if ind is not None:
+        G = args.windows_per_individual
+        n_ind = len(ind) // G
+        kpi = np.array([len(np.unique(h1[ind == i])) for i in range(min(n_ind, 200))])
+        print(f"  individuals         → {ind_path}  n={n_ind}  windows/ind={G}  "
+              f"founders/ind: mean {kpi.mean():.1f} range [{kpi.min()},{kpi.max()}]")
     print(f"  either-founder match: {either.mean():.4f}  "
           f"(active gamete forced on good sites; expect ~{1 - args.bad_frac:.3f}+)")
     print(f"  H1 / H2 match (het) : {m1[het].mean():.4f} / {m2[het].mean():.4f}  "

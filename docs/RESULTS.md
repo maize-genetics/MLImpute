@@ -561,3 +561,67 @@ relatedness conditioning — which is the quantitative justification for the
   ```
 - **Checkpoint:** `<workdir>/checkpoints/e-ibd-th6/e1-epoch=02-val/loss=7.115.ckpt`.
 - **Branch:** `crf-relatedness`.
+
+## E5 — Relatedness conditioning: does it break the IBD ceiling? (2026-06-25)
+
+**Setup.** Sim now groups windows into **individuals** (`--windows-per-individual
+100`), each descending from a `Uniform[2,24]` founder subset (`sim_e5_th6`: 1000
+individuals × 100 windows, θ=6, else identical to E-IBD). A per-individual,
+per-founder **affinity vector** — each founder's genome-wide match rate, estimated
+from reads only (no labels) — is the relatedness signal. Baseline (no relatedness)
+and all relatedness arms share the same train/test split; haploid d256/L6.
+
+**The headroom is real (`relatedness_ceiling.py`, data-only).** The read-only IBD
+ceiling is `1/|S_feat|`; knowing the individual's founder set lifts it to
+`1/|S_feat ∩ set|` (rule out confusable founders the individual doesn't carry):
+
+| band | read-only ceil | relatedness ceil | headroom |
+|---|---:|---:|---:|
+| 3–5 bp | 0.8266 | 0.8853 | +5.9 |
+| 6+ bp | 0.7438 | 0.8224 | **+7.9** |
+| all | 0.8384 | 0.8904 | **+5.2** |
+
+**Conditioning the ENCODER on affinity did NOT work (4 arms).** Injecting affinity
+into emissions — key-shift, then zero-init, then bounded features, then a direct
+per-founder emission bias — was either **bf16-unstable** (val/loss spiked to
+>40–780; the `ext` pathway destabilises the CRF partition where the no-`ext`
+baseline is rock-stable) or, when stable, **flat**: rel ≈ baseline within ≤0.3pt in
+every breakpoint band AND every founders-per-individual bucket (`eval_e5_byk.py`),
+including the 2–4 founder bucket where the headroom is **+12.9pt**. The model would
+not learn to use the signal from a zero-init start.
+
+**The HARD CUTOFF works (`eval_e5_cutoff.py`), applied at decode time on the stable
+baseline — no retraining.** Affinity separates present from absent founders cleanly
+(**AUC 0.969**; present median 0.218 vs absent 0.166). Estimate the individual's
+founder set by thresholding affinity, set absent founders' emissions to −∞, then
+Viterbi. At **τ=0.17** (8k test windows):
+
+| band | baseline | cutoff τ=0.17 | read-only ceil | Δ vs base |
+|---|---:|---:|---:|---:|
+| 0 bp | 0.9906 | 0.9902 | 0.9955 | −0.0004 |
+| 1–2 bp | 0.9072 | 0.9182 | 0.9229 | +0.0110 |
+| 3–5 bp | 0.7990 | 0.8279 | 0.8228 | +0.0289 |
+| 6+ bp | 0.7235 | **0.7620** | 0.7439 | **+0.0385** |
+| **all** | 0.8188 | **0.8437** | 0.8373 | **+0.0249** |
+
+The cutoff **exceeds the read-only ceiling** overall (0.844 > 0.837) and by +1.8pt
+in the hard 6+bp band (0.762 > 0.744) — the thing no read-only decoder and no
+emission arm could do — with **0.45% true-founder exclusion** and no loss on easy
+windows. τ-sweep: 0.16 → 0.832, **0.17 → 0.844**, 0.18 → 0.843, 0.22+ collapses
+(over-excludes; the present-founder median is 0.218). User's instinct (hard cutoff /
+adjust transitions against absent founders) confirmed.
+
+**Verdict.** Relatedness **does** break the IBD ceiling, but via a **decode-time
+founder-set restriction**, not encoder conditioning. The win is concentrated where
+the ceiling bites (hard, high-recombination windows). Open: an **adaptive**
+per-individual threshold (the τ=0.17 optimum tracks the absent/present affinity
+valley, which scales with background sharing — a per-individual Otsu/quantile rule
+should generalise across θ); and a **learnable, bounded** transition/entry penalty
+as a soft version (the emission-bias instability says clamp it).
+
+- **Files:** `simulate_alleles.py` (`--windows-per-individual`), `train_haploid.py`
+  (`IndividualRelatednessDataset`, `make_individual_splits`), `eval_e5.py`,
+  `eval_e5_byk.py`, `relatedness_ceiling.py`, `eval_e5_cutoff.py`.
+- **Checkpoint:** baseline `<workdir>/checkpoints/e5-base-th6/e1-epoch=05-val/loss=2.420.ckpt`
+  (cutoff is decode-time, no relatedness training needed).
+- **Branch:** `crf-relatedness`.
