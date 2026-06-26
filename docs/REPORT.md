@@ -144,9 +144,14 @@ residual errors provably IBD-confusable** — the E-IBD ceiling argument is *str
 at scale, since convergence pushes nearly all error mass onto IBD confusion. The E5
 relatedness cutoff (τ=0.17) replicates exactly: it lifts all-band accuracy **onto the
 read-only ceiling** (0.823→0.840) and the hard 6+bp band **past it** (0.725→0.754) at
-<1% true-founder exclusion. One honest caveat: at 1M scale the run is **non-monotonic**
-— the bf16 CRF log-partition reaches a strong optimum then detonates, so training must
-**checkpoint-on-best-val**; a fully stable long schedule is open.
+<1% true-founder exclusion. One honest caveat: at 1M scale training is **non-monotonic**
+— an epoch-scale limit cycle in which the model reaches the ~0.82 basin then a large
+late-epoch step kicks it back out to degenerate weights. Five runs show this is *not* a
+bf16-partition-precision problem (an fp32 partition does not fix it, and at high lr makes
+it worse); it is driven by the **constant learning rate**. A **warmup + cosine-decay-to-0**
+schedule holds the basin for three consecutive epochs (the partial fix now in
+`--cosine-decay`); a residual rare gradient spike remains, addressable by a loss-spike
+step-skip. Today's recipe: cosine-decay + checkpoint-on-best-val.
 
 ---
 
@@ -162,5 +167,6 @@ read-only ceiling** (0.823→0.840) and the hard 6+bp band **past it** (0.725→
    the reads, not fixed hyperparameters (E7).
 
 **Open:** adaptive-prior stability (E7), a fixed-SNP-panel benchmark (E6 follow-up),
-**bf16 CRF log-partition stability for long/large-scale schedules** (E8 — the decode
-bottleneck is settled, Mamba2 is not needed), and promotion to real diploid maize.
+**fully-monotonic 1M-scale training** (E8 — cosine-decay holds the basin; a loss-spike
+step-skip should close the residual spike. The decode bottleneck is settled and Mamba2
+is not needed), and promotion to real diploid maize.

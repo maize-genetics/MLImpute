@@ -49,6 +49,12 @@ def _dcrf_nll(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
               stay_bonus: torch.Tensor, tags: torch.Tensor) -> torch.Tensor:
     """Pair-state CRF NLL. emis [B,T,P], c [B,T], nsw/stay [P,P], tags [B,T]."""
     B, T, P = emis.shape
+    # fp32 partition (see train_haploid._crf_nll): the sequential logsumexp
+    # accumulation needs fp32 precision; encoder stays bf16, no matmuls here.
+    emis = emis.float()
+    c = c.float()
+    nsw = nsw.float()
+    stay_bonus = stay_bonus.float()
     stay_mask = (nsw == 0).float()
     a = emis[:, 0]
     for t in range(1, T):

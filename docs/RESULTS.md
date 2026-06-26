@@ -745,18 +745,32 @@ The full-data run: `sim_1M_th6.npy` (1,000,000 windows = 10,000 individuals ×
 Test split = 100k windows / 10.24M sites.
 
 **Stability finding (the headline caveat).** At 1M scale the run is **non-monotonic**:
-it reaches a strong optimum then the bf16 CRF log-partition detonates and val
-collapses to random (1/26). Two runs:
+it reaches a strong ~0.82 optimum, then an epoch of updates kicks it back out to
+degenerate uniform-emission weights (val → random 1/26 ≈ 0.04), and it climbs back —
+an **epoch-scale limit cycle**, not a one-time blow-up. Five 1M runs isolate the cause:
 
-| run | lr | warmup | clip | best val/acc | what happened |
-|-----|---:|------:|-----:|----:|---|
-| e8-1M | 1e-4 | 500 | 1.0 | 0.783 (ep1) | diverged ep2 → loss 47, acc 0.04 |
-| e8-1M-stable | 5e-5 | 2000 | 0.5 | **0.822 (ep1)** | higher peak, still diverged ep2 |
+| run | precision | lr | warmup | clip | sched | peak val/acc | behavior |
+|-----|-----------|---:|------:|-----:|-------|----:|----------|
+| e8-1M | bf16 | 1e-4 | 500 | 1.0 | const | 0.783 | flip ep2 |
+| e8-1M-stable | bf16 | 5e-5 | 2000 | 0.5 | const | 0.822 | flip ep2 |
+| e8-1M-fp32part | **fp32** | 1e-4 | 500 | 1.0 | const | — (NaN ep1) | *worse* — never learned |
+| e8-1M-fp32-lo | **fp32** | 5e-5 | 2000 | 0.3 | const | 0.823 | oscillates 0.04↔0.82↔0.04 |
+| e8-1M-cosine | fp32 | 5e-5 | 2000 | 0.5 | **cosine→0** | **0.822** | **basin holds ep3–5**, late spike |
 
-Lower lr + longer warmup + tighter clip **raised the optimum** (0.783→0.822) but did
-**not** stop the post-optimum blow-up. Practical rule at scale: **checkpoint-on-best-val,
-never take the last epoch.** A fully stable long schedule is open (candidates:
-fp32 partition only, or a partition-clamp) — deferred.
+Findings: (1) the oscillation is **robust to lr magnitude, clip, and partition
+precision** — an **fp32 partition does not fix it** (and at lr 1e-4 the honest larger
+gradients made it *worse*, NaN at ep1), disproving the "bf16 log-partition precision"
+hypothesis; (2) the real lever is the **learning-rate schedule** — our warmup ran to a
+*constant* lr, so every late epoch was large enough to escape the converged basin.
+**Warmup + cosine-decay-to-0** holds the basin for **three consecutive epochs**
+(0.822/0.820/0.819, vs a 1-epoch flip for every constant-lr run) before a single rare
+gradient spike (train_loss 17→70) detonates the tail. So cosine decay is a substantial
+partial fix; the remaining lead is **cosine + a loss-spike step-skip** (drop optimizer
+steps whose loss/grad is non-finite or ≫ running mean) to catch the residual spike.
+
+Practical rule at scale today: **cosine-decay schedule + checkpoint-on-best-val**
+(`--cosine-decay`); the best-val checkpoint is a valid converged model (0.822). The
+fp32 partition is retained for loss-accuracy but is *not* the stability fix.
 
 **Converged headline (best-val checkpoint, val/acc 0.822).** The IBD-ceiling and E5
 story replicate and *tighten* at 10× scale:

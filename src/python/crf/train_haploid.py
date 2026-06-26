@@ -44,6 +44,13 @@ def _crf_nll(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
     emis: [B,T,K]  c: [B,T]  nsw: [K,K]  tags: [B,T]
     """
     B, T, K = emis.shape
+    # fp32 partition: the encoder runs bf16, but this 512-step sequential
+    # logsumexp accumulation needs >2-digit precision or it detonates at scale.
+    # No matmuls here, so casting inputs keeps the whole recursion in fp32.
+    emis = emis.float()
+    c = c.float()
+    nsw = nsw.float()
+    stay_bonus = stay_bonus.float()
     stay_mask = (nsw == 0).float()
 
     # Forward pass (partition)
@@ -328,11 +335,12 @@ class GRITSCRFHaploid(pl.LightningModule):
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=3e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
                  warmup_steps=0, recomb_aux_weight=0.0, window_c=False,
-                 no_transition=False, ext_dim=0):
+                 no_transition=False, ext_dim=0, cosine_decay=False):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
         self.ext_dim = ext_dim
+        self.cosine_decay = cosine_decay
         self.lr = lr
         self.weight_decay = weight_decay
         self.gate_reg = gate_reg
@@ -426,10 +434,22 @@ class GRITSCRFHaploid(pl.LightningModule):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr,
                                 weight_decay=self.weight_decay)
         if self.warmup_steps > 0:
-            # Linear warmup then constant — stabilizes the now-active emission
-            # pathway in the first steps after the gate opens.
             w = self.warmup_steps
-            lam = lambda step: min(1.0, (step + 1) / w)
+            if self.cosine_decay:
+                # Linear warmup then cosine decay to ~0. A constant lr lets late
+                # epochs kick the model back out of the converged basin (the 1M
+                # epoch-scale oscillation, RESULTS E8); decaying the step size
+                # to zero lets it settle.
+                total = max(int(self.trainer.estimated_stepping_batches), w + 1)
+                import math
+                def lam(step: int) -> float:
+                    if step < w:
+                        return (step + 1) / w
+                    prog = (step - w) / max(1, total - w)
+                    return 0.5 * (1.0 + math.cos(math.pi * min(1.0, prog)))
+            else:
+                # Linear warmup then constant.
+                lam = lambda step: min(1.0, (step + 1) / w)
             sched = torch.optim.lr_scheduler.LambdaLR(opt, lam)
             return {"optimizer": opt,
                     "lr_scheduler": {"scheduler": sched, "interval": "step"}}
@@ -500,6 +520,9 @@ def main():
                    help="Linear LR warmup steps (0 = plateau scheduler)")
     p.add_argument("--grad-clip", type=float, default=1.0,
                    help="Gradient-norm clip value (lower = more bf16-stable)")
+    p.add_argument("--cosine-decay", action="store_true",
+                   help="Warmup then cosine-decay LR to ~0 (settles the basin "
+                        "oscillation; needs --warmup-steps > 0)")
     p.add_argument("--recomb-aux-weight", type=float, default=0.0,
                    help="Weight on the recomb_head auxiliary loss: per-window "
                         "Pearson corr(c_t, hidden log-rate), minimized so c_t "
@@ -557,6 +580,7 @@ def main():
         window_c=args.window_c,
         no_transition=args.no_transition,
         ext_dim=ext_dim,
+        cosine_decay=args.cosine_decay,
     )
 
     callbacks = [
