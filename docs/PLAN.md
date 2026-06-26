@@ -387,6 +387,25 @@ speed; the former standalone Mamba2 milestone is folded into E8.
   whether Mamba2 is needed at all** (adopt only if it wins the profile; the former
   standalone "Mamba2" milestone is demoted to one candidate lever here).
 
+### E9 — Report writeup + figures
+- **Objective:** a self-contained `docs/REPORT.md` that tells the project story
+  with publication-style figures, suitable for collaborators / a methods writeup.
+- **Implement:** a reproducible `crf/figures.py` that regenerates every figure from
+  the `results/` tables and the sims, writing PNGs to `<workdir>/results/figures/`.
+  Required figures: (1) **simulator schematic** — founders → GEM/coalescent IBD
+  lineages → recombination-mosaic paths → per-individual founder subset (E5) →
+  single-gamete reads → match-feature matrix; the inbreeding mix (E7) and the
+  het-from-adjacent-read-correlation signal. (2) **model architecture** — cell
+  embeddings → founder attention pool → Transformer → per-site emissions + gate +
+  transition cost c_t → NeuralCRF Viterbi; the diploid pair-state and the E5
+  affinity / E7 het hooks. (3) **key results**: CRF-vs-HMM (E1), IBD ceiling +
+  θ-sweep (E-IBD), relatedness cutoff vs ceiling (E5), SNP≫path (E6), accuracy-by-F
+  for the three penalty arms (E7), speed/memory scaling (E8).
+- **Acceptance:** `REPORT.md` renders with all figures; every figure is
+  regenerable by one `figures.py` run from committed results; numbers match
+  RESULTS.md.
+- **Decision informed:** is the story complete and communicable end-to-end.
+
 ---
 
 ## 6. Default config & parameter budget

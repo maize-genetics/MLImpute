@@ -713,3 +713,33 @@ input, rather than a post-hoc per-sample emission penalty. Deferred.
 - **Checkpoints:** `e7-mixF` (hp3), `e7-mixF-hp0b` (hp0, best 0.6915),
   `e7-mixF-adaptiveb` (adaptive).
 - **Branch:** `crf-relatedness`.
+
+## E8 — Inference speed: the decode dominates, not the encoder (2026-06-25)
+
+**Profile** (`profile_speed.py`, H200, batch 16, d256/L6 haploid), latency split
+between the Transformer encoder forward and the Viterbi decode:
+
+| T | encoder ms | viterbi ms | total ms | sites/s | peak MB |
+|---:|---:|---:|---:|---:|---:|
+| 256 | 2.71 | 7.30 | 10.0 | 409k | 320 |
+| 512 | 3.37 | 14.81 | 18.2 | 451k | 586 |
+| 1024 | 6.24 | 29.96 | 36.2 | 453k | 1117 |
+| 2048 | 12.96 | 59.65 | 72.6 | 451k | 2180 |
+| 4096 | 29.32 | 119.42 | 148.7 | 441k | 4307 |
+
+**The Viterbi decode is the bottleneck**: at T=4096 it is **80%** of latency, the
+encoder only 20%. Across T×16 the encoder grows ×10.8 (sub-quadratic — the founder
+pool is over K not T, so attention isn't dominating at these lengths), Viterbi ×16.4
+(linear in T, as expected for the O(T·K) sequential recursion), peak memory ×13.5
+(≈linear). Throughput is a flat ~450k sites/s.
+
+**Mamba2 is not the priority.** The long-context encoder swap was the E8 candidate
+for a memory/length bottleneck, but the encoder is cheap and memory is linear in T.
+The win is in the **decode** — a batched/fused Viterbi (the sequential T-loop is the
+cost), not the encoder. Memory is comfortably within budget to T≥4096.
+
+*[Scale run pending: 1M-window converged training as the full-data headline; see
+below when complete.]*
+
+- **Files:** `profile_speed.py`.
+- **Branch:** `crf-relatedness`.
