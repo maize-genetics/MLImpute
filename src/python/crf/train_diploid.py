@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import pytorch_lightning as pl
 
 torch.set_float32_matmul_precision("medium")
@@ -224,7 +225,8 @@ class GRITSCRFDiploid(pl.LightningModule):
     def __init__(self, num_parents=24, d_model=256, n_heads=8, n_layers=6,
                  lr=1e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
                  warmup_steps=0, homo_penalty=0.0,
-                 cosine_decay=False, spike_skip=False, spike_mult=8.0):
+                 cosine_decay=False, spike_skip=False, spike_mult=8.0,
+                 learned_het=False):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
@@ -241,10 +243,13 @@ class GRITSCRFDiploid(pl.LightningModule):
         self._gnorm_ema = -1.0
         self._gnorm_seen = 0
         self._n_skipped = 0
+        # E7-diag fix: learned per-locus het prior replaces the fixed homo_penalty.
+        self.learned_het = learned_het
 
         K = num_parents + 1                          # +1 unknown, matches encoder
         self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
-                                          time_local_emis=time_local_emis)
+                                          time_local_emis=time_local_emis,
+                                          learned_het=learned_het)
         self.stay_bonus = nn.Parameter(torch.tensor(2.0))
 
         pi, pj, pair_table, nsw = build_pair_tables(K)
@@ -267,9 +272,19 @@ class GRITSCRFDiploid(pl.LightningModule):
         K = self.num_parents + 1
         X_pad = torch.cat([X, torch.zeros(B, T, 1, device=X.device)], dim=-1)
         founder_mask = torch.ones(B, K, device=X.device)
-        emis_f, g, c = self.encoder(X_pad, founder_mask)         # [B,T,K]
+        if self.learned_het:
+            emis_f, g, c, het = self.encoder(X_pad, founder_mask, emit_het=True)
+        else:
+            emis_f, g, c = self.encoder(X_pad, founder_mask)     # [B,T,K]
         emis_p = emis_f[..., self.pi] + emis_f[..., self.pj]     # [B,T,P]
-        if self.homo_penalty != 0.0:
+        if self.learned_het:
+            # E7-diag fix: a PER-LOCUS, encoder-driven homozygous penalty. The
+            # Transformer sees the sustained-alternation pattern of a het region and
+            # raises this where it's heterozygous; ~0 in homozygous regions. This is
+            # the emission-side het signal the transition cost provably cannot give.
+            het_pen = F.softplus(het).unsqueeze(-1)              # [B,T,1] >= 0
+            emis_p = emis_p - het_pen * self.homo_mask
+        elif self.homo_penalty != 0.0:
             # E7: with a per-individual scale (0=inbred → no penalty, 1=outbred →
             # full het prior), the homozygous penalty adapts to each sample's
             # inbreeding; without it, the fixed scalar applies to all.
@@ -399,6 +414,9 @@ def parse_args():
                    help="E7: scale --homo-penalty per individual by a genome-wide "
                         "het proxy (0 for inbred lines, 1 for outbred), so one model "
                         "serves a mixed-inbreeding panel. Needs --windows-per-individual.")
+    p.add_argument("--learned-het", action="store_true",
+                   help="E7-diag fix: per-locus encoder-driven homozygous penalty "
+                        "(replaces fixed --homo-penalty). The emission-side het signal.")
     p.add_argument("--windows-per-individual", type=int, default=100)
     p.add_argument("--precision", default="bf16-mixed")
     p.add_argument("--max-epochs", type=int, default=5)
@@ -434,7 +452,8 @@ def main():
         n_layers=args.n_layers, lr=args.lr, gate_reg=args.gate_reg,
         time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps,
         homo_penalty=args.homo_penalty, cosine_decay=args.cosine_decay,
-        spike_skip=args.spike_skip, spike_mult=args.spike_mult)
+        spike_skip=args.spike_skip, spike_mult=args.spike_mult,
+        learned_het=args.learned_het)
 
     # Checkpoint/stop on val/pair_acc (max): the CRF partition NLL can spike on
     # long-block data even as Viterbi accuracy stays good, so selecting on loss

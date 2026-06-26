@@ -156,11 +156,21 @@ class LabeledDatasetDiploid(Dataset):
 
 class FounderPathEncoder(nn.Module):
     def __init__(self, d_model=128, n_heads=4, n_layers=4, ext_dim=0,
-                 time_local_emis=False, window_c=False):
+                 time_local_emis=False, window_c=False, learned_het=False):
         super().__init__()
         self.d_model = d_model
         self.time_local_emis = time_local_emis
         self.window_c = window_c
+        # E7-diag fix: a PER-LOCUS het logit from the window context. The diploid
+        # wrapper turns it into a per-site homozygous penalty — the emission-side
+        # signal that the transition cost provably cannot supply (RESULTS E7-diag).
+        # Gated so it adds no params unless requested (old checkpoints still load).
+        if learned_het:
+            self.het_head = nn.Linear(d_model, 1)
+            nn.init.zeros_(self.het_head.weight)
+            nn.init.constant_(self.het_head.bias, -5.0)   # softplus(-5)~0 => starts off
+        else:
+            self.het_head = None
         self.cell = nn.Sequential(nn.Linear(1, d_model), nn.GELU(),
                                   nn.Linear(d_model, d_model))
         # E5 relatedness: a DIRECT per-founder additive emission bias from the
@@ -192,7 +202,7 @@ class FounderPathEncoder(nn.Module):
         pe[:, 1::2] = torch.cos(pos * div)
         return pe
 
-    def forward(self, X, founder_mask, dbp=None, ext_emb=None):
+    def forward(self, X, founder_mask, dbp=None, ext_emb=None, emit_het=False):
         B, T, K = X.shape
         cells = self.cell(torch.log1p(X).unsqueeze(-1))
 
@@ -236,6 +246,10 @@ class FounderPathEncoder(nn.Module):
             c = c.unsqueeze(1).expand(B, T)
         else:
             c = F.softplus(self.recomb_head(feats)).squeeze(-1)              # [B,T]
+        if emit_het:
+            het = (self.het_head(H).squeeze(-1) if self.het_head is not None
+                   else torch.zeros(B, T, device=X.device))                 # [B,T] logit
+            return emis, g, c, het
         return emis, g, c
 
     def _entropy(self, emis, founder_mask):
