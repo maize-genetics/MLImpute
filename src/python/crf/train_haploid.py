@@ -498,6 +498,8 @@ def main():
                    help="Sub-dir name for checkpoints and TB logs (one per arm).")
     p.add_argument("--warmup-steps", type=int, default=0,
                    help="Linear LR warmup steps (0 = plateau scheduler)")
+    p.add_argument("--grad-clip", type=float, default=1.0,
+                   help="Gradient-norm clip value (lower = more bf16-stable)")
     p.add_argument("--recomb-aux-weight", type=float, default=0.0,
                    help="Weight on the recomb_head auxiliary loss: per-window "
                         "Pearson corr(c_t, hidden log-rate), minimized so c_t "
@@ -570,7 +572,7 @@ def main():
         accelerator="auto",
         devices=args.devices,
         precision=args.precision,
-        gradient_clip_val=1.0,
+        gradient_clip_val=args.grad_clip,
     )
 
     trainer.fit(model, train_loader, val_loader)

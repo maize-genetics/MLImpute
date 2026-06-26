@@ -738,8 +738,56 @@ for a memory/length bottleneck, but the encoder is cheap and memory is linear in
 The win is in the **decode** — a batched/fused Viterbi (the sequential T-loop is the
 cost), not the encoder. Memory is comfortably within budget to T≥4096.
 
-*[Scale run pending: 1M-window converged training as the full-data headline; see
-below when complete.]*
+### E8-scale — 1M-window converged headline (2026-06-26)
 
-- **Files:** `profile_speed.py`.
+The full-data run: `sim_1M_th6.npy` (1,000,000 windows = 10,000 individuals ×
+100 windows, θ=6, K=24 founders, T=512), haploid d256/L6, bf16, on one H200.
+Test split = 100k windows / 10.24M sites.
+
+**Stability finding (the headline caveat).** At 1M scale the run is **non-monotonic**:
+it reaches a strong optimum then the bf16 CRF log-partition detonates and val
+collapses to random (1/26). Two runs:
+
+| run | lr | warmup | clip | best val/acc | what happened |
+|-----|---:|------:|-----:|----:|---|
+| e8-1M | 1e-4 | 500 | 1.0 | 0.783 (ep1) | diverged ep2 → loss 47, acc 0.04 |
+| e8-1M-stable | 5e-5 | 2000 | 0.5 | **0.822 (ep1)** | higher peak, still diverged ep2 |
+
+Lower lr + longer warmup + tighter clip **raised the optimum** (0.783→0.822) but did
+**not** stop the post-optimum blow-up. Practical rule at scale: **checkpoint-on-best-val,
+never take the last epoch.** A fully stable long schedule is open (candidates:
+fp32 partition only, or a partition-clamp) — deferred.
+
+**Converged headline (best-val checkpoint, val/acc 0.822).** The IBD-ceiling and E5
+story replicate and *tighten* at 10× scale:
+
+| band | CRF acc | ceiling | gap | err-IBD% |
+|------|--------:|--------:|----:|---------:|
+| 0 bp | 0.9921 | 0.9947 | −0.0026 | 84.2% |
+| 1–2 bp | 0.9075 | 0.9243 | −0.0168 | 83.4% |
+| 3–5 bp | 0.8091 | 0.8278 | −0.0188 | 90.3% |
+| 6+ bp | 0.7245 | 0.7432 | −0.0187 | 93.6% |
+| **all** | **0.8231** | **0.8396** | **−0.0165** | **91.2%** |
+
+The converged model sits **≤1.9 pts below the computed information ceiling in every
+band**, and **91% of all residual errors are provably IBD-confusable** (vs 67–69% for
+the under-converged epoch-0 checkpoint — convergence pushes the error mass almost
+entirely onto IBD confusion). The data ceiling (0.840 all / 0.743 hard) matches the
+100k sim: it is a data property, stable across a 10× scale-up.
+
+**E5 cutoff at 1M (converged ckpt, 12k test windows).** τ=0.17 optimal again:
+
+| τ | all-band acc | 6+bp acc | true-excl% |
+|---|---:|---:|---:|
+| none | 0.8227 | 0.7248 | 0.00% |
+| 0.16 | 0.8343 | 0.7431 | 0.20% |
+| **0.17** | **0.8398** | **0.7541** | 0.95% |
+| 0.18 | 0.8374 | 0.7613 | 3.04% |
+
+At τ=0.17 the cutoff lifts all-band **onto the read-only ceiling** (0.8227→0.8398 ≈
+0.8396) and the hard 6+bp band **past its ceiling** (0.7248→0.7541 > 0.7432), at <1%
+true-founder exclusion — the same optimum and same gains as the 100k sim.
+
+- **Files:** `profile_speed.py`, `train_haploid.py` (`--grad-clip`),
+  `analyze_ibd_ceiling.py`, `eval_e5_cutoff.py`.
 - **Branch:** `crf-relatedness`.

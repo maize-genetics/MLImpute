@@ -125,10 +125,28 @@ alone (**corr −0.99** with true F), enabling a **per-individual adaptive penal
 (0 for inbred, full for outbred). *[Stable adaptive result pending; see RESULTS.md
 E7.]*
 
-### E8 — Inference speed
+### E8 — Inference speed and 1M-window scale
 
-*[Profiling pending; see RESULTS.md E8. Question: is the Transformer encoder the
-length/memory bottleneck — i.e. is Mamba2 needed — or is decode the cost?]*
+![e8](figures/fig8_speed.png)
+
+**Speed:** profiling the encoder forward vs the Viterbi decode separately shows the
+**decode dominates** — at T=4096 Viterbi is **80%** of latency, the Transformer
+encoder only 20%. The encoder grows sub-quadratically (the founder pool is over K,
+not T), Viterbi is linear in T, memory is linear (~4.3 GB at T=4096), throughput a
+flat ~450k sites/s. **Mamba2 is therefore not the priority** — the long-context
+encoder swap targeted a length/memory bottleneck that does not exist here; the win is
+a batched/fused Viterbi, not the encoder.
+
+**1M-window scale:** the full-data headline run (1,000,000 windows = 10,000
+individuals, θ=6) converges to **0.823 all-band founder accuracy**, sitting **≤1.9 pts
+below the computed information ceiling in every difficulty band**, with **91% of all
+residual errors provably IBD-confusable** — the E-IBD ceiling argument is *stronger*
+at scale, since convergence pushes nearly all error mass onto IBD confusion. The E5
+relatedness cutoff (τ=0.17) replicates exactly: it lifts all-band accuracy **onto the
+read-only ceiling** (0.823→0.840) and the hard 6+bp band **past it** (0.725→0.754) at
+<1% true-founder exclusion. One honest caveat: at 1M scale the run is **non-monotonic**
+— the bf16 CRF log-partition reaches a strong optimum then detonates, so training must
+**checkpoint-on-best-val**; a fully stable long schedule is open.
 
 ---
 
@@ -144,4 +162,5 @@ length/memory bottleneck — i.e. is Mamba2 needed — or is decode the cost?]*
    the reads, not fixed hyperparameters (E7).
 
 **Open:** adaptive-prior stability (E7), a fixed-SNP-panel benchmark (E6 follow-up),
-inference speed / Mamba2 decision (E8), and promotion to real diploid maize.
+**bf16 CRF log-partition stability for long/large-scale schedules** (E8 — the decode
+bottleneck is settled, Mamba2 is not needed), and promotion to real diploid maize.
