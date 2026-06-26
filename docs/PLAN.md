@@ -218,9 +218,11 @@ the relatedness / external-embedding work described in `CLAUDE.md`.
 Run in order. Each experiment = one config + one script + one row in `RESULTS.md`,
 and must include the **ablation** named in its acceptance criteria. **E1 trains and
 validates the haploid model first**; E2–E4 are run haploid (cheaper, fewer states);
-E4b promotes to the diploid pair-state path on the same architecture; E5–E7 build on
+E4b promotes to the diploid pair-state path on the same architecture; E5–E8 build on
 whichever state layer each targets. The encoder and `NeuralCRF` are shared across all
-of them (§4.2).
+of them (§4.2). **Numbering (2026-06-25):** E5 = relatedness/genome-wide conditioning
+(in progress), E6 = SNP-level accuracy, E7 = mixed-inbreeding tuning, E8 = inference
+speed; the former standalone Mamba2 milestone is folded into E8.
 
 ### E0 — Harness & baselines (no modeling)
 - **Objective:** make every later number interpretable.
@@ -294,36 +296,96 @@ of them (§4.2).
 - **Decision informed:** does joint pair-state earn its cost over per-hap+coupling;
   tractability ceiling on K.
 
-### E5 — Variable / imperfect nomination + transfer
-- **Objective:** generalize to nominated panels unseen in training (index-agnostic claim).
-- **Implement:** vary the nominated panel per sample; train across many panels;
-  reserve **unseen panels** for test. Optionally add a frozen external assembly
-  embedding via `ext_dim` (e.g. PlantCAD2) and measure its marginal value. This is
-  also where the **pairwise relatedness matrix** conditioning (the `crf-relatedness`
-  branch goal in `CLAUDE.md`) gets evaluated.
-- **Run:** `configs/e5.yaml`; report accuracy on seen vs unseen panels.
-- **Acceptance:** unseen-panel accuracy within a small, pre-registered margin of
-  seen panels; external/relatedness embedding either helps or is dropped.
-- **Decision informed:** does it transfer, or is per-panel calibration unavoidable?
+### E5 — Relatedness / genome-wide founder conditioning
+- **Status (2026-06-25): in progress — the `crf-relatedness` branch core** (this
+  subsumes the former "E7 global conditioning" and the relatedness-matrix arm of the
+  former "E5 nomination transfer"; renumbered to match the executed series).
+- **Objective:** use a per-individual, genome-wide founder relatedness/presence
+  signal to disambiguate locally IBD-ambiguous calls — i.e. **break the read-only
+  IBD ceiling** characterized in RESULTS "E-IBD".
+- **Implement:** sim groups windows into **individuals** over a 2–24 founder subset
+  (`--windows-per-individual`); a per-individual, per-founder **affinity vector**,
+  estimated from reads only (no labels), conditions the encoder via `ext_emb`
+  (zero-init projection; bounded features to avoid bf16 partition overflow). Arms:
+  relatedness **on/off**; later, transfer to **unseen founder compositions**
+  (index-agnostic claim) and an optional frozen external assembly embedding
+  (PlantCAD2) via `ext_dim`.
+- **Run:** train on the grouped sim (`sim_e5_th6`); eval with `eval_e5.py` against
+  the read-only ceiling AND the relatedness ceiling (`relatedness_ceiling.py`).
+- **Acceptance:** the relatedness arm **exceeds the read-only IBD ceiling** in the
+  hard bands (headroom measured at +5.2pt overall / +7.9pt in 6+bp) without hurting
+  easy windows; the off-arm sits at the ceiling.
+- **Decision informed:** does genome-wide conditioning recover IBD-confusable calls,
+  and by how much of the measured headroom.
+- **Files:** `simulate_alleles.py` (grouping), `train_haploid.py`
+  (`IndividualRelatednessDataset`, `make_individual_splits`), `eval_e5.py`,
+  `relatedness_ceiling.py`.
 
-### E6 — Long-context encoder (Mamba2) + scaling
-- **Objective:** full-chromosome decode within compute budget.
-- **Implement:** swap the Transformer position-encoder for **Mamba2** behind the
-  same §4.2 interface; keep CRF unchanged. (`bimamba/` is a reference implementation.)
-- **Run:** sweep window length; profile peak memory & throughput; assert **param
-  count is invariant to T and K** in `tests/`.
-- **Acceptance:** Mamba2 matches Transformer accuracy on E1's task at lower memory
-  for long windows; target chromosome decodes within the §2.2 GPU budget.
-- **Decision informed:** encoder choice and maximum single-pass window.
+### E6 — SNP-level imputation accuracy (benchmark-comparable metric)
+- **Objective:** report per-SNP **genotype concordance** and **dosage r²** at masked
+  sites so GRITS is directly comparable to standard imputers (Beagle / minimac /
+  IMPUTE5), and demonstrate that the IBD *path* ceiling does **not** cap SNP
+  accuracy — path errors land on IBD-confusable founders that share alleles over
+  the block, so the SNP call is usually still correct. We model/train on founder
+  haplotypes; we *report* SNPs by composing the decoded path with a founder panel.
+- **Implement (sim, `simulate_alleles.py`):** in coalescent mode, persist an
+  eval-only **founder × SNP allele panel** + the sample's true genotype as a
+  companion (`<out>.snp.npy`, test-split only, bit-packable) from the per-SNP
+  mini-haplotype alleles already generated (`lin_alleles` / `G` in
+  `_coalescent_feats`). Add `--mask-frac`: split SNPs into **typed** (drive the
+  match features as today) vs **masked** (hidden from input, scored at eval) — the
+  real imputation setting, mirroring how other tools mask a typed-array subset and
+  impute the rest. Granularity is **per biallelic SNP** (not per mini-haplotype
+  read) for literature comparability.
+- **Eval (`eval_snp.py`):** `predicted_allele(s) = panel[decoded_founder(s), s]`;
+  diploid composes H1+H2 into 0/1/2 **dosage**. Report concordance + dosage r²
+  **stratified by MAF**, alongside founder-path accuracy on the same windows so the
+  path-vs-SNP gap (the IBD-invisible-at-SNP effect) is explicit.
+- **Acceptance:** SNP accuracy ≫ path accuracy with the gap explained by IBD
+  allele-sharing; competitive concordance / r² vs a published baseline on a matched
+  MAF spectrum; metric is per-SNP.
+- **Decision informed:** is GRITS's SNP-level imputation competitive, and how much
+  of the path-ceiling gap is invisible at the SNP level.
 
-### E7 — Global / unlinked-chromosome conditioning (optional, last)
-- **Objective:** use genome-wide founder presence to disambiguate locally ambiguous calls.
-- **Implement:** pool a genome-wide founder-presence/proportion vector into the
-  emission/recomb heads. Ablation arm: **off**.
-- **Run:** `configs/e7.yaml`.
-- **Acceptance:** improves accuracy specifically in low-confidence regions (slice by
-  `g` / posterior entropy) without hurting elsewhere; otherwise drop it.
-- **Decision informed:** keep or discard global conditioning.
+### E7 — Mixed-inbreeding panel tuning (variable F across individuals)
+- **Objective:** tune one model to serve a realistic panel that **mixes inbreeding
+  levels** — fully inbred lines (F≈1, identical gametes → haploid-like), outbred
+  (F≈0, interleaved single-gamete reads needing phasing), and everything between —
+  rather than the single-F sims used so far. This is the main pre-productionization
+  modeling task.
+- **Implement:** draw a **per-individual** inbreeding coefficient F from a
+  distribution (e.g. a spike at F=1 for inbred lines plus a spread over [0,1])
+  instead of the single `--inbreeding` scalar; train the diploid pair-state model
+  (E4b) on the mixture, reusing the E5 individual grouping. Ablation arms:
+  single-F-trained model evaluated on the mixture; with/without the E5 relatedness
+  signal under varying F.
+- **Run:** `configs/e7.yaml`; sweep the F distribution; report pair/hap accuracy and
+  SNP r² **stratified by F**.
+- **Acceptance:** a **single** model handles the full F range with no per-F
+  recalibration — low-F individuals keep diploid phasing accuracy while inbred
+  individuals stay at the haploid ceiling; beats the single-F-trained baseline on
+  the mixed panel.
+- **Decision informed:** can one GRITS model serve mixed-inbreeding panels (the
+  real-data setting), or is inbreeding-stratified training required.
+
+### E8 — Inference speed / make-it-fast (final productionization)
+- **Objective:** minimize end-to-end decode **latency and peak memory** at target
+  chromosome length, at no meaningful accuracy cost — the last task before release.
+- **Implement (decide each empirically; keep the §4.2 CRF interface unchanged):**
+  profile the Transformer encoder + Viterbi decode first, then apply the levers that
+  the profile justifies — (a) **long-context encoder swap to Mamba2** (`bimamba/`
+  reference) **only if** the Transformer is the length/memory bottleneck; (b)
+  decoder/kernel optimization (fused stay/switch recursion, batched Viterbi);
+  (c) reduced-precision / quantized inference; (d) window-stitching for a
+  single-pass full-chromosome decode. Assert **param count invariant to T and K** in
+  `tests/`.
+- **Run:** sweep window / chromosome length; report throughput (sites/s) and peak
+  memory vs accuracy.
+- **Acceptance:** target chromosome decodes within the §2.2 GPU budget with
+  accuracy within a pre-registered margin of the unoptimized model.
+- **Decision informed:** final encoder choice and max single-pass window — **and
+  whether Mamba2 is needed at all** (adopt only if it wins the profile; the former
+  standalone "Mamba2" milestone is demoted to one candidate lever here).
 
 ---
 
