@@ -1046,3 +1046,53 @@ avoids it. This is itself evidence for the per-locus formulation.
   (best-val 0.5740), both epoch 0.
 - **Open:** late-epoch diploid oscillation (best-val mitigates); inbred over-fire (tunable).
 - **Branch:** `crf-relatedness`.
+
+### E11-affinity — founder-affinity prior on the breeding population (2026-06-27)
+
+The learned-het model breaks het via the **emission** but had no way to break a
+**within-window IBD tie** (a site where several founders match the single read): the
+local emission is ambiguous and only the transition/context can pick. The diploid model
+had never used the `ext_bias` hook — `ext_dim=0`, no `ext_emb` — so I wired
+**`--founder-affinity`**: a per-individual `[K,2]` embedding (each founder's genome-wide
+mean match-rate + its mean-centered value) is fed to `FounderPathEncoder`'s zero-init
+`ext_bias`, adding a per-founder presence prior to every site's emission logit. Same data,
+same test split, same recipe; arm = `--learned-het --founder-affinity`. Eval with
+`eval_diploid_byclass.py --founder-affinity` and `eval_diploid_ties.py`.
+
+| class × het | windows | LH pair | **+affinity** pair | Δ | LH hap | **+aff** hap |
+|---|---:|---:|---:|---:|---:|---:|
+| k=2 F2 — inbred | 5750 | 0.830 | **0.960** | **+0.130** | 0.874 | 0.961 |
+| k=2 F2 — het | 5850 | 0.632 | **0.731** | **+0.099** | 0.790 | 0.860 |
+| k=8 S1 — inbred | 6300 | 0.815 | **0.905** | **+0.090** | 0.862 | 0.914 |
+| k=8 S1 — het | 6350 | 0.674 | **0.756** | **+0.082** | 0.780 | 0.834 |
+| outbred — inbred | 12450 | 0.812 | **0.857** | +0.045 | 0.860 | 0.871 |
+| outbred — het | 13300 | 0.527 | **0.541** | +0.014 | 0.680 | 0.695 |
+| **all** | 50000 | **0.700** | **0.763** | **+0.063** | **0.795** | **0.834** |
+
+**Founder affinity is the biggest single lever on this data: +0.063 all-band pair
+(0.700→0.763), +0.039 hap (0.795→0.834)**, on top of learned-het and at zero inbred
+cost (every cell improves). Best-val ckpt `e11-breedpop-affinity` **0.7587** vs
+learned-het **0.6958**, both epoch 0.
+
+**The gain is mechanistically the tie-breaker it was designed to be.** Per-site hap
+accuracy binned by the number of founders matching the read (`eval_diploid_ties.py`)
+shows the improvement rising monotonically with tie density:
+
+| founders matching | %sites | LH hap | **+aff** hap | Δ |
+|---|---:|---:|---:|---:|
+| 1 (no tie) | — | 0.937 | 0.948 | +0.011 |
+| 2–3 | — | 0.853 | 0.880 | +0.027 |
+| 4–6 | — | 0.804 | 0.842 | +0.038 |
+| 7–12 | — | 0.763 | 0.806 | +0.043 |
+| 13+ | — | 0.739 | 0.782 | +0.044 |
+
+Where the emission is unambiguous (1 match) the prior is nearly inert (+0.011); where
+many founders tie (13+) it contributes most (+0.044). The per-class table agrees: the
+gain is largest for **F2** (few parents → a sharp 2-founder genome-wide prior, +0.13/+0.10
+inbred/het) and smallest for **outbred** (12–24 diffuse parents → weak prior, +0.045/+0.014).
+
+- **Files:** `train_diploid.py` (`_founder_affinity`, `DiploidAffinityDataset`,
+  `make_diploid_affinity_splits`, `--founder-affinity` → `ext_dim=2`, `forward(ext_emb=…)`),
+  `eval_diploid_byclass.py`/`eval_diploid_byF.py` (feed `ext_emb`), `eval_diploid_ties.py` (new).
+- **Checkpoint:** `e11-breedpop-affinity` (best-val 0.7587, epoch 0).
+- **Branch:** `crf-relatedness`.
