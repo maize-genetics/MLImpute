@@ -32,20 +32,26 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from python.crf.train_diploid import GRITSCRFDiploid, _dcrf_viterbi
+from python.crf.train_diploid import (GRITSCRFDiploid, _dcrf_viterbi,
+                                       _founder_affinity)
 
 CLASS_NAMES = {0: "k2-F2", 1: "k8-S1", 2: "outbred"}
 
 
 @torch.no_grad()
-def decode_test(model, feats_test, device, batch_size):
-    """Viterbi-decode every test window. Returns P1,P2 [n,T] founder indices."""
+def decode_test(model, feats_test, device, batch_size, ext_test=None):
+    """Viterbi-decode every test window. Returns P1,P2 [n,T] founder indices.
+    If ext_test [n,K,2] is given (model trained with --founder-affinity), it is
+    fed as ext_emb so the decode reflects the founder-affinity prior."""
     n, T, _ = feats_test.shape
     P1 = np.empty((n, T), dtype=np.int64)
     P2 = np.empty((n, T), dtype=np.int64)
     for s in range(0, n, batch_size):
         X = torch.tensor(feats_test[s:s + batch_size], dtype=torch.float32, device=device)
-        emis_p, _, c = model(X)
+        ext = None
+        if ext_test is not None:
+            ext = torch.tensor(ext_test[s:s + batch_size], dtype=torch.float32, device=device)
+        emis_p, _, c = model(X, None, ext)
         pred = _dcrf_viterbi(emis_p, c, model.nsw_pair, model.stay_bonus)
         P1[s:s + batch_size] = model.pi[pred].cpu().numpy()
         P2[s:s + batch_size] = model.pj[pred].cpu().numpy()
@@ -89,6 +95,12 @@ def main():
     p.add_argument("--out", default="")
     p.add_argument("--run-name", default="")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--founder-affinity", action="store_true",
+                   help="ckpt trained with --founder-affinity; feed per-individual "
+                        "ext_emb so the decode reflects the affinity prior")
+    p.add_argument("--windows-per-individual", type=int, default=50,
+                   help="individual block size for the affinity ext_emb (must match "
+                        "training); the test slice must be a whole multiple of it")
     args = p.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -109,14 +121,29 @@ def main():
     cls = np.load(args.cls or stem + ".cls.npy")[N - n_test:]
     finb = np.load(args.finb or stem + ".finb.npy")[N - n_test:]
 
+    # Founder-affinity ext_emb is per-individual (mean match-rate over the
+    # individual's G windows), so compute it on the FULL test slice — which is a
+    # whole number of individuals — before any subsampling.
+    ext = None
+    if args.founder_affinity:
+        G = args.windows_per_individual
+        if n_test % G:
+            raise ValueError(f"test windows {n_test} not a multiple of "
+                             f"windows/ind {G}; affinity ext_emb would misalign")
+        blk = feats.reshape(n_test // G, G, T, K)                  # [ind,G,T,K]
+        aff = np.stack([_founder_affinity(blk[i]) for i in range(len(blk))])  # [ind,K,2]
+        ext = np.repeat(aff, G, axis=0).astype(np.float32)         # [n_test,K,2]
+
     # Decode only a random subset for selection — the full test set is needlessly
     # slow and we only export a dozen windows.
     rng = np.random.default_rng(args.seed)
     if args.max_decode and args.max_decode < n_test:
         sub = np.sort(rng.choice(n_test, args.max_decode, replace=False))
         feats, h1, h2, cls, finb = feats[sub], h1[sub], h2[sub], cls[sub], finb[sub]
+        if ext is not None:
+            ext = ext[sub]
 
-    P1, P2 = decode_test(model, feats, device, args.batch_size)
+    P1, P2 = decode_test(model, feats, device, args.batch_size, ext)
 
     # per-window pair accuracy (order-insensitive) + het fractions
     pair_true = model.pair_table.cpu().numpy()[h1, h2]         # [n,T]
