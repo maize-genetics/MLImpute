@@ -38,7 +38,9 @@ def per_window(model, ds, device, bs):
         X = b["input_embeds"].to(device)
         h1, h2 = b["h1"].to(device), b["h2"].to(device)
         scale = b.get("homo_scale")
-        emis_p, _, c = model(X, scale.to(device) if scale is not None else None)
+        ext = b.get("ext_emb")
+        emis_p, _, c = model(X, scale.to(device) if scale is not None else None,
+                             ext.to(device) if ext is not None else None)
         pred = _dcrf_viterbi(emis_p, c, model.nsw_pair, model.stay_bonus)
         pair_true = model.pair_table[h1, h2]
         pc.append((pred == pair_true).float().mean(1).cpu().numpy())       # [B] per-window

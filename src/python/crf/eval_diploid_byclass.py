@@ -21,7 +21,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from python.crf.train_diploid import GRITSCRFDiploid, make_diploid_splits
+from python.crf.train_diploid import (GRITSCRFDiploid, make_diploid_splits,
+                                       make_diploid_affinity_splits)
 from python.crf.eval_diploid_byF import per_window
 
 CLASS_NAMES = {0: "k=2 F2", 1: "k=8 S1", 2: "outbred[12,24]"}
@@ -37,14 +38,23 @@ def main():
     p.add_argument("--val-frac", type=float, default=0.10)
     p.add_argument("--test-frac", type=float, default=0.10)
     p.add_argument("--batch-size", type=int, default=128)
+    p.add_argument("--founder-affinity", action="store_true",
+                   help="model trained with --founder-affinity (feed per-individual "
+                        "ext_emb). Needs --windows-per-individual.")
+    p.add_argument("--windows-per-individual", type=int, default=50)
     p.add_argument("--workdir", default="/workdir/esb33")
     args = p.parse_args()
     device = torch.device("cuda")
     model = GRITSCRFDiploid.load_from_checkpoint(
         args.ckpt, map_location=device).eval().to(device)
 
-    _, _, test_ds = make_diploid_splits(
-        args.data, args.num_parents, args.val_frac, args.test_frac)
+    if args.founder_affinity:
+        _, _, test_ds = make_diploid_affinity_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac,
+            args.windows_per_individual)
+    else:
+        _, _, test_ds = make_diploid_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac)
 
     stem = Path(args.data).with_suffix("").as_posix()
     cls = np.load(args.cls or stem + ".cls.npy")

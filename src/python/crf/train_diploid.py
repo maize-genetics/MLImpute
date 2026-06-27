@@ -217,6 +217,55 @@ def make_diploid_individual_splits(path, num_parents, val_frac, test_frac, G, li
     return mk(data[:n_tr]), mk(data[n_tr:n_tr + n_val]), mk(data[n_tr + n_val:])
 
 
+def _founder_affinity(feats_block):
+    """Per-founder genome-wide affinity for one individual (E5 relatedness signal).
+    feats_block [W,T,K] (binary match) -> [K,2] = (raw match rate, founders-mean-
+    centered rate). High for founders the individual descends from (and their IBD-
+    mates), at background for the rest; centering sharpens the contrast. Both bounded.
+    Reads only (no labels), so identical at inference."""
+    r = feats_block.reshape(-1, feats_block.shape[-1]).mean(0).astype(np.float32)  # [K]
+    return np.stack([r, r - r.mean()], axis=-1)                     # [K,2] bounded
+
+
+class DiploidAffinityDataset(PreWindowedDiploidDataset):
+    """Diploid dataset + a per-individual founder-affinity ext_emb [K,2], attached
+    to every window of the individual (windows grouped in blocks of G). Conditions
+    the encoder to favour founders the individual actually carries and break the
+    within-window IBD ties the local emission cannot."""
+    def __init__(self, data, num_parents, windows_per_individual):
+        super().__init__(data, num_parents)
+        G = windows_per_individual
+        if len(data) % G:
+            raise ValueError(f"rows {len(data)} not divisible by windows/ind {G}")
+        self.G = G
+        feats = np.asarray(data[:, :, :num_parents]).reshape(
+            len(data) // G, G, data.shape[1], num_parents).astype(np.float32)
+        self.affinity = np.stack(
+            [_founder_affinity(feats[i]) for i in range(len(feats))]).astype(np.float32)
+
+    def __getitem__(self, idx):
+        out = super().__getitem__(idx)
+        out["ext_emb"] = torch.tensor(self.affinity[idx // self.G], dtype=torch.float32)
+        return out
+
+
+def make_diploid_affinity_splits(path, num_parents, val_frac, test_frac, G, limit_n=0):
+    """Individual-aligned split (same boundaries as make_diploid_individual_splits,
+    so the test set matches the head-slice splits) with founder-affinity ext_emb."""
+    data = np.load(path, allow_pickle=True, mmap_mode="r")
+    if limit_n:
+        data = data[:(limit_n // G) * G]
+    N = len(data)
+    n_ind = N // G
+    n_test = int(n_ind * test_frac) * G
+    n_val = int(n_ind * val_frac) * G
+    n_tr = N - n_val - n_test
+    mk = lambda a: DiploidAffinityDataset(a, num_parents, G)
+    print(f"Diploid(affinity) {Path(path).name}: N={N:,} individuals={n_ind} "
+          f"train={n_tr:,} val={n_val:,} test={n_test:,}")
+    return mk(data[:n_tr]), mk(data[n_tr:n_tr + n_val]), mk(data[n_tr + n_val:])
+
+
 # --------------------------------------------------------------------------- #
 #  Lightning module                                                            #
 # --------------------------------------------------------------------------- #
@@ -226,7 +275,7 @@ class GRITSCRFDiploid(pl.LightningModule):
                  lr=1e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
                  warmup_steps=0, homo_penalty=0.0,
                  cosine_decay=False, spike_skip=False, spike_mult=8.0,
-                 learned_het=False):
+                 learned_het=False, founder_affinity=False):
         super().__init__()
         self.save_hyperparameters()
         self.num_parents = num_parents
@@ -245,9 +294,14 @@ class GRITSCRFDiploid(pl.LightningModule):
         self._n_skipped = 0
         # E7-diag fix: learned per-locus het prior replaces the fixed homo_penalty.
         self.learned_het = learned_het
+        # crf-relatedness: per-individual founder-affinity prior (ext_bias). A
+        # genome-wide per-founder presence signal that biases emissions toward the
+        # founders the individual carries and breaks within-window IBD ties.
+        self.founder_affinity = founder_affinity
+        ext_dim = 2 if founder_affinity else 0
 
         K = num_parents + 1                          # +1 unknown, matches encoder
-        self.encoder = FounderPathEncoder(d_model, n_heads, n_layers,
+        self.encoder = FounderPathEncoder(d_model, n_heads, n_layers, ext_dim=ext_dim,
                                           time_local_emis=time_local_emis,
                                           learned_het=learned_het)
         self.stay_bonus = nn.Parameter(torch.tensor(2.0))
@@ -267,15 +321,19 @@ class GRITSCRFDiploid(pl.LightningModule):
         print(f"GRITSCRFDiploid: K={K} states, P={self.P} pair-states, "
               f"{n_params:,} params")
 
-    def forward(self, X, homo_scale=None):
+    def forward(self, X, homo_scale=None, ext_emb=None):
         B, T, K_feat = X.shape
         K = self.num_parents + 1
         X_pad = torch.cat([X, torch.zeros(B, T, 1, device=X.device)], dim=-1)
         founder_mask = torch.ones(B, K, device=X.device)
+        if ext_emb is not None:                                  # pad the null founder
+            ext_emb = torch.cat(
+                [ext_emb, torch.zeros(B, 1, ext_emb.shape[-1], device=X.device)], dim=1)
         if self.learned_het:
-            emis_f, g, c, het = self.encoder(X_pad, founder_mask, emit_het=True)
+            emis_f, g, c, het = self.encoder(X_pad, founder_mask, ext_emb=ext_emb,
+                                             emit_het=True)
         else:
-            emis_f, g, c = self.encoder(X_pad, founder_mask)     # [B,T,K]
+            emis_f, g, c = self.encoder(X_pad, founder_mask, ext_emb=ext_emb)  # [B,T,K]
         emis_p = emis_f[..., self.pi] + emis_f[..., self.pj]     # [B,T,P]
         if self.learned_het:
             # E7-diag fix: a PER-LOCUS, encoder-driven homozygous penalty. The
@@ -299,7 +357,7 @@ class GRITSCRFDiploid(pl.LightningModule):
 
     def _step(self, batch):
         X, h1, h2 = batch["input_embeds"], batch["h1"], batch["h2"]
-        emis_p, g, c = self(X, batch.get("homo_scale"))
+        emis_p, g, c = self(X, batch.get("homo_scale"), batch.get("ext_emb"))
         tags = self._pair_labels(h1, h2)
         crf = _dcrf_nll(emis_p, c, self.nsw_pair, self.stay_bonus, tags)
         loss = crf + self.gate_reg * (1.0 - g).mean()
@@ -418,6 +476,10 @@ def parse_args():
                    help="E7-diag fix: per-locus encoder-driven homozygous penalty "
                         "(replaces fixed --homo-penalty). The emission-side het signal.")
     p.add_argument("--windows-per-individual", type=int, default=100)
+    p.add_argument("--founder-affinity", action="store_true",
+                   help="crf-relatedness: condition the encoder on a per-individual "
+                        "founder-affinity prior (ext_bias). Needs "
+                        "--windows-per-individual.")
     p.add_argument("--precision", default="bf16-mixed")
     p.add_argument("--max-epochs", type=int, default=5)
     p.add_argument("--patience", type=int, default=10)
@@ -434,7 +496,11 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.adaptive_homo:
+    if args.founder_affinity:
+        train_ds, val_ds, _ = make_diploid_affinity_splits(
+            args.data, args.num_parents, args.val_frac, args.test_frac,
+            args.windows_per_individual, limit_n=args.limit_n)
+    elif args.adaptive_homo:
         train_ds, val_ds, _ = make_diploid_individual_splits(
             args.data, args.num_parents, args.val_frac, args.test_frac,
             args.windows_per_individual, limit_n=args.limit_n)
@@ -453,7 +519,7 @@ def main():
         time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps,
         homo_penalty=args.homo_penalty, cosine_decay=args.cosine_decay,
         spike_skip=args.spike_skip, spike_mult=args.spike_mult,
-        learned_het=args.learned_het)
+        learned_het=args.learned_het, founder_affinity=args.founder_affinity)
 
     # Checkpoint/stop on val/pair_acc (max): the CRF partition NLL can spike on
     # long-block data even as Viterbi accuracy stays good, so selecting on loss
