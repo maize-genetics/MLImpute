@@ -296,9 +296,15 @@ def _coalescent_feats(rng, n, T, K, A, anc_cx, sfs_shape, read_snps,
     # One read per site, sampled from the active gamete (H1 if gamete else H2).
     active = np.where(gamete, h1, h2)                   # [n,T]
     Sa = G[ii, active, tt]                              # active mini-hap read [n,T,L]
-    bad = ~good                                         # dropout/corrupt whole read in tracts
-    fz = f[:, 0]                                        # [n,T,L]
-    Sa = np.where(bad[:, :, None], (rng.random((n, T, L)) < fz).astype(np.int8), Sa)
+    # Bad sites: corrupt the read to a RANDOM founder's mini-haplotype (the read
+    # mis-maps to a wrong founder) rather than an out-of-panel marginal draw. The
+    # latter usually matched no founder's exact L-SNP haplotype, leaving ~40% of
+    # bad sites all-zero; sourcing from a real founder guarantees the read still
+    # matches that founder's lineage group, so bad sites show random (wrong)
+    # matches instead of blanks.
+    bad = ~good
+    rand_founder = rng.integers(0, K, size=(n, T))     # [n,T] usually != active
+    Sa = np.where(bad[:, :, None], G[ii, rand_founder, tt], Sa)
 
     match = (G == Sa[:, None]).all(-1)                  # [n,K,T] exact full-read match
     # E6: founder × SNP allele panel for SNP-level imputation accuracy. G[w,k,t,l]
