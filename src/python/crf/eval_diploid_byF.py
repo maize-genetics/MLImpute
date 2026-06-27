@@ -23,15 +23,19 @@ import torch
 from torch.utils.data import DataLoader
 
 from python.crf.train_diploid import (GRITSCRFDiploid, make_diploid_splits,
-                                       make_diploid_individual_splits, _dcrf_viterbi)
+                                       make_diploid_individual_splits, _dcrf_viterbi,
+                                       _dcrf_marginal)
+
+DECODERS = {"viterbi": _dcrf_viterbi, "marginal": _dcrf_marginal}
 
 FBUCKETS = [(1.0, 1.01, "F=1 (inbred)"), (0.66, 1.0, "0.66-1"),
             (0.33, 0.66, "0.33-0.66"), (0.0, 0.33, "F<0.33")]
 
 
 @torch.no_grad()
-def per_window(model, ds, device, bs):
+def per_window(model, ds, device, bs, decode="viterbi"):
     """Per-window pair-correct (0/1) and hap-correct (0/1/2)."""
+    decoder = DECODERS[decode]
     loader = DataLoader(ds, batch_size=bs, shuffle=False, num_workers=4, pin_memory=True)
     pc, hc = [], []
     for b in loader:
@@ -41,7 +45,7 @@ def per_window(model, ds, device, bs):
         ext = b.get("ext_emb")
         emis_p, _, c = model(X, scale.to(device) if scale is not None else None,
                              ext.to(device) if ext is not None else None)
-        pred = _dcrf_viterbi(emis_p, c, model.nsw_pair, model.stay_bonus)
+        pred = decoder(emis_p, c, model.nsw_pair, model.stay_bonus)
         pair_true = model.pair_table[h1, h2]
         pc.append((pred == pair_true).float().mean(1).cpu().numpy())       # [B] per-window
         lo, hi = model.pi[pred], model.pj[pred]

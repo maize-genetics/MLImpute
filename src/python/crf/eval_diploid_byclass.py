@@ -42,6 +42,9 @@ def main():
                    help="model trained with --founder-affinity (feed per-individual "
                         "ext_emb). Needs --windows-per-individual.")
     p.add_argument("--windows-per-individual", type=int, default=50)
+    p.add_argument("--decode", choices=["viterbi", "marginal"], default="viterbi",
+                   help="viterbi = MAP joint path; marginal = posterior per-site "
+                        "argmax (forward-backward), optimal for per-site accuracy.")
     p.add_argument("--workdir", default="/workdir/esb33")
     args = p.parse_args()
     device = torch.device("cuda")
@@ -64,12 +67,12 @@ def main():
     cte = cls[N - n_test:]
     fte = finb[N - n_test:]
 
-    pc, hc = per_window(model, test_ds, device, args.batch_size)
+    pc, hc = per_window(model, test_ds, device, args.batch_size, decode=args.decode)
     if len(cte) != len(pc):
         raise ValueError(f"cls test {len(cte)} != windows {len(pc)}")
 
     print(f"\n[E11 diploid by class x het] {Path(args.ckpt).parent.name}  "
-          f"data={Path(args.data).name}")
+          f"data={Path(args.data).name}  decode={args.decode}")
     hdr = f"{'class':>16} {'het-type':>9} {'windows':>8} {'pair_acc':>9} {'hap_acc':>8}"
     print(hdr)
     print("-" * len(hdr))
@@ -89,8 +92,9 @@ def main():
     out = Path(args.workdir) / "results" / "e11_breedpop.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "a") as f:
-        f.write(f"\n[{Path(args.ckpt).parent.name}] {Path(args.data).name} "
-                f"pair/hap by class x het: " + " | ".join(rows) + "\n")
+        f.write(f"\n[{Path(args.ckpt).parent.name} decode={args.decode}] "
+                f"{Path(args.data).name} pair/hap by class x het: "
+                + " | ".join(rows) + "\n")
     print(f"\nappended → {out}")
 
 

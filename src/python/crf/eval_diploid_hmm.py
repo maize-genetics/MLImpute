@@ -53,6 +53,27 @@ def batched_viterbi_diploid(log_e_pair, log_tr, log_start):
     return path
 
 
+@torch.no_grad()
+def batched_marginal_diploid(log_e_pair, log_tr, log_start):
+    """Posterior max-marginal (forward-backward) decode for the fixed-transition
+    diploid HMM. Per-site argmax of P(state_t | x); optimal for per-site accuracy.
+    Same metric the CRF marginal decoder targets, so the two are comparable."""
+    B, T, P = log_e_pair.shape
+    alpha = torch.empty(B, T, P, device=log_e_pair.device)
+    alpha[:, 0] = log_start[None] + log_e_pair[:, 0]
+    for t in range(1, T):
+        alpha[:, t] = log_e_pair[:, t] + torch.logsumexp(
+            alpha[:, t - 1].unsqueeze(2) + log_tr[None], dim=1)
+    beta = torch.zeros(B, P, device=log_e_pair.device)
+    pred = torch.empty(B, T, dtype=torch.long, device=log_e_pair.device)
+    pred[:, T - 1] = (alpha[:, T - 1] + beta).argmax(dim=1)
+    for t in range(T - 2, -1, -1):
+        msg = log_e_pair[:, t + 1] + beta                                  # [B,P] over q
+        beta = torch.logsumexp(log_tr[None] + msg.unsqueeze(1), dim=2)      # [B,P] over p
+        pred[:, t] = (alpha[:, t] + beta).argmax(dim=1)
+    return pred
+
+
 def build_diploid_logtr(K, p_stay, device):
     """
     Factored per-chromosome transition: independent stay/switch.
@@ -69,9 +90,12 @@ def build_diploid_logtr(K, p_stay, device):
     return log_tr                                    # [P,P]
 
 
+DECODERS = {"viterbi": batched_viterbi_diploid, "marginal": batched_marginal_diploid}
+
+
 @torch.no_grad()
 def score(reads, h1_labels, h2_labels, pair_labels, K, p_stay, weight,
-          homo_penalty, device, batch=256):
+          homo_penalty, device, batch=256, decode="viterbi"):
     """
     reads        [M,T,K]  float read counts
     h1_labels    [M,T]    founder index
@@ -102,7 +126,7 @@ def score(reads, h1_labels, h2_labels, pair_labels, K, p_stay, weight,
         homozyg = (pi == pj).float().to(device)
         log_e_pair = log_e_pair - homo_penalty * homozyg[None, None]
 
-        pred_p = batched_viterbi_diploid(log_e_pair, log_tr, log_start)  # [B,T]
+        pred_p = DECODERS[decode](log_e_pair, log_tr, log_start)  # [B,T]
 
         pair_correct += (pred_p == plb).sum().item()
         total_pairs += plb.numel()
@@ -133,6 +157,9 @@ def main():
     p.add_argument("--weight", default="0.5,1.0,2.0")
     p.add_argument("--homo-penalty", default="0.5,1.0,2.0,3.0",
                    help="Homozygous pair log-prob penalty to sweep.")
+    p.add_argument("--decode", choices=["viterbi", "marginal"], default="viterbi",
+                   help="viterbi = MAP joint path; marginal = posterior per-site "
+                        "argmax (forward-backward).")
     p.add_argument("--workdir", default="/workdir/esb33")
     args = p.parse_args()
 
@@ -173,7 +200,8 @@ def main():
     for ps in p_stays:
         for w in weights:
             for hp in homo_pens:
-                pa, ha = score(reads, h1, h2, pair_labels, K, ps, w, hp, device)
+                pa, ha = score(reads, h1, h2, pair_labels, K, ps, w, hp, device,
+                               decode=args.decode)
                 print(f"{ps:>8.3f} {w:>8.2f} {hp:>10.2f} {pa:>10.4f} {ha:>9.4f}")
                 if pa > best[0]:
                     best = (pa, (ps, w, hp, ha))
@@ -186,7 +214,7 @@ def main():
     res.parent.mkdir(parents=True, exist_ok=True)
     with open(res, "a") as f:
         f.write(
-            f"hmm-LS-diploid(p_stay={bps},w={bw},hp={bhp})\t"
+            f"hmm-LS-diploid(p_stay={bps},w={bw},hp={bhp},decode={args.decode})\t"
             f"split={args.split}\tN={len(arr)}\t"
             f"pair_acc={bpa:.4f}\thap_acc={bha:.4f}\tckpt=baseline\n"
         )

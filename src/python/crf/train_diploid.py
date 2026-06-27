@@ -97,6 +97,39 @@ def _dcrf_viterbi(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
     return path
 
 
+def _dcrf_marginal(emis: torch.Tensor, c: torch.Tensor, nsw: torch.Tensor,
+                   stay_bonus: torch.Tensor) -> torch.Tensor:
+    """Posterior max-marginal (forward-backward) decode. emis [B,T,P] -> [B,T].
+
+    Viterbi returns the single highest-scoring JOINT path; this returns the
+    per-site argmax of the posterior marginal P(state_t | x), which maximises
+    expected PER-SITE accuracy -- the quantity we actually report. Same forward
+    recursion as the partition (_dcrf_nll) plus a symmetric backward pass; the
+    transition into time t uses c[:,t], matching the forward convention."""
+    emis = emis.float()
+    c = c.float()
+    nsw = nsw.float()
+    stay_bonus = stay_bonus.float()
+    stay_mask = (nsw == 0).float()
+    B, T, P = emis.shape
+
+    alpha = torch.empty(B, T, P, device=emis.device)
+    alpha[:, 0] = emis[:, 0]
+    for t in range(1, T):
+        tr_t = -c[:, t, None, None] * nsw[None] + stay_bonus * stay_mask[None]
+        alpha[:, t] = emis[:, t] + torch.logsumexp(alpha[:, t - 1].unsqueeze(2) + tr_t, dim=1)
+
+    beta = torch.zeros(B, P, device=emis.device)
+    pred = torch.empty(B, T, dtype=torch.long, device=emis.device)
+    pred[:, T - 1] = (alpha[:, T - 1] + beta).argmax(dim=1)
+    for t in range(T - 2, -1, -1):
+        tr_n = -c[:, t + 1, None, None] * nsw[None] + stay_bonus * stay_mask[None]  # [B,p=t,q=t+1]
+        msg = emis[:, t + 1] + beta                                                 # [B,P] over q
+        beta = torch.logsumexp(tr_n + msg.unsqueeze(1), dim=2)                      # [B,P] over p=t
+        pred[:, t] = (alpha[:, t] + beta).argmax(dim=1)
+    return pred
+
+
 def build_pair_tables(K):
     """Unordered founder pairs over K states. Returns:
       pi, pj      [P]      sorted member indices of each pair (i<=j)
