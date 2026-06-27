@@ -1096,3 +1096,68 @@ inbred/het) and smallest for **outbred** (12–24 diffuse parents → weak prior
   `eval_diploid_byclass.py`/`eval_diploid_byF.py` (feed `ext_emb`), `eval_diploid_ties.py` (new).
 - **Checkpoint:** `e11-breedpop-affinity` (best-val 0.7587, epoch 0).
 - **Branch:** `crf-relatedness`.
+
+### E11-decode — HMM baseline + forward-backward (marginal) decoding (2026-06-27)
+
+Two questions on the `e11-breedpop-affinity` checkpoint (0.7587), both decode-time,
+no retraining. (1) How does the neural CRF compare to a classical **Li–Stephens
+diploid HMM** on the same test split? (2) HMM smoothing uses forward-backward; the
+CRF analog is **posterior max-marginal decoding** (per-site argmax of `P(state_t|x)`
+via forward+backward, `_dcrf_marginal`) instead of Viterbi (MAP joint path). Marginal
+decoding is Bayes-optimal for the **per-site** metric we actually report. Full 2×2
+(sim_breedpop test, N=50 000):
+
+| model | Viterbi pair / hap | Marginal pair / hap |
+|---|---:|---:|
+| Li–Stephens HMM (best sweep) | 0.2064 / 0.5267 | 0.2078 / 0.5339 |
+| **CRF (learned-het + affinity)** | **0.7632 / 0.8339** | 0.7564 / **0.8390** |
+
+**The learned stack beats the HMM by 3.7× on pair-acc (0.76 vs 0.21).** The HMM
+emission `log_softmax(reads·w)` is context-free, so it cannot break within-window IBD
+ties or counter the single-read het collapse (best HMM config is `homo_pen=1`; raising
+it tanks pair-acc to ~0.08). This shows the gain is in the **learned emission +
+learned-het + affinity**, not merely the CRF graph — the HMM has the same factored
+pair-state transition. (HMM H1/H2 switch rate on test = 0.0059/0.0062; best
+`p_stay=0.999, w=2.0, homo_pen=1.0`.)
+
+**Marginal decoding is a per-metric trade, not a free win.** It improves **hap-acc
+(+0.005 CRF, +0.007 HMM)** — the truest per-site metric, as theory predicts — but
+slightly lowers **exact-pair** acc (CRF −0.007). The CRF per-class split shows the
+mechanism: marginal *helps* pair on **het** classes (F2-het +0.021, outbred-het
++0.009) where posterior smoothing resolves phasing ambiguity, but *hurts* pair on
+**inbred** classes (S1-inbred −0.021, outbred-inbred −0.027), where Viterbi's
+joint-path constraint keeps the homozygous pair-state self-consistent and per-site
+marginals break it. Practical rule: **marginal for hap-accuracy / het phasing,
+Viterbi for exact-pair on inbred lines** — both are now available via `--decode`.
+
+- **Files:** `train_diploid.py` (`_dcrf_marginal`), `eval_diploid_byF.py`/
+  `eval_diploid_byclass.py` (`--decode {viterbi,marginal}`), `eval_diploid_hmm.py`
+  (`batched_marginal_diploid` + `--decode`).
+- **Branch:** `crf-relatedness`.
+
+### E11-stability — the epoch-1 collapse is overfit-on-repeat, not a spike (2026-06-27)
+
+Diagnosis of why the diploid-at-scale model peaks at epoch 0 then degrades. Three
+probes on the affinity recipe:
+
+1. **Weight EMA + CRF-loss spike-skip** (`--ema --loss-spike-mult`). Did **not** cure
+   it: epoch-1 EMA val 0.747→0.209, and **zero** loss/grad spikes fired during the
+   degradation — so there is no spike to skip. EMA only cushioned the fall (0.209 vs
+   the bare run's 0.0008) and *cost* 0.012 at the peak (EMA 0.7467 < raw 0.7587).
+2. **Fine within-epoch validation** (`--val-check-interval 1000`). Val climbs
+   **monotonically across all of epoch 0** (pair 0.547→0.566→0.587→0.697→0.707→0.722
+   →0.735→0.748, peaking ~0.756 at the 1-epoch mark) with **no mid-epoch peak or
+   drift**. Degradation begins only on the **second pass** over the same 450k windows
+   → classic **overfit-on-repeat**, not optimization instability.
+3. **fp32 vs bf16** (`--precision 32`). fp32 did **not** help — it was *worse*
+   (epoch-0 val 0.321, val/loss 82.8 vs bf16's 0.747 / 43.8) and drifted the same way
+   (epoch-1 train loss 50→130). **Precision is not the lever.**
+
+**Conclusion:** the model converges in ~one pass and then memorizes; the right
+mitigation is **early-stop / best-val at ~1 epoch** (already in place — best-val
+checkpointing captures the peak), and EMA/spike-skip/precision are not the answer.
+The natural lever to *extend* the productive climb is **more unique data** (sim is
+cheap) — deferred. EMA, `--loss-spike-mult`, `--val-check-interval` are kept as
+opt-in flags (off by default).
+
+- **Branch:** `crf-relatedness`.
