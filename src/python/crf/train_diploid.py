@@ -560,6 +560,9 @@ def parse_args():
                         "--windows-per-individual.")
     p.add_argument("--precision", default="bf16-mixed")
     p.add_argument("--max-epochs", type=int, default=5)
+    p.add_argument("--val-check-interval", type=int, default=0,
+                   help="Validate every N training steps (0 = once per epoch). Maps "
+                        "the within-epoch peak/drift at fine resolution.")
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--devices", type=int, default=1)
     p.add_argument("--run-name", default="diploid-pair")
@@ -615,6 +618,7 @@ def main():
         max_epochs=args.max_epochs, callbacks=callbacks,
         logger=TensorBoardLogger(str(log_dir), name=args.run_name),
         accelerator="auto", devices=args.devices, precision=args.precision,
+        val_check_interval=(args.val_check_interval or None),
         gradient_clip_val=args.grad_clip)
     trainer.fit(model, train_loader, val_loader)
     print(f"Best checkpoint: {callbacks[0].best_model_path}")
