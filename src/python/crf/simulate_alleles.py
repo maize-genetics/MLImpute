@@ -133,6 +133,34 @@ def _individual_assignment(rng, windows, G, K, kmin, kmax):
     return ind, np.repeat(k_ind, G), np.repeat(sub_ind, G, axis=0)
 
 
+def _breeding_pop_assignment(rng, windows, G, K, classes, inbred_frac):
+    """E11 breeding-population grouping. Each individual draws a founder-count
+    CLASS (discrete mixture) and is inbred (F=1) or het with a class-specific
+    TARGET het-loci fraction. `classes` = list of (weight, kmin, kmax, het_target).
+    Returns per-window: ind [W], win_k [W], sub [W,K] (founder ids, -1 pad),
+    het_t [W] (target het fraction; 0 if inbred), cls [W] (class index)."""
+    n_ind = windows // G
+    if n_ind * G != windows:
+        raise ValueError(f"--windows {windows} not divisible by "
+                         f"--windows-per-individual {G}")
+    w = np.array([c[0] for c in classes], dtype=float)
+    w = w / w.sum()
+    cls_ind = rng.choice(len(classes), size=n_ind, p=w)
+    inbred = rng.random(n_ind) < inbred_frac
+    k_ind = np.empty(n_ind, dtype=np.int64)
+    het_ind = np.zeros(n_ind, dtype=np.float32)
+    sub_ind = np.full((n_ind, K), -1, dtype=np.int64)
+    for i in range(n_ind):
+        _, kmin, kmax, het = classes[cls_ind[i]]
+        k = int(kmin) if kmin == kmax else int(rng.integers(kmin, kmax + 1))
+        k_ind[i] = k
+        sub_ind[i, :k] = rng.permutation(K)[:k]
+        het_ind[i] = 0.0 if inbred[i] else float(het)
+    rep = lambda a: np.repeat(a, G, axis=0)
+    return (rep(np.arange(n_ind)), rep(k_ind), rep(sub_ind),
+            rep(het_ind), rep(cls_ind.astype(np.int64)))
+
+
 def _build_paths_subset(rng, sub, win_k, T, n_cross, rate=None):
     """Founder paths [m, T] restricted per-row to that row's founder subset.
 
@@ -286,7 +314,8 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
              ancestor_crossovers=8, derived_sfs=0.3, read_snps=8,
              error_block=1.0, gamete_balance=0.5, sharing_theta=None,
              windows_per_individual=0, min_founders=2, max_founders=24,
-             emit_snp_panel=False, inbreeding_per_window=None, chunk=1000):
+             emit_snp_panel=False, inbreeding_per_window=None,
+             breeding_classes=None, class_inbred_frac=0.5, chunk=1000):
     K = founders
     T = sites
     coalescent = sharing_model == "coalescent"
@@ -297,14 +326,20 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
                 f"allele_sharing={allele_sharing} too low for K={K}; "
                 f"minimum is {1.0 / K:.4f}")
 
-    # E5: assign every G windows to one individual drawing from a founder subset.
+    # E5/E11: assign every G windows to one individual drawing from a founder subset.
     grouped = windows_per_individual > 0
-    if grouped:
+    breeding = breeding_classes is not None
+    het_tw = cls_w = None
+    if breeding:
+        ind, win_k, sub, het_tw, cls_w = _breeding_pop_assignment(
+            rng, windows, windows_per_individual, K, breeding_classes,
+            class_inbred_frac)
+    elif grouped:
         if min_founders < 2:
             raise ValueError("--min-founders must be >= 2")
         ind, win_k, sub = _individual_assignment(
             rng, windows, windows_per_individual, K, min_founders, max_founders)
-    ind_out = ind if grouped else None
+    ind_out = ind if (grouped or breeding) else None
 
     track = recomb_span > 1.0                       # emit hidden true-rate column
     ncol = K + 2 + (1 if track else 0)
@@ -318,29 +353,43 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
         rmap = _rate_map(rng, n, T, recomb_span, recomb_tile) if track else None
 
         n_cross = rng.integers(min_cross, max_cross + 1, n)
-        if grouped:
-            sl = slice(start, start + n)
+        sl = slice(start, start + n)
+        if grouped or breeding:
             h1 = _build_paths_subset(rng, sub[sl], win_k[sl], T, n_cross, rmap)
         else:
             h1 = _build_paths(rng, n, T, K, n_cross, rmap)
 
-        # Second haplotype: identical with prob F (inbred), else independent.
-        # Outbred H2 shares the same hidden rate map (same genomic region) and,
-        # under E5 grouping, the same founder subset as H1. E7: a per-window F
-        # (constant within an individual) mixes inbreeding levels across the panel.
-        F = inbreeding if inbreeding_per_window is None else inbreeding_per_window[start:start + n]
-        inbred = rng.random(n) < F
-        h2 = h1.copy()
-        outbred = np.flatnonzero(~inbred)
-        if outbred.size:
-            nc2 = rng.integers(min_cross, max_cross + 1, outbred.size)
-            r2 = None if rmap is None else rmap[outbred]
-            if grouped:
-                h2[outbred] = _build_paths_subset(
-                    rng, sub[start:start + n][outbred], win_k[start:start + n][outbred],
-                    T, nc2, r2)
-            else:
-                h2[outbred] = _build_paths(rng, outbred.size, T, K, nc2, r2)
+        if breeding:
+            # E11 selfing-aware het: H2 shares H1 over IBD tracts, independent
+            # elsewhere. The independent-tract fraction p_ind hits the target
+            # het-loci fraction given k founders (within an independent tract the
+            # het rate ≈ 1 − 1/k). p_ind=0 (inbred) → H2≡H1.
+            het_t = het_tw[sl]
+            k_w = np.maximum(win_k[sl], 2)
+            p_ind = np.clip(het_t / (1.0 - 1.0 / k_w), 0.0, 1.0)        # [n]
+            nc2 = rng.integers(min_cross, max_cross + 1, n)
+            h2_ind = _build_paths_subset(rng, sub[sl], win_k[sl], T, nc2, rmap)
+            n_share = rng.integers(min_cross, max_cross + 1, n)
+            seg = _segment_index(rng, n, T, n_share, rmap)             # [n,T] tracts
+            max_seg = int(seg.max()) + 1
+            seg_indep = rng.random((n, max_seg)) < p_ind[:, None]      # per-tract coin
+            independent = np.take_along_axis(seg_indep, seg, axis=1)   # [n,T]
+            h2 = np.where(independent, h2_ind, h1)
+        else:
+            # Second haplotype: identical with prob F (inbred), else independent.
+            # E7: a per-window F (constant within an individual) mixes inbreeding.
+            F = inbreeding if inbreeding_per_window is None else inbreeding_per_window[sl]
+            inbred = rng.random(n) < F
+            h2 = h1.copy()
+            outbred = np.flatnonzero(~inbred)
+            if outbred.size:
+                nc2 = rng.integers(min_cross, max_cross + 1, outbred.size)
+                r2 = None if rmap is None else rmap[outbred]
+                if grouped:
+                    h2[outbred] = _build_paths_subset(
+                        rng, sub[sl][outbred], win_k[sl][outbred], T, nc2, r2)
+                else:
+                    h2[outbred] = _build_paths(rng, outbred.size, T, K, nc2, r2)
 
         good = _good_mask(rng, n, T, bad_frac, error_block)
 
@@ -374,7 +423,7 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
             out[start:start + n, :, K + 2] = np.clip(
                 np.rint(rmap), 1, 127).astype(np.int8)
 
-    return out, ibd, ind_out, panel
+    return out, ibd, ind_out, panel, het_tw, cls_w
 
 
 def parse_args():
@@ -446,6 +495,17 @@ def parse_args():
                         "--windows-per-individual. Writes <out>.finb.npy (per-window F).")
     p.add_argument("--inbred-line-frac", type=float, default=0.5,
                    help="E7: fraction of individuals that are fully inbred (F=1).")
+    p.add_argument("--breeding-pop", action="store_true",
+                   help="E11: discrete founder-count mixture (25%% k=2 F2, 25%% k=8 S1, "
+                        "50%% k in [12,24] outbred); each class split inbred vs het with a "
+                        "per-class target het level. Needs --windows-per-individual. "
+                        "Writes <out>.ind.npy, <out>.finb.npy (per-window het target) and "
+                        "<out>.cls.npy (per-window class id 0/1/2).")
+    p.add_argument("--het-by-class", type=str, default="0.5,0.25,0.9",
+                   help="E11: comma-separated target het-loci fraction for the three "
+                        "classes (k=2, k=8, k in [12,24]).")
+    p.add_argument("--class-inbred-frac", type=float, default=0.5,
+                   help="E11: fraction of individuals in each class that are fully inbred.")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -466,7 +526,24 @@ def main():
                          rng.random(n_ind))
         finb = np.repeat(f_ind, G).astype(np.float32)
 
-    data, ibd, ind, panel = simulate(
+    # E11: discrete founder-count breeding-population mixture. Each individual is
+    # one of three classes (k=2 F2, k=8 S1, k in [12,24] outbred), split inbred vs
+    # het with a per-class target het-loci fraction.
+    breeding_classes = None
+    if args.breeding_pop:
+        if args.windows_per_individual <= 0:
+            raise SystemExit("--breeding-pop requires --windows-per-individual")
+        het_by_class = [float(x) for x in args.het_by_class.split(",")]
+        if len(het_by_class) != 3:
+            raise SystemExit("--het-by-class needs 3 comma-separated values")
+        # (weight, kmin, kmax, target_het)
+        breeding_classes = [
+            (0.25, 2, 2, het_by_class[0]),
+            (0.25, 8, 8, het_by_class[1]),
+            (0.50, 12, 24, het_by_class[2]),
+        ]
+
+    data, ibd, ind, panel, het_tgt, cls = simulate(
         rng, args.windows, args.sites, args.founders,
         args.min_crossovers, args.max_crossovers,
         args.inbreeding, args.allele_sharing, args.bad_frac,
@@ -475,7 +552,13 @@ def main():
         args.derived_sfs, args.read_snps, args.error_block, args.gamete_balance,
         args.sharing_theta,
         args.windows_per_individual, args.min_founders, args.max_founders,
-        args.emit_snp_panel, inbreeding_per_window=finb)
+        args.emit_snp_panel, inbreeding_per_window=finb,
+        breeding_classes=breeding_classes,
+        class_inbred_frac=args.class_inbred_frac)
+
+    # E11: per-window het target plays the role of F (.finb) for eval-by-F tooling.
+    if het_tgt is not None and finb is None:
+        finb = het_tgt.astype(np.float32)
 
     out_dir = Path(args.workdir) / "data" / "training"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -493,9 +576,20 @@ def main():
     if finb is not None:
         finb_path = out_dir / (Path(args.out).stem + ".finb.npy")
         np.save(finb_path, finb)
-        print(f"  mixed inbreeding    → {finb_path}  "
-              f"F: {(finb == 1).mean()*100:.0f}% inbred lines, "
-              f"mean {finb.mean():.2f}, het-individuals {(finb < 1).mean()*100:.0f}%")
+        if args.breeding_pop:
+            print(f"  het target (.finb)  → {finb_path}  "
+                  f"inbred windows {(finb == 0).mean()*100:.0f}%, "
+                  f"mean target het {finb.mean():.3f}")
+        else:
+            print(f"  mixed inbreeding    → {finb_path}  "
+                  f"F: {(finb == 1).mean()*100:.0f}% inbred lines, "
+                  f"mean {finb.mean():.2f}, het-individuals {(finb < 1).mean()*100:.0f}%")
+    if cls is not None:
+        cls_path = out_dir / (Path(args.out).stem + ".cls.npy")
+        np.save(cls_path, cls.astype(np.int8))
+        frac = np.bincount(cls, minlength=3) / len(cls)
+        print(f"  class id (.cls)     → {cls_path}  "
+              f"mix k2/k8/outbred = {frac[0]*100:.0f}/{frac[1]*100:.0f}/{frac[2]*100:.0f}%")
 
     # Verification summary
     K = args.founders

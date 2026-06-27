@@ -935,3 +935,51 @@ true-founder exclusion — the same optimum and same gains as the 100k sim.
 - **Files:** `profile_speed.py`, `train_haploid.py` (`--grad-clip`),
   `analyze_ibd_ceiling.py`, `eval_e5_cutoff.py`.
 - **Branch:** `crf-relatedness`.
+
+---
+
+## E11 — structured breeding-population sim (window-localized het testbed)
+
+**Goal.** A realistic plant-breeding population to stress the window-based learned-het
+prior (E7-fix). Selfing/backcrossing make heterozygosity **localized** (window-level),
+so the sim is a *discrete mixture* of founder-count classes, each split inbred vs a
+specific breeding design with a target het-loci fraction.
+
+**Design (`--breeding-pop`, `simulate_alleles.py`).** 1024 sites/window, K=24,
+coalescent θ=6, per-window crossovers 2–10. Every 50 windows = one individual; each
+individual draws a class and an inbred/het coin (`--class-inbred-frac 0.5`):
+
+| class | weight | k founders | design | target het |
+|-------|-------:|-----------:|--------|-----------:|
+| 0 | 25% | 2 | F2 | 0.50 |
+| 1 | 25% | 8 | S1 | 0.25 |
+| 2 | 50% | [12,24] | outbred | 0.90 |
+
+**Selfing-aware het mechanism.** H2 shares H1 over IBD tracts and is an independent
+founder path elsewhere; the independent-tract fraction `p_ind = clip(het/(1−1/k),0,1)`
+calibrates the realized het-loci fraction to the target. Tracts (not i.i.d. loci) give
+the sustained-alternation signal the het head reads. Inbred → H2≡H1.
+
+**Companions:** `.ind.npy` (individual id), `.finb.npy` (= per-window het target, 0 if
+inbred — reuses `eval_diploid_byF` tooling), `.cls.npy` (class id 0/1/2), `.ibd.npy`.
+
+**Smoke-gen verification** (5000 windows / 100 inds, seed 1):
+
+| class | n | inbred% | het target | realized het (het inds) | realized het (inbred) |
+|-------|--:|--------:|-----------:|------------------------:|----------------------:|
+| k=2 F2 | 1150 | 43% | 0.500 | 0.501 | 0.0000 |
+| k=8 S1 | 1200 | 67% | 0.250 | 0.225 | 0.0000 |
+| outbred[12,24] | 2650 | 51% | 0.900 | 0.899 | 0.0000 |
+
+Class mix 23/24/53% ≈ target 25/25/50; realized het hits design (F2/outbred spot-on,
+S1 ~10% low from the `1−1/k` approximation under tract correlation); inbred windows
+have exactly zero het. Founder counts per class correct (k=2 exactly 2, etc.).
+
+**Full set:** 500,000 windows = 10,000 inds × 50 →
+`/workdir/esb33/data/training/sim_breedpop.npy` (+companions). Train/eval is the
+follow-up: `train_diploid.py --learned-het` + stable recipe, stratified by
+(founder-class × het-type), `diag_c_het.py` predHet-vs-trueHet per class.
+
+- **Files:** `simulate_alleles.py` (`_breeding_pop_assignment`, partial-sharing H2,
+  `--breeding-pop`/`--het-by-class`/`--class-inbred-frac`).
+- **Branch:** `crf-relatedness`.
