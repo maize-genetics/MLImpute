@@ -987,27 +987,40 @@ best-val checkpointed: **learned-het** (`--learned-het`) vs the **no-het floor**
 
 | class × het | windows | **learned-het** pair | floor pair | Δ | LH hap | floor hap |
 |---|---:|---:|---:|---:|---:|---:|
-| k=2 F2 — **het** | 5850 | **0.632** | 0.453 | **+0.179** | 0.790 | 0.698 |
-| k=8 S1 — **het** | 6350 | **0.674** | 0.639 | +0.035 | 0.780 | 0.744 |
-| outbred — **het** | 13300 | **0.527** | 0.085 | **+0.442** | 0.680 | 0.451 |
-| k=2 F2 — inbred | 5750 | 0.830 | 0.878 | −0.049 | 0.874 | 0.878 |
-| k=8 S1 — inbred | 6300 | 0.815 | 0.863 | −0.049 | 0.862 | 0.863 |
-| outbred — inbred | 12450 | 0.812 | 0.863 | −0.051 | 0.860 | 0.863 |
-| **all** | 50000 | **0.700** | 0.581 | **+0.119** | **0.795** | 0.721 |
+| k=2 F2 — **het** | 5850 | **0.625** | 0.457 | **+0.168** | 0.788 | 0.697 |
+| k=8 S1 — **het** | 6350 | **0.684** | 0.646 | +0.038 | 0.789 | 0.748 |
+| outbred — **het** | 13300 | **0.515** | 0.085 | **+0.430** | 0.679 | 0.447 |
+| k=2 F2 — inbred | 5750 | 0.833 | 0.876 | −0.043 | 0.876 | 0.876 |
+| k=8 S1 — inbred | 6300 | 0.819 | 0.866 | −0.047 | 0.866 | 0.866 |
+| outbred — inbred | 12450 | 0.815 | 0.861 | −0.046 | 0.861 | 0.861 |
+| **all** | 50000 | **0.699** | 0.582 | **+0.117** | **0.797** | 0.720 |
+
+(Numbers on the **corrected** sim — see the bad-site fix below; best-val ckpts
+`e11-breedpop-learnedhet` 0.6958 / `e11-breedpop-nohet` 0.5769. The result reproduced
+the pre-fix run to ±0.003, since the fix touched only ~2% of sites.)
 
 **The het-collapse is dramatic and the learned prior fixes it.** The floor **collapses
 to homozygous on outbred het — pair_acc 0.085** (≈ total collapse, the single-read het
-problem at full force) — and learned-het lifts it to **0.527 (+0.44)**. On the hard
-**F2 het (k=2 + 50% localized het)** it's **0.453→0.632 (+0.18)**. The cost is a uniform
-**−0.05 on the inbred cells** (het head slightly over-fires where there's no het). Net
-**+0.119 all-band (0.581→0.700)** — the het gains dominate. This replicates the E7-fix
+problem at full force) — and learned-het lifts it to **0.515 (+0.43)**. On the hard
+**F2 het (k=2 + 50% localized het)** it's **0.457→0.625 (+0.17)**. The cost is a uniform
+**−0.045 on the inbred cells** (het head slightly over-fires where there's no het). Net
+**+0.117 all-band (0.582→0.699)** — the het gains dominate. This replicates the E7-fix
 story on a realistic, discrete breeding population and is *more* dramatic on outbred het.
 
-**Mechanism confirmed (`diag_c_het.py`).** `predHet` tracks `trueHet` on the genuinely-
-het classes — outbred-het 0.879 vs 0.900, F2-het 0.474 vs 0.504 — and over-fires only on
-the low-het/inbred mix (0.181 vs 0.052), exactly the inbred cost above. The transition
-cost stays flat het-vs-homo (`c_ratio` ≈ 1.0–1.05): the het signal is entirely emission-
-side, as the E7 emission-tie diagnosis predicted. See [[project_read_position_het]].
+**Sim correction (bad-site model).** The original sim corrupted `bad_frac` sites by
+drawing a fully-random L-SNP read from the marginal per-SNP frequencies — usually an
+out-of-panel haplotype matching no founder's exact mini-hap, so ~40% of bad sites (≈2%
+of all sites) became **all-zero match columns**. Fixed: a bad read is now sourced from a
+**random founder's mini-hap** (it mis-maps to a wrong founder's lineage group), so bad
+sites show random/wrong matches, never blanks (`bad_frac=0.05` zero-match 2.02%→0.00%).
+`sim_breedpop` was regenerated and both arms retrained; the headline above is unchanged.
+
+**Mechanism confirmed (`diag_c_het.py`).** `predHet` tracks `trueHet` (undershooting a
+little) on the genuinely-het classes — outbred-het 0.808 vs 0.900, F2-het 0.381 vs 0.500 —
+and over-fires on the low-het/inbred mix (0.168 vs 0.051), exactly the inbred cost above.
+The transition cost stays flat het-vs-homo (`c_ratio` ≈ 1.01–1.04): the het signal is
+entirely emission-side, as the E7 emission-tie diagnosis predicted.
+See [[project_read_position_het]].
 
 **Recipe — two fixes were required at this scale** (T=1024 diploid, P=325, 500k windows):
 1. **`--time-local-emis` is mandatory.** Without it the encoder emission is window-
