@@ -8,13 +8,13 @@ the three files the heatmap + overlay loader expects (see crates/parser-core/src
   window_<rank>_<class>_<het>/
     matrix.ps4g     # heatmap: each site t -> a position; gameteSet = founders
                     #          matching at t (reconstructs the founder-match matrix)
-    observed.npy    # (T, NG+2): rightmost 2 cols = true H1,H2  (label_cols=2)
+    observed.npy    # (T, K+2): rightmost 2 cols = true H1,H2  (label_cols = 2)
     pred.npy        # (T, 2): Viterbi-decoded predicted founders P1,P2
 
-NG = num_parents + 1 gametes are declared (F0..F{K-1} real founders + a trailing
-"null" founder = the model's pad state index), so a predicted-null never maps to a
-missing heatmap row and the observed-npy label-column math (label_cols = ncols -
-num_gametes) is exact.
+K gametes (F0..F{K-1}) are declared in the PS4G header so the viewer reports K
+gametes and the observed-npy label-column math (label_cols = ncols - num_gametes = 2)
+is exact. Predicted founders are clipped to [0,K-1] (the model's null/pad index K
+does not occur in practice) so every path value maps to a real heatmap row.
 
 Selection is a curated mix: for each of the six (founder-class x het-type) cells it
 picks the highest- and lowest-accuracy windows, so wins and failures are both visible.
@@ -52,18 +52,16 @@ def decode_test(model, feats_test, device, batch_size):
     return P1, P2
 
 
-def write_ps4g(path, feats, ng, contig):
-    """feats [T,K] 0/1 -> PS4G text. Declares ng gametes (F0..F{ng-1}); one data
+def write_ps4g(path, feats, contig):
+    """feats [T,K] 0/1 -> PS4G text. Declares K gametes (F0..F{K-1}); one data
     row per site with gameteSet = founders matching at that site. Every site is
     emitted (empty gameteSet for zero-match sites) so num_positions == T."""
     T, K = feats.shape
     per_founder = feats.sum(0).astype(int)                      # [K] match totals
     lines = [f"#TotalUniqueCounts: {int(feats.sum())}",
              "#gamete\tgameteIndex\tcount"]
-    for i in range(ng):
-        cnt = int(per_founder[i]) if i < K else 0
-        name = f"F{i}" if i < K else "null"
-        lines.append(f"#{name}:0\t{i}\t{cnt}")
+    for i in range(K):
+        lines.append(f"#F{i}:0\t{i}\t{int(per_founder[i])}")
     lines.append("gameteSet\trefContig\trefPosBinned\tcount")
     for t in range(T):
         hits = np.nonzero(feats[t])[0]
@@ -96,8 +94,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = GRITSCRFDiploid.load_from_checkpoint(
         args.ckpt, map_location=device).eval().to(device)
-    K = args.num_parents
-    NG = K + 1                                                  # + null/pad founder
+    K = args.num_parents                                       # gametes = K founders
 
     data = np.load(args.data, allow_pickle=True, mmap_mode="r")
     N = len(data)
@@ -147,15 +144,17 @@ def main():
                 tag = f"w{rank:02d}"
                 folder = out / f"window_{rank:02d}_{CLASS_NAMES[c]}_{het_lbl}_acc{pair_acc[w]:.2f}"
                 folder.mkdir(parents=True, exist_ok=True)
-                write_ps4g(folder / "matrix.ps4g", feats[w], NG, tag)
-                # observed: NG founder cols (pad null col 0) + H1,H2
-                obs = np.zeros((T, NG + 2), dtype=np.int32)
+                write_ps4g(folder / "matrix.ps4g", feats[w], tag)
+                # observed: K founder-match cols + true H1,H2 (label_cols = 2)
+                obs = np.zeros((T, K + 2), dtype=np.int32)
                 obs[:, :K] = feats[w].astype(np.int32)
-                obs[:, NG] = h1[w]
-                obs[:, NG + 1] = h2[w]
+                obs[:, K] = h1[w]
+                obs[:, K + 1] = h2[w]
                 np.save(folder / "observed.npy", obs)
-                np.save(folder / "pred.npy",
-                        np.stack([P1[w], P2[w]], axis=1).astype(np.int32))
+                # predicted founders; the null/pad index K never occurs in practice
+                # but clip defensively so every value maps to a real gamete row.
+                pr = np.stack([P1[w], P2[w]], axis=1).astype(np.int32)
+                np.save(folder / "pred.npy", np.clip(pr, 0, K - 1))
                 rows.append((folder.name, CLASS_NAMES[c], het_lbl, pair_acc[w],
                              true_het[w], pred_het[w]))
                 rank += 1
@@ -164,7 +163,7 @@ def main():
            "",
            f"- ckpt: `{args.ckpt}`",
            f"- data: `{args.data}`  (test split, last {n_test} windows; T={T}, K={K})",
-           f"- gametes declared: {NG} (F0..F{K-1} + null)",
+           f"- gametes declared: {K} (F0..F{K-1})",
            "",
            "Open per window in the viewer: `matrix.ps4g` (PS4G Explorer), then "
            "`observed.npy` + `pred.npy` via the Heatmap Observed/Predictions buttons. "
