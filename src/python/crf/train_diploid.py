@@ -275,6 +275,7 @@ class GRITSCRFDiploid(pl.LightningModule):
                  lr=1e-4, weight_decay=1e-5, gate_reg=0.05, time_local_emis=False,
                  warmup_steps=0, homo_penalty=0.0,
                  cosine_decay=False, spike_skip=False, spike_mult=8.0,
+                 loss_spike_mult=5.0,
                  learned_het=False, founder_affinity=False):
         super().__init__()
         self.save_hyperparameters()
@@ -292,6 +293,13 @@ class GRITSCRFDiploid(pl.LightningModule):
         self._gnorm_ema = -1.0
         self._gnorm_seen = 0
         self._n_skipped = 0
+        # A localized partition-NLL spike can corrupt the encoder without moving the
+        # GLOBAL grad-norm enough to trip spike_mult (the collapse-to-degenerate
+        # failure). Skip on a CRF-loss spike too: catch the freak batch directly.
+        self.loss_spike_mult = loss_spike_mult
+        self._loss_ema = -1.0
+        self._loss_seen = 0
+        self._loss_spike = False
         # E7-diag fix: learned per-locus het prior replaces the fixed homo_penalty.
         self.learned_het = learned_het
         # crf-relatedness: per-individual founder-affinity prior (ext_bias). A
@@ -368,6 +376,18 @@ class GRITSCRFDiploid(pl.LightningModule):
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/crf_loss", crf)
         self.log("train/gate", g.mean())
+        if self.spike_skip:                                    # flag CRF-loss spikes
+            self._loss_seen += 1
+            cv = float(crf.detach())
+            warming = self._loss_seen <= 50
+            thresh = (self.loss_spike_mult * self._loss_ema
+                      if self._loss_ema > 0 else float("inf"))
+            self._loss_spike = (math.isfinite(cv) and not warming and cv > thresh)
+            # cap the EMA update on a spike so it can't be dragged up by the freak
+            upd = min(cv, thresh) if math.isfinite(thresh) else cv
+            if math.isfinite(upd):
+                self._loss_ema = (upd if self._loss_ema <= 0
+                                  else 0.98 * self._loss_ema + 0.02 * upd)
         return loss
 
     @torch.no_grad()
@@ -410,12 +430,15 @@ class GRITSCRFDiploid(pl.LightningModule):
         g_ema = thresh if (spike and math.isfinite(thresh)) else (g if math.isfinite(g) else thresh)
         if math.isfinite(g_ema):
             self._gnorm_ema = g_ema if self._gnorm_ema <= 0 else 0.98 * self._gnorm_ema + 0.02 * g_ema
-        if spike:
+        # also skip if this batch's CRF NLL spiked (set in training_step): a
+        # localized partition blow-up the global grad-norm may not surface.
+        if spike or self._loss_spike:
             for p in self.parameters():
                 if p.grad is not None:
                     p.grad.zero_()
             self._n_skipped += 1
             self.log("train/skipped", float(self._n_skipped), prog_bar=True)
+        self._loss_spike = False
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr,
@@ -437,6 +460,52 @@ class GRITSCRFDiploid(pl.LightningModule):
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
             opt, mode="min", factor=0.5, patience=5)
         return {"optimizer": opt, "lr_scheduler": sched, "monitor": "val/loss"}
+
+
+class EMACallback(pl.Callback):
+    """Exponential moving average of the weights. The EMA is swapped into the model
+    for every validation pass (so val/pair_acc — what ModelCheckpoint selects on —
+    and the saved checkpoint both reflect the averaged weights) and swapped back out
+    when training resumes. Targets the late-epoch oscillation directly: even when the
+    raw weights spike out of the basin, their moving average stays in it, so the
+    averaged decode is far steadier than any single late-epoch snapshot."""
+    def __init__(self, decay=0.999):
+        self.decay = decay
+        self.shadow = None
+        self._backup = None
+
+    def on_train_start(self, trainer, pl_module):
+        self.shadow = {k: v.detach().clone().float()
+                       for k, v in pl_module.state_dict().items()
+                       if v.is_floating_point()}
+
+    @torch.no_grad()
+    def on_train_batch_end(self, trainer, pl_module, *a):
+        if self.shadow is None:
+            return
+        d = self.decay
+        for k, v in pl_module.state_dict().items():
+            if k in self.shadow:
+                self.shadow[k].mul_(d).add_(v.detach().float(), alpha=1.0 - d)
+
+    @torch.no_grad()
+    def on_validation_start(self, trainer, pl_module):
+        if self.shadow is None or self._backup is not None:
+            return                                          # skip pre-train sanity val
+        self._backup = {k: v.detach().clone()
+                        for k, v in pl_module.state_dict().items() if k in self.shadow}
+        for k, v in pl_module.state_dict().items():
+            if k in self.shadow:
+                v.copy_(self.shadow[k].to(v.dtype))
+
+    @torch.no_grad()
+    def on_train_batch_start(self, trainer, pl_module, *a):
+        if self._backup is None:                            # restore raw weights once
+            return
+        sd = pl_module.state_dict()
+        for k, v in self._backup.items():
+            sd[k].copy_(v)
+        self._backup = None
 
 
 def parse_args():
@@ -465,6 +534,15 @@ def parse_args():
                    help="Skip optimizer steps with non-finite or spiking grad-norm")
     p.add_argument("--spike-mult", type=float, default=8.0,
                    help="Skip a step if raw grad-norm > this × running EMA")
+    p.add_argument("--loss-spike-mult", type=float, default=5.0,
+                   help="With --spike-skip, also skip a step if its CRF NLL > this × "
+                        "running EMA (catches localized partition spikes the global "
+                        "grad-norm misses)")
+    p.add_argument("--ema", action="store_true",
+                   help="Maintain a weight EMA and use it for validation + the saved "
+                        "checkpoint (tames late-epoch oscillation/collapse)")
+    p.add_argument("--ema-decay", type=float, default=0.999,
+                   help="EMA decay (effective window ~1/(1-decay) steps)")
     p.add_argument("--homo-penalty", type=float, default=0.0,
                    help="Subtract from homozygous pair emissions (het prior); "
                         "counters the all-homozygous collapse of single-read diploid.")
@@ -519,6 +597,7 @@ def main():
         time_local_emis=args.time_local_emis, warmup_steps=args.warmup_steps,
         homo_penalty=args.homo_penalty, cosine_decay=args.cosine_decay,
         spike_skip=args.spike_skip, spike_mult=args.spike_mult,
+        loss_spike_mult=args.loss_spike_mult,
         learned_het=args.learned_het, founder_affinity=args.founder_affinity)
 
     # Checkpoint/stop on val/pair_acc (max): the CRF partition NLL can spike on
@@ -530,6 +609,8 @@ def main():
                         filename="d-{epoch:02d}-{val/pair_acc:.4f}"),
         EarlyStopping(monitor="val/pair_acc", mode="max", patience=args.patience),
     ]
+    if args.ema:
+        callbacks.append(EMACallback(args.ema_decay))
     trainer = pl.Trainer(
         max_epochs=args.max_epochs, callbacks=callbacks,
         logger=TensorBoardLogger(str(log_dir), name=args.run_name),
