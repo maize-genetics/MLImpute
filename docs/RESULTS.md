@@ -976,10 +976,60 @@ S1 ~10% low from the `1−1/k` approximation under tract correlation); inbred wi
 have exactly zero het. Founder counts per class correct (k=2 exactly 2, etc.).
 
 **Full set:** 500,000 windows = 10,000 inds × 50 →
-`/workdir/esb33/data/training/sim_breedpop.npy` (+companions). Train/eval is the
-follow-up: `train_diploid.py --learned-het` + stable recipe, stratified by
-(founder-class × het-type), `diag_c_het.py` predHet-vs-trueHet per class.
+`/workdir/esb33/data/training/sim_breedpop.npy` (+companions).
+
+### E11-train — learned-het vs no-het floor on the breeding population (2026-06-27)
+
+Two arms, identical data and **identical test split** (last 10% = inds 9000–9999),
+best-val checkpointed: **learned-het** (`--learned-het`) vs the **no-het floor**
+(`--homo-penalty 0`, same architecture minus the het head). Eval stratified by
+(founder-class × het-type) with `eval_diploid_byclass.py`.
+
+| class × het | windows | **learned-het** pair | floor pair | Δ | LH hap | floor hap |
+|---|---:|---:|---:|---:|---:|---:|
+| k=2 F2 — **het** | 5850 | **0.632** | 0.453 | **+0.179** | 0.790 | 0.698 |
+| k=8 S1 — **het** | 6350 | **0.674** | 0.639 | +0.035 | 0.780 | 0.744 |
+| outbred — **het** | 13300 | **0.527** | 0.085 | **+0.442** | 0.680 | 0.451 |
+| k=2 F2 — inbred | 5750 | 0.830 | 0.878 | −0.049 | 0.874 | 0.878 |
+| k=8 S1 — inbred | 6300 | 0.815 | 0.863 | −0.049 | 0.862 | 0.863 |
+| outbred — inbred | 12450 | 0.812 | 0.863 | −0.051 | 0.860 | 0.863 |
+| **all** | 50000 | **0.700** | 0.581 | **+0.119** | **0.795** | 0.721 |
+
+**The het-collapse is dramatic and the learned prior fixes it.** The floor **collapses
+to homozygous on outbred het — pair_acc 0.085** (≈ total collapse, the single-read het
+problem at full force) — and learned-het lifts it to **0.527 (+0.44)**. On the hard
+**F2 het (k=2 + 50% localized het)** it's **0.453→0.632 (+0.18)**. The cost is a uniform
+**−0.05 on the inbred cells** (het head slightly over-fires where there's no het). Net
+**+0.119 all-band (0.581→0.700)** — the het gains dominate. This replicates the E7-fix
+story on a realistic, discrete breeding population and is *more* dramatic on outbred het.
+
+**Mechanism confirmed (`diag_c_het.py`).** `predHet` tracks `trueHet` on the genuinely-
+het classes — outbred-het 0.879 vs 0.900, F2-het 0.474 vs 0.504 — and over-fires only on
+the low-het/inbred mix (0.181 vs 0.052), exactly the inbred cost above. The transition
+cost stays flat het-vs-homo (`c_ratio` ≈ 1.0–1.05): the het signal is entirely emission-
+side, as the E7 emission-tie diagnosis predicted. See [[project_read_position_het]].
+
+**Recipe — two fixes were required at this scale** (T=1024 diploid, P=325, 500k windows):
+1. **`--time-local-emis` is mandatory.** Without it the encoder emission is window-
+   *averaged* (`cells.mean(dim=1)`), which cannot localize the founder across 2–10
+   crossovers/window: training looks fine (loss 2070→100) but **val pair_acc freezes at
+   ~0.31 every epoch**. The working `e7-learnedhet` hparams confirm the flag.
+2. **bf16 instability needs a harder recipe than E7 did.** At lr 5e-5 the partition
+   spikes (peak loss 1880) corrupted weights into a sub-random degenerate decode
+   (val 0.0008 < 1/P). **lr 2e-5 + grad-clip 0.3 + spike-mult 5** tamed it (2 skips,
+   clean epoch 0). Both arms still peak at **epoch 0** then oscillate down
+   (LH 0.69→0.0008→0.000; floor 0.57→0.24→0.03) — **best-val checkpointing is essential**
+   and captures the peak. The diploid-at-scale model cannot yet sustain training past the
+   first epoch; stabilizing the late-epoch decode is the open item.
+
+Also tried: a fixed/adaptive **`--homo-penalty 3.0`** arm — it does **not train** on this
+tract-localized het (flat loss ~2100), because a constant −3.0 from step 0 over-forces
+het inside the homozygous IBD tracts; learned-het's `softplus`-gated prior (starts ~0)
+avoids it. This is itself evidence for the per-locus formulation.
 
 - **Files:** `simulate_alleles.py` (`_breeding_pop_assignment`, partial-sharing H2,
-  `--breeding-pop`/`--het-by-class`/`--class-inbred-frac`).
+  `--breeding-pop`/`--het-by-class`/`--class-inbred-frac`), `eval_diploid_byclass.py`.
+- **Checkpoints:** `e11-breedpop-learnedhet` (best-val 0.6945), `e11-breedpop-nohet`
+  (best-val 0.5740), both epoch 0.
+- **Open:** late-epoch diploid oscillation (best-val mitigates); inbred over-fire (tunable).
 - **Branch:** `crf-relatedness`.
