@@ -1,8 +1,77 @@
-# Session handoff — crf-relatedness (2026-06-26, het diagnosis + fix)
+# Session handoff — crf-relatedness (2026-06-28, whole-genome + imputation metric)
 
 Status snapshot for resuming work. Full per-experiment detail is in
 [`docs/RESULTS.md`](RESULTS.md); experiment spec in [`docs/PLAN.md`](PLAN.md).
-Older active threads (2026-06-25 IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+Older active threads (2026-06-26 het, 2026-06-25 IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+
+## ACTIVE (2026-06-28): whole-genome scale + the imputation metric — DONE, pushed
+
+**Done this session (committed + pushed to `origin/crf-relatedness`, head `731ec86`):**
+- **E12 whole-genome** edge-free decode: encoder on overlapped 1024 windows, emissions
+  stitched by center-crop, **one Viterbi over the full 100k-site chromosome**. Matches
+  E11 (dense ALL 0.795 pair). `infer_wholegenome.py` (`--mode whole-chrom`).
+- **Masked-site SNP accuracy** (`--mask-frac 0.01`, the imputation metric): hold out 1%
+  of **whole sites**, decode, score **label-free either-match** at the held-out sites
+  (correct if *either* decoded founder reproduces the hidden read — no founder truth
+  needed → runs on real data). Dense SNP **0.93–0.96 ≫ founder-ID** (allele-redundancy
+  cushion: outbred-het 0.55→0.88); sparse SNP ~0.967 at the bad-frac ceiling. RESULTS
+  E12-msnp.
+- **Affinity-pruned smaller CRF** (`--prune-affinity`/`--compare`): P 325→6 (k2-F2) /
+  →45 (k8-S1); **~10× CPU decode** (launch-bound on GPU). **Safe on dense, UNSAFE on
+  sparse** (drops sparsely-carried founders, k8-het 0.99→0.31). Keep opt-in, default off.
+  RESULTS E12-prune; memory [[project_affinity_prune_sparse_unsafe]].
+- **REPORT.md extended E1–E8 → E1–E12**; two new figures (`fig9_e12_wholegenome`,
+  `fig10_e12_prune`) in `figures.py`.
+
+**NEXT STEPS (user-reviewed 2026-06-28).** Real-genotype testing is the headline goal;
+priority among the rest is by how much each *de-risks* that step in simulation first.
+
+1. **Dosage r² benchmark + posterior dosage — USER LIKES THIS, do first.** Convert our
+   accuracy (founder-path + either-match) into the metric the field uses:
+   **MAF-stratified dosage r²** vs a fixed SNP panel. Pieces exist — simulator's
+   `emit_snp_panel` (`G` = founder×SNP alleles, `_coalescent_feats(..., emit_panel=True)`)
+   and the `--mask-frac` harness. Combine with the **forward-backward marginal**
+   (`_dcrf_marginal`, already present) for a **posterior expected dosage** + per-site
+   **confidence track**, and a rare-vs-common r² curve. Gives a Beagle/STITCH-comparable
+   number *before* touching real data.
+
+2. **Clustered (blocky) bad data — the real concern, NOT uniform bad-frac.** The real
+   maize/cassava matrices had a **build bug**, so the old "72% either-match ceiling /
+   28% missing-true-founder" number is suspect — don't treat it as fundamental. The
+   failure mode to actually simulate is **clustered** dropout: runs/blocks of bad sites,
+   not iid. The simulator **already supports this** — `_good_mask(rng, n, T, bad_frac,
+   block)` is a 2-state Markov chain with **mean bad-run length = `block`** (the
+   `--error-block` / `error_block` knob). So: sweep `error_block` (and bad_frac) up to
+   realistic clustered regimes, measure where founder-path and r² fall off, and if it's
+   steep give the model an explicit **"none-of-panel" escape** (the null founder index K
+   exists but isn't trained as an out-of-panel emission). Cheaper to find the cliff in
+   sim than on real data.
+
+3. **Posterior confidence + auto pruning-gate — good idea (user).** The #1 marginal
+   posterior also lets you (a) **flag/mask low-confidence calls** instead of forcing a
+   hard Viterbi everywhere, and (b) **auto-gate pruning**: enable the reduced CRF only
+   when held-out masked-SNP doesn't drop (exactly the sparse failure). Turns the
+   pruning caveat into a feature.
+
+4. **Batched GPU Viterbi — DEPRIORITIZED, open question.** The decode is launch-bound on
+   the 100k-step T-loop *per chromosome*. **User's point: this may not matter** once you
+   analyze **1M sites across all chromosomes together**, or run **~1000 samples at once** —
+   the batch dimension already amortizes each kernel launch over B× work. So first just
+   **measure** whole-genome throughput at a realistic batch (B samples × chromosomes);
+   if the GPU saturates, #4 is moot and skip it. Only worth fused/batched launches if
+   it stays launch-bound under real batching.
+
+**Implementation note for #1/#2:** `simulate_wholegenome.py:86` already calls
+`simulate(...)` and captures the panel return (`_panel`, currently discarded) and passes
+`bad_frac=args.bad_frac` — but it does **not** pass `error_block` (defaults to 1.0 = iid)
+or `emit_snp_panel=True`. So both next steps need a small thread-through there: expose
+`--error-block` and `--emit-snp-panel`, persist `_panel` alongside the `.npy` (panel needs
+`coalescent` mode, already on). The decode/marginal side (`_dcrf_marginal`) and the
+masked-site harness are already in `infer_wholegenome.py`.
+
+**Files (this session):** `infer_wholegenome.py` (`--mask-frac`, `--prune-affinity`,
+`--compare`, `masked_snp`), `simulate_wholegenome.py`, `inspect_affinity.py`,
+`figures.py` (fig9/fig10), `docs/REPORT.md`, `docs/RESULTS.md` (E12-*).
 
 ## ACTIVE (2026-06-26): diploid heterozygosity — diagnosed and fixed
 
