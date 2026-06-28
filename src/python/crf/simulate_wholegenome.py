@@ -50,6 +50,8 @@ def main():
     p.add_argument("--num-parents", type=int, default=24)
     p.add_argument("--chrom-len", type=int, default=100_000)
     p.add_argument("--n-chrom", type=int, default=10)
+    p.add_argument("--n-per-cell", type=int, default=1,
+                   help="individuals per (class x het) cell, for stable estimates")
     p.add_argument("--bad-frac", type=float, default=0.05)
     p.add_argument("--sharing-theta", type=float, default=6.0)
     p.add_argument("--read-snps", type=int, default=8)
@@ -80,29 +82,30 @@ def main():
         for cname, kmin, kmax, het in CLASSES:
             for hlabel, inbred_frac in HETS:
                 het_t = 0.0 if hlabel == "inbred" else het
-                out, _ibd, _ind, _panel, het_tw, cls_w = simulate(
-                    rng, windows=NC, sites=T, founders=K,
-                    min_cross=mn, max_cross=mx, inbreeding=1.0,
-                    allele_sharing=0.2, bad_frac=args.bad_frac,
-                    sharing_model="coalescent", sharing_theta=args.sharing_theta,
-                    read_snps=args.read_snps, gamete_balance=0.5,
-                    ancestor_crossovers=anc_cx,
-                    windows_per_individual=NC,
-                    breeding_classes=[(1.0, kmin, kmax, het)],
-                    class_inbred_frac=inbred_frac, chunk=args.chunk)
-                # one individual = NC chromosomes, shape [NC, T, K+2]
-                fname = f"wg_{cname}_{hlabel}_{density}.npy"
-                np.save(out_dir / fname, out)
-                founders = np.unique(out[:, :, K:K + 2]).tolist()
-                xrate = float((out[:, 1:, K] != out[:, :-1, K]).mean())   # H1 switch rate
-                realized_het = float((out[:, :, K] != out[:, :, K + 1]).mean())
-                np.savez(out_dir / f"wg_{cname}_{hlabel}_{density}.meta.npz",
-                         cls=cls_w[0], het_target=het_t, founders=np.array(founders),
-                         density=density, n_chrom=NC, chrom_len=T)
-                manifest.append((fname, cname, hlabel, density, len(founders),
-                                 realized_het, xrate))
-                print(f"  wrote {fname:38s} k={len(founders):2d} "
-                      f"het={realized_het:.3f} H1xrate={xrate:.5f}")
+                for ind_i in range(args.n_per_cell):       # N individuals/cell -> stable
+                    out, _ibd, _ind, _panel, het_tw, cls_w = simulate(
+                        rng, windows=NC, sites=T, founders=K,
+                        min_cross=mn, max_cross=mx, inbreeding=1.0,
+                        allele_sharing=0.2, bad_frac=args.bad_frac,
+                        sharing_model="coalescent", sharing_theta=args.sharing_theta,
+                        read_snps=args.read_snps, gamete_balance=0.5,
+                        ancestor_crossovers=anc_cx,
+                        windows_per_individual=NC,
+                        breeding_classes=[(1.0, kmin, kmax, het)],
+                        class_inbred_frac=inbred_frac, chunk=args.chunk)
+                    # one individual = NC chromosomes, shape [NC, T, K+2]
+                    fname = f"wg_{cname}_{hlabel}_{density}_i{ind_i}.npy"
+                    np.save(out_dir / fname, out)
+                    founders = np.unique(out[:, :, K:K + 2]).tolist()
+                    xrate = float((out[:, 1:, K] != out[:, :-1, K]).mean())   # H1 switch
+                    realized_het = float((out[:, :, K] != out[:, :, K + 1]).mean())
+                    np.savez(out_dir / f"wg_{cname}_{hlabel}_{density}_i{ind_i}.meta.npz",
+                             cls=cls_w[0], het_target=het_t, founders=np.array(founders),
+                             density=density, n_chrom=NC, chrom_len=T)
+                    manifest.append((fname, cname, hlabel, density, len(founders),
+                                     realized_het, xrate))
+                    print(f"  wrote {fname:40s} k={len(founders):2d} "
+                          f"het={realized_het:.3f} H1xrate={xrate:.5f}")
 
     print(f"\n{'file':38s} {'class':8s} {'het':6s} {'dens':6s} {'k':>3} "
           f"{'het':>6} {'xrate':>8}")
