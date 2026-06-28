@@ -35,7 +35,8 @@ import numpy as np
 import torch
 
 from python.crf.train_diploid import (GRITSCRFDiploid, _dcrf_viterbi,
-                                       _dcrf_marginal, _founder_affinity)
+                                       _dcrf_marginal, _dcrf_viterbi_factored,
+                                       _founder_affinity)
 
 DECODERS = {"viterbi": _dcrf_viterbi, "marginal": _dcrf_marginal}
 
@@ -76,8 +77,11 @@ def _ownership(starts, L, win, stride):
 def decode_chrom(model, feats, ext_emb, mode, decode, win, stride, device, bs):
     """feats [L,K] tensor -> pred pair path [L] (long, cpu)."""
     L = feats.shape[0]
-    decoder = DECODERS[decode]
     nsw, stay = model.nsw_pair, model.stay_bonus
+    if decode == "viterbi-factored":            # O(P+K), faster on CPU (exact)
+        decoder = lambda e, cc, n, s: _dcrf_viterbi_factored(e, cc, n, s, model.pi, model.pj)
+    else:
+        decoder = DECODERS[decode]
     eff_stride = win if mode == "tiled" else stride
     starts = _starts(L, win, eff_stride)
     emis_w, c_w = _encode(model, feats, starts, win, ext_emb, device, bs)   # [nwin,win,*]
@@ -119,7 +123,8 @@ def main():
     p.add_argument("--num-parents", type=int, default=24)
     p.add_argument("--mode", choices=["tiled", "overlap-stitch", "whole-chrom"],
                    default="whole-chrom")
-    p.add_argument("--decode", choices=["viterbi", "marginal"], default="viterbi")
+    p.add_argument("--decode", choices=["viterbi", "marginal", "viterbi-factored"],
+                   default="viterbi")
     p.add_argument("--win", type=int, default=1024)
     p.add_argument("--stride", type=int, default=512)
     p.add_argument("--founder-affinity", action="store_true")
