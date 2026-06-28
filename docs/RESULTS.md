@@ -1319,8 +1319,12 @@ pruning 325→6 is **~10×** (11.8→1.2 s) and 325→45 is **~8×**. Better sti
 production path is *encode on GPU, affinity-prune, decode the small-P CRF on CPU*.
 (The remaining GPU lever is vectorizing the T-loop to cut launches, orthogonal to P.)
 
+Pruning is **opt-in** (`--prune-affinity`; default = full P=325). To compare both,
+`--compare` decodes full **and** pruned from the *same* encode and prints them side
+by side with Δpair (one encoder pass, not two).
+
 - **Files:** `simulate_wholegenome.py` (anc_cx scaling, `--n-per-cell`),
-  `infer_wholegenome.py` (`--prune-affinity`), `inspect_affinity.py`,
+  `infer_wholegenome.py` (`--prune-affinity`, `--compare`), `inspect_affinity.py`,
   `train_diploid.py` (`_dcrf_viterbi_factored`), `profile_speed_diploid.py`,
   `bitpack.py`, `train_crf.py` (`binary_cells`).
 - **Data:** `data/held-out/wg_<class>_<het>_<density>_i{0..3}.npy` (48 individuals,
