@@ -192,6 +192,68 @@ def fig_e8_speed(out, rows):
     plt.close(fig)
 
 
+def fig_e12_wholegenome(out):
+    # RESULTS.md E12-msnp: founder-PAIR vs masked-site SNP accuracy (full P=325,
+    # mean of 4 individuals/cell, 1% whole-site holdout, label-free either-match).
+    cells = ["k2-F2\nhet", "k2-F2\ninbred", "k8-S1\nhet", "k8-S1\ninbred",
+             "outbred\nhet", "outbred\ninbred"]
+    d_pair = [0.777, 0.951, 0.731, 0.832, 0.547, 0.817]
+    d_snp = [0.933, 0.960, 0.930, 0.959, 0.884, 0.959]
+    s_pair = [0.988, 0.995, 0.992, 0.993, 0.979, 0.994]
+    s_snp = [0.969, 0.966, 0.966, 0.968, 0.969, 0.966]
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4.3), sharey=True)
+    x = np.arange(6); w = 0.38
+    for ax, pair, snp, title in [
+            (a1, d_pair, d_snp, "Dense (training-matched recombination)"),
+            (a2, s_pair, s_snp, "Sparse (1–3 crossovers/chrom, realistic)")]:
+        ax.bar(x - w / 2, pair, w, label="founder-path (pair)", color=BLUE)
+        ax.bar(x + w / 2, snp, w, label="SNP (masked, label-free)", color=GREEN)
+        ax.set_xticks(x); ax.set_xticklabels(cells, fontsize=8)
+        ax.set_ylim(0.4, 1.02); ax.set_title(title, fontsize=10)
+        ax.axhline(0.96, ls="--", color=GREY, lw=0.8)
+    a1.set_ylabel("accuracy"); a1.legend(fontsize=8, loc="lower left")
+    a1.text(5.4, 0.965, "bad-frac\nceiling", fontsize=7, color=GREY, va="bottom", ha="right")
+    fig.suptitle("E12: SNP (imputation) accuracy far exceeds founder-ID on dense panels "
+                 "— the allele-redundancy cushion", fontsize=12, weight="bold")
+    fig.savefig(out / "fig9_e12_wholegenome.png", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+
+
+def fig_e12_prune(out):
+    # RESULTS.md E12-prune / E12-cpu: affinity-pruned smaller CRF — decode speed lever
+    # (CPU compute-bound) and the dense-safe / sparse-unsafe accuracy divergence.
+    P = [6, 45, 91, 325]
+    cpu = [1.19, 1.39, 1.79, 11.75]
+    gpu = [3.51, 3.55, 3.89, 3.50]
+    cells = ["k2F2\nhet", "k2F2\ninb", "k8S1\nhet", "k8S1\ninb", "outb\nhet", "outb\ninb"]
+    d_full = [0.7399, 0.9647, 0.7739, 0.8803, 0.5457, 0.8637]
+    d_prn = [0.7420, 0.9660, 0.7878, 0.8866, 0.5489, 0.8673]
+    s_full = [0.9684, 0.9974, 0.9872, 0.9976, 0.9573, 0.9983]
+    s_prn = [0.9685, 0.9142, 0.3134, 0.6865, 0.9573, 0.6492]
+    d_delta = [p - f for p, f in zip(d_prn, d_full)]
+    s_delta = [p - f for p, f in zip(s_prn, s_full)]
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4.3))
+    a1.plot(P, cpu, "o-", color=BLUE, label="CPU (compute-bound)")
+    a1.plot(P, gpu, "s-", color=ORANGE, label="GPU (launch-bound)")
+    a1.set_xscale("log", base=2); a1.set_xticks(P); a1.set_xticklabels(P)
+    a1.set_xlabel("pair-states P (affinity-pruned ← → full)")
+    a1.set_ylabel("decode time / 100k-site chrom (s)")
+    a1.set_title("Pruning speeds CPU decode ~10× (325→6)"); a1.legend(fontsize=8)
+    a1.annotate("k2-F2: P 325→6 (54×)\nk8-S1: 325→45 (7.2×)", (6, 1.19),
+                (12, 6.0), fontsize=8, arrowprops=dict(arrowstyle="->", color=GREY))
+    x = np.arange(6); w = 0.38
+    a2.bar(x - w / 2, d_delta, w, label="dense (safe)", color=GREEN)
+    a2.bar(x + w / 2, s_delta, w, label="sparse (unsafe)", color=RED)
+    a2.axhline(0, color="black", lw=0.8)
+    a2.set_xticks(x); a2.set_xticklabels(cells, fontsize=8)
+    a2.set_ylabel("pruned − full pair accuracy (Δ)")
+    a2.set_title("…but drops carried founders on sparse panels"); a2.legend(fontsize=8)
+    fig.suptitle("E12: affinity-pruned CRF — a real speed lever on dense, a hazard on sparse",
+                 fontsize=12, weight="bold")
+    fig.savefig(out / "fig10_e12_prune.png", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--workdir", default="/workdir/esb33")
@@ -216,6 +278,8 @@ def main():
     fig_e6_snp(out)
     fig_e7_inbreeding(out, e7)
     fig_e8_speed(out, e8)
+    fig_e12_wholegenome(out)
+    fig_e12_prune(out)
     print(f"figures → {out}")
     for f in sorted(out.glob("*.png")):
         print(f"  {f.name}")
