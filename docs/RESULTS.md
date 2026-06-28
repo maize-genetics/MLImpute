@@ -1273,12 +1273,59 @@ op free, so the FLOP cut translates to wall-time. Bit-identical to `_dcrf_viterb
 (decode is the bottleneck, and whole-chrom decode of 100k = 2.8 s on GPU). Encoder on
 GPU + factored decode on CPU is a sensible split.
 
-- **Files:** `simulate_wholegenome.py` (anc_cx scaling), `infer_wholegenome.py`,
+### E12-prune — affinity selects the carried founders → a smaller CRF (the main speed lever)
+
+The user's idea: if the genome-wide affinity cleanly says which founders an
+individual carries, decode a **reduced K′ pair-state CRF** (e.g. 8×8 instead of
+24×24) instead of the full P=325. It does. Per individual the affinity match-rate
+(col 0) is a **flat carried plateau above a flat background**, with a clean step —
+a sorted-rate **largest-gap split** (`inspect_affinity.py`, `--prune-affinity`)
+recovers exactly the carried set, **recall = 1.0 on every dense individual**:
+
+| cell (dense) | true k | kept | P′ vs 325 |
+|---|---:|---:|---:|
+| k2-F2 | 2 | 2 | **6** (54×) |
+| k8-S1 | 8 | 8 | **45** (7.2×) — the "8×8" |
+| outbred | 12–24 | most | 91–325 (≈1–2×) |
+
+**Accuracy is preserved, slightly positive** (4 individuals/cell, 24M positions):
+
+| cell (dense) | full P=325 | pruned | Δ |
+|---|---:|---:|---:|
+| k2-F2 het | 0.7399 | 0.7420 | +0.002 |
+| k2-F2 inbred | 0.9647 | 0.9660 | +0.001 |
+| k8-S1 het | 0.7739 | **0.7878** | **+0.014** |
+| k8-S1 inbred | 0.8803 | 0.8866 | +0.006 |
+| outbred het | 0.5457 | 0.5489 | +0.003 |
+| outbred inbred | 0.8637 | 0.8673 | +0.004 |
+| **ALL** | **0.7947** | **0.7997** | **+0.005** |
+
+Pruning never hurts and **helps k8** (+0.014): dropping the ~16 non-carried founders
+removes spurious background-founder pair-states the full decode occasionally picks.
+
+**Where the speed shows up — CPU, not GPU.** Decode time vs P (one 100k chrom):
+
+| P | CPU decode | GPU decode |
+|---:|---:|---:|
+| 6 (F2) | **1.19 s** | 3.51 s |
+| 45 (k8) | 1.39 s | 3.55 s |
+| 91 | 1.79 s | 3.89 s |
+| 325 (full) | 11.75 s | ~3.5 s |
+
+GPU Viterbi is **launch-bound on the 100k-step T-loop** → P barely moves wall-time
+(same reason factored decode lost on GPU, E12-cpu). On **CPU it is compute-bound**, so
+pruning 325→6 is **~10×** (11.8→1.2 s) and 325→45 is **~8×**. Better still, the
+**pruned CPU decode (1.2 s) beats the full GPU decode (3.5 s) by ~3×** — so the
+production path is *encode on GPU, affinity-prune, decode the small-P CRF on CPU*.
+(The remaining GPU lever is vectorizing the T-loop to cut launches, orthogonal to P.)
+
+- **Files:** `simulate_wholegenome.py` (anc_cx scaling, `--n-per-cell`),
+  `infer_wholegenome.py` (`--prune-affinity`), `inspect_affinity.py`,
   `train_diploid.py` (`_dcrf_viterbi_factored`), `profile_speed_diploid.py`,
   `bitpack.py`, `train_crf.py` (`binary_cells`).
-- **Data:** `data/held-out/wg_<class>_<het>_<density>.npy` (12 individuals, fixed).
+- **Data:** `data/held-out/wg_<class>_<het>_<density>_i{0..3}.npy` (48 individuals,
+  4/cell, anc_cx-fixed).
 - **Checkpoints:** `e12-affinity-d128L4` (0.6231), `e12-affinity-d64L2` (0.5840).
-- **Open:** n=1 individual/cell (noisy per-cell); re-profile speed/compress on fixed
-  data; realistic founder-IBD-tract length is itself a modelling choice (matched
-  training here so WG ≥ E11).
+- **Open:** vectorize the GPU Viterbi T-loop (launch-bound); realistic founder-IBD-
+  tract length is itself a modelling choice (matched training here so WG ≥ E11).
 - **Branch:** `crf-relatedness`.
