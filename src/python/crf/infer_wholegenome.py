@@ -158,6 +158,28 @@ def acc(model, pred, h1, h2):
     return pc, hh
 
 
+def masked_snp(model, pred, feats_held, mask_idx, K):
+    """Label-free held-out SNP accuracy. At each masked site the read was hidden from
+    the encoder; the imputation is correct if EITHER decoded founder reproduces the
+    held-out read (feats_held[t,a] OR feats_held[t,b]) — single read, unknown gamete,
+    so either-match. Ceiling = sites where ANY founder matches the read (matchable at
+    all). Needs no true-founder labels, so it transfers to real data. Returns
+    (n_correct, n_matchable, n_masked)."""
+    if mask_idx.numel() == 0:
+        return 0.0, 0.0, 0
+    a = model.pi.cpu()[pred][mask_idx]
+    b = model.pj.cpu()[pred][mask_idx]
+    fh = feats_held[mask_idx]                          # [m,K] held-out match rows
+    m = torch.arange(fh.shape[0])
+
+    def col(fidx):                                     # gather, null founder (>=K) -> 0
+        return fh[m, fidx.clamp(max=K - 1)] * (fidx < K).float()
+
+    either = ((col(a) + col(b)) > 0).float()
+    matchable = (fh > 0).any(-1).float()
+    return either.sum().item(), matchable.sum().item(), int(fh.shape[0])
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", required=True)
@@ -178,6 +200,11 @@ def main():
     p.add_argument("--compare", action="store_true",
                    help="decode BOTH full (P=325) and affinity-pruned from the same "
                         "encode and report them side by side with the delta")
+    p.add_argument("--mask-frac", type=float, default=0.0,
+                   help="hold out this fraction of WHOLE sites (zero the K-row before "
+                        "encode), then score label-free either-match SNP accuracy at the "
+                        "masked sites — the imputation metric that transfers to real data")
+    p.add_argument("--mask-seed", type=int, default=0)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--boundary-d", type=int, default=16,
                    help="report accuracy within +/-d of tile (win) boundaries")
@@ -203,13 +230,19 @@ def main():
     if args.compare:
         hdr = (f"{'individual':30s} {'full_pair':>9} {'prn_pair':>9} {'Δpair':>7} "
                f"{'full_hap':>9} {'prn_hap':>9} {'P_red':>6} {'full_ms':>8} {'prn_ms':>8}")
+        if args.mask_frac > 0:
+            hdr += f" {'f_msnp':>7} {'p_msnp':>7}"
     else:
         hdr = (f"{'individual':32s} {'pair':>7} {'hap':>7} {'bnd_pair':>9} {'pos':>10} "
                f"{'P_red':>6} {'dec_ms':>7}")
+        if args.mask_frac > 0:
+            hdr += f" {'msnp':>7} {'msnp/ceil':>9}"
     print(hdr); print("-" * len(hdr))
 
     pi_c, pj_c = model.pi.cpu().numpy(), model.pj.cpu().numpy()
-    agg = {v: dict(pc=0.0, hh=0.0, n=0.0, bpc=0.0, bn=0.0, dt=0.0) for v in vnames}
+    agg = {v: dict(pc=0.0, hh=0.0, n=0.0, bpc=0.0, bn=0.0, dt=0.0, sc=0.0, scn=0.0, sm=0.0)
+           for v in vnames}
+    rng_mask = np.random.default_rng(args.mask_seed)
     nchrom = 0
     rows = []
     for f in files:
@@ -230,19 +263,30 @@ def main():
         P_red = len(sel_pairs) if sel_pairs is not None else model.P
         variants = {v: (sel_pairs if v == "pruned" else None) for v in vnames}
 
-        iv = {v: dict(pc=0.0, hh=0.0, n=0.0, bpc=0.0, bn=0.0, dt=0.0) for v in vnames}
+        iv = {v: dict(pc=0.0, hh=0.0, n=0.0, bpc=0.0, bn=0.0, dt=0.0, sc=0.0, scn=0.0, sm=0.0)
+              for v in vnames}
         for ch in range(feats_all.shape[0]):
             feats = feats_all[ch]; L = feats.shape[0]
-            preds = decode_chrom(model, feats, ext, args.mode, args.decode,
+            mask_idx = torch.empty(0, dtype=torch.long)
+            feats_in = feats
+            if args.mask_frac > 0:                       # hold out whole sites
+                nmask = max(1, int(round(args.mask_frac * L)))
+                mi = rng_mask.choice(L, size=nmask, replace=False)
+                mask_idx = torch.tensor(np.sort(mi), dtype=torch.long)
+                feats_in = feats.clone()
+                feats_in[mask_idx] = 0.0                 # encoder no longer sees the read
+            preds = decode_chrom(model, feats_in, ext, args.mode, args.decode,
                                  args.win, args.stride, device, args.batch_size,
                                  variants=variants)
             t = torch.arange(L)
             bnd = ((t % args.win) <= args.boundary_d) | ((t % args.win) >= args.win - args.boundary_d)
             for v, (pred, dt) in preds.items():
                 pc, hh = acc(model, pred, h1_all[ch], h2_all[ch])
+                sc, scn, sm = masked_snp(model, pred, feats, mask_idx, K)
                 d = iv[v]
                 d["pc"] += pc.sum().item(); d["hh"] += hh.sum().item(); d["n"] += L
                 d["dt"] += dt; d["bpc"] += pc[bnd].sum().item(); d["bn"] += int(bnd.sum())
+                d["sc"] += sc; d["scn"] += scn; d["sm"] += sm
         name = Path(f).stem
         nc = feats_all.shape[0]
         for v in vnames:                              # roll into global aggregate
@@ -250,27 +294,39 @@ def main():
                 agg[v][k] += iv[v][k]
         if args.compare:
             a, b = iv["full"], iv["pruned"]
-            print(f"{name:30s} {a['pc']/a['n']:>9.4f} {b['pc']/b['n']:>9.4f} "
-                  f"{(b['pc']-a['pc'])/a['n']:>+7.4f} {a['hh']/a['n']:>9.4f} "
-                  f"{b['hh']/b['n']:>9.4f} {P_red:>6d} {a['dt']/nc*1e3:>8.1f} {b['dt']/nc*1e3:>8.1f}")
+            line = (f"{name:30s} {a['pc']/a['n']:>9.4f} {b['pc']/b['n']:>9.4f} "
+                    f"{(b['pc']-a['pc'])/a['n']:>+7.4f} {a['hh']/a['n']:>9.4f} "
+                    f"{b['hh']/b['n']:>9.4f} {P_red:>6d} {a['dt']/nc*1e3:>8.1f} {b['dt']/nc*1e3:>8.1f}")
+            if args.mask_frac > 0:
+                line += f" {a['sc']/a['sm']:>7.4f} {b['sc']/b['sm']:>7.4f}"
+            print(line)
             rows.append(f"{name}=full {a['pc']/a['n']:.4f}/prn {b['pc']/b['n']:.4f}")
         else:
             d = iv[vnames[0]]
-            print(f"{name:32s} {d['pc']/d['n']:>7.4f} {d['hh']/d['n']:>7.4f} "
-                  f"{d['bpc']/d['bn']:>9.4f} {int(d['n']):>10,} {P_red:>6d} {d['dt']/nc*1e3:>7.1f}")
+            line = (f"{name:32s} {d['pc']/d['n']:>7.4f} {d['hh']/d['n']:>7.4f} "
+                    f"{d['bpc']/d['bn']:>9.4f} {int(d['n']):>10,} {P_red:>6d} {d['dt']/nc*1e3:>7.1f}")
+            if args.mask_frac > 0:
+                line += f" {d['sc']/d['sm']:>7.4f} {d['sc']/d['scn']:>9.4f}"
+            print(line)
             rows.append(f"{name}={d['pc']/d['n']:.4f}/{d['hh']/d['n']:.4f}")
         nchrom += nc
 
     print("-" * len(hdr))
     if args.compare:
         a, b = agg["full"], agg["pruned"]
-        print(f"{'ALL':30s} {a['pc']/a['n']:>9.4f} {b['pc']/b['n']:>9.4f} "
-              f"{(b['pc']-a['pc'])/a['n']:>+7.4f} {a['hh']/a['n']:>9.4f} {b['hh']/b['n']:>9.4f} "
-              f"{'':>6} {a['dt']/nchrom*1e3:>8.1f} {b['dt']/nchrom*1e3:>8.1f}")
+        line = (f"{'ALL':30s} {a['pc']/a['n']:>9.4f} {b['pc']/b['n']:>9.4f} "
+                f"{(b['pc']-a['pc'])/a['n']:>+7.4f} {a['hh']/a['n']:>9.4f} {b['hh']/b['n']:>9.4f} "
+                f"{'':>6} {a['dt']/nchrom*1e3:>8.1f} {b['dt']/nchrom*1e3:>8.1f}")
+        if args.mask_frac > 0:
+            line += f" {a['sc']/a['sm']:>7.4f} {b['sc']/b['sm']:>7.4f}"
+        print(line)
     else:
         d = agg[vnames[0]]
-        print(f"{'ALL':32s} {d['pc']/d['n']:>7.4f} {d['hh']/d['n']:>7.4f} {d['bpc']/d['bn']:>9.4f} "
-              f"{int(d['n']):>10,} {'':>6} {d['dt']/nchrom*1e3:>7.1f}")
+        line = (f"{'ALL':32s} {d['pc']/d['n']:>7.4f} {d['hh']/d['n']:>7.4f} {d['bpc']/d['bn']:>9.4f} "
+                f"{int(d['n']):>10,} {'':>6} {d['dt']/nchrom*1e3:>7.1f}")
+        if args.mask_frac > 0:
+            line += f" {d['sc']/d['sm']:>7.4f} {d['sc']/d['scn']:>9.4f}"
+        print(line)
     out = Path(args.workdir) / "results" / "wg_infer.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
     tag = "compare" if args.compare else ("prune" if args.prune_affinity else "full")
@@ -282,6 +338,9 @@ def main():
             d = agg[v]
             fh.write(f" | ALL[{v}]={d['pc']/d['n']:.4f}/{d['hh']/d['n']:.4f} "
                      f"dec_ms/chrom={d['dt']/nchrom*1e3:.1f}")
+            if args.mask_frac > 0:
+                fh.write(f" msnp[{v}]={d['sc']/d['sm']:.4f} "
+                         f"(/ceil {d['sc']/d['scn']:.4f}, mask={args.mask_frac})")
         fh.write("\n")
     print(f"\nappended → {out}")
 
