@@ -1192,9 +1192,16 @@ Whole-chromosome decode (L=100k): Viterbi **2843 ms** (35k pos/s) → ~28 s/indi
   6.10 vs 6.40 ms, noise). The cell stage is **memory-bound** (it still materialises
   `[B,T,K,d]`), and the encoder is only ~13–17 % of latency anyway. FLOPs ≠ wall-time
   on this GPU. The intuition is right; the bottleneck is elsewhere.
-- **Real lever:** the O(P²)=O(K⁴) pair-state decode. The transition is factored
-  (`-c·nsw`, nsw∈{0,1,2} = per-chromosome switches), so the logsumexp likely factors
-  to ~O(P·K); that, not the encoder, is where speed should be spent. Kept `bitpack.py`
+- **The decode is the bottleneck but already runs efficiently.** Prototyped an
+  exact **factored Viterbi**: the `-c·nsw` transition (nsw∈{0,1,2}) lets the per-step
+  `max` over P states reduce to per-founder maxima — O(P+K) instead of O(P²). Verified
+  bit-exact (`delta` max-abs-diff 0.0 vs `_dcrf_viterbi`), but it is **~2.4× SLOWER on
+  GPU** (96 vs 40 ms over T=1024): it replaces ONE fused [B,P,P] max-kernel with ~6
+  tiny launch-bound kernels/step, and at P=325 the H200 eats the fused op trivially.
+  So — like the binary lookup — **FLOP reduction ≠ wall-time** here; the full decode is
+  already an efficient fused kernel. Real decode speedups would need a fused CUDA
+  kernel, a parallel (associative) scan over the T-sequential recurrence, or much
+  larger K (P grows ∝K²). Not committed (slower); finding recorded. Kept `bitpack.py`
   (8× smaller binary storage, popcount counts) for IO/memory, not compute.
 
 ### E12-compress — d_model down loses accuracy and buys no speed
