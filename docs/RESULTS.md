@@ -1357,3 +1357,48 @@ by side with Δpair (one encoder pass, not two).
 - **Open:** vectorize the GPU Viterbi T-loop (launch-bound); realistic founder-IBD-
   tract length is itself a modelling choice (matched training here so WG ≥ E11).
 - **Branch:** `crf-relatedness`.
+
+### E12-msnp — label-free masked-site SNP accuracy (the imputation metric)
+
+Founder-path accuracy (pair/hap) asks *did we name the right founder*. What an
+imputation user actually wants is *did we recover the right allele* — and a wrong
+founder that carries the same allele still imputes correctly. We measure it the
+imputation-eval way (`infer_wholegenome.py --mask-frac 0.01`): hold out 1% of **whole
+sites** (zero the K-row before encode), decode, and at each masked site score
+**either-match** — correct if *either* decoded founder reproduces the held-out read
+(`feats[t,a] OR feats[t,b]`). Single read, unknown gamete, so either-match; ceiling =
+sites where any founder matches (≈ 1 − bad_frac ≈ 0.96). **Uses no true-founder labels,
+so the same call runs on real maize/cassava** (where founder truth is unavailable).
+
+Full model P=325, mean of 4 individuals/cell (`pair` here is also under 1% masking, so
+a touch below the unmasked E12-prune table):
+
+| cell | sparse pair | **sparse SNP** | dense pair | **dense SNP** |
+|---|---:|---:|---:|---:|
+| k2-F2 het | 0.988 | 0.969 | 0.777 | **0.933** |
+| k2-F2 inbred | 0.995 | 0.966 | 0.951 | 0.960 |
+| k8-S1 het | 0.992 | 0.966 | 0.731 | **0.930** |
+| k8-S1 inbred | 0.993 | 0.968 | 0.832 | 0.959 |
+| outbred het | 0.979 | 0.969 | 0.547 | **0.884** |
+| outbred inbred | 0.994 | 0.966 | 0.817 | 0.959 |
+| **ALL** | **0.990** | **0.967** | **0.776** | **0.937** |
+
+Two readings:
+
+- **Dense: SNP accuracy is far above founder-ID and roughly flat (~0.93–0.96).** The
+  gap `SNP − pair` is the *allele-redundancy cushion* — founder-ID error that doesn't
+  hurt imputation: outbred-het +0.34 (0.55→0.88), k8-het +0.20, k2-het +0.16. So the
+  cells that look worst by founder accuracy impute much better than that suggests.
+- **Sparse: SNP (~0.967) is ceiling-limited, not model-limited.** Founder-ID is already
+  ~0.99 (long tracts), and SNP sits at the ~0.96 bad-frac ceiling — i.e. ~3–4% of
+  held-out reads were corrupted to a random founder and are unrecoverable by *any* path.
+  Sparse SNP < sparse pair is the ceiling showing through, not a regression.
+
+**The label-free metric also re-derives the pruning hazard without truth.** On sparse,
+pruned SNP collapses on exactly the cells where pruning dropped a carried founder
+(k8-het 0.966→0.573, outbred-inbred 0.966→0.745, k8-inbred 0.968→0.805); on dense
+pruned SNP ≈ full (+0.001). So masked-SNP doubles as a **pruning-safety gate you can run
+on real data**: enable the reduced CRF only if held-out SNP doesn't drop.
+
+- **Files:** `infer_wholegenome.py` (`--mask-frac`, `--mask-seed`; `masked_snp`).
+- **Branch:** `crf-relatedness`.
