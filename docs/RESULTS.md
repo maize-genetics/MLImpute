@@ -1300,8 +1300,32 @@ recovers exactly the carried set, **recall = 1.0 on every dense individual**:
 | outbred inbred | 0.8637 | 0.8673 | +0.004 |
 | **ALL** | **0.7947** | **0.7997** | **+0.005** |
 
-Pruning never hurts and **helps k8** (+0.014): dropping the ~16 non-carried founders
-removes spurious background-founder pair-states the full decode occasionally picks.
+On dense data pruning never hurts and **helps k8** (+0.014): dropping the ~16
+non-carried founders removes spurious background-founder pair-states the full decode
+occasionally picks.
+
+**But pruning is UNSAFE on sparse genomes — it silently drops carried founders.**
+The "recall = 1.0" plateau above only holds when recombination is dense (training-
+matched). On the realistic sparse set (1–3 crossovers/chrom) a founder can be carried
+in a *small but real* tract, so its genome-wide affinity match-rate sits **down in the
+background**, and the largest-gap split cuts it out. Same model, same `--compare`,
+sparse data (4 individuals/cell):
+
+| cell (sparse) | full P=325 | pruned | Δ |
+|---|---:|---:|---:|
+| k2-F2 het | 0.9684 | 0.9685 | +0.000 |
+| k2-F2 inbred | 0.9974 | 0.9142 | **−0.083** |
+| k8-S1 het | 0.9872 | **0.3134** | **−0.674** |
+| k8-S1 inbred | 0.9976 | 0.6865 | **−0.311** |
+| outbred het | 0.9573 | 0.9573 | +0.000 |
+| outbred inbred | 0.9983 | 0.6492 | **−0.349** |
+| **ALL** | **0.9844** | **0.7482** | **−0.236** |
+
+The failures are individual-level cliffs (e.g. one k8-S1-het drops 0.9895 → 0.1843 at
+P′=3): the gap split kept 2–3 founders when 8 were carried. **Conclusion: keep pruning
+opt-in and default OFF; only enable it for dense / high-recombination panels, or gate it
+on an affinity-plateau-quality check (clear step + kept-k ≥ expected) before trusting
+the reduced decode.** The full P=325 decode is the safe default everywhere.
 
 **Where the speed shows up — CPU, not GPU.** Decode time vs P (one 100k chrom):
 
