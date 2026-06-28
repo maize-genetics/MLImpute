@@ -156,11 +156,18 @@ class LabeledDatasetDiploid(Dataset):
 
 class FounderPathEncoder(nn.Module):
     def __init__(self, d_model=128, n_heads=4, n_layers=4, ext_dim=0,
-                 time_local_emis=False, window_c=False, learned_het=False):
+                 time_local_emis=False, window_c=False, learned_het=False,
+                 binary_cells=False):
         super().__init__()
         self.d_model = d_model
         self.time_local_emis = time_local_emis
         self.window_c = window_c
+        # Binary fast-path: for a 0/1 match matrix, cell(log1p(X)) has only TWO
+        # distinct outputs, so the per-cell MLP (the d x d matmul over B*T*K cells,
+        # the bulk of encoder FLOPs) collapses to a 2-row table lookup — exact, no
+        # accuracy change. Off by default (general read-count inputs); set at
+        # inference for binary data. See _embed_cells.
+        self.binary_cells = binary_cells
         # E7-diag fix: a PER-LOCUS het logit from the window context. The diploid
         # wrapper turns it into a per-site homozygous penalty — the emission-side
         # signal that the transition cost provably cannot supply (RESULTS E7-diag).
@@ -202,9 +209,20 @@ class FounderPathEncoder(nn.Module):
         pe[:, 1::2] = torch.cos(pos * div)
         return pe
 
+    def _embed_cells(self, X):
+        """Per-(site,founder) embedding [B,T,K,d] from cell(log1p(X)). With
+        binary_cells, X is assumed 0/1 and the MLP collapses to a 2-row lookup
+        (exact): cell() applied to {log1p(0), log1p(1)} then gathered by X."""
+        if self.binary_cells:
+            vals = torch.tensor([[0.0], [math.log1p(1.0)]],
+                                device=X.device, dtype=X.dtype)
+            table = self.cell(vals)                              # [2, d]
+            return table[X.long()]                               # [B,T,K,d]
+        return self.cell(torch.log1p(X).unsqueeze(-1))
+
     def forward(self, X, founder_mask, dbp=None, ext_emb=None, emit_het=False):
         B, T, K = X.shape
-        cells = self.cell(torch.log1p(X).unsqueeze(-1))
+        cells = self._embed_cells(X)
 
         cf = cells.reshape(B * T, K, self.d_model)
         q = self.fquery.expand(B * T, 1, self.d_model)
