@@ -1161,3 +1161,84 @@ cheap) — deferred. EMA, `--loss-spike-mult`, `--val-check-interval` are kept a
 opt-in flags (off by default).
 
 - **Branch:** `crf-relatedness`.
+
+## E12 — whole-genome scaling, edge-free decoding, and speed (2026-06-28)
+
+Moving the diploid CRF toward production: a realistic **whole-genome** workload, an
+**edge-free** decode that spans whole chromosomes, and **speed/compression** probes.
+New: `simulate_wholegenome.py` (6 breeding cells × {sparse, dense recomb} as whole
+genomes — 10 chrom × 100k = ~1M positions, one `.npy`/individual, `data/held-out/`),
+`infer_wholegenome.py` (overlapped 1024 encoder windows → center-crop stitch → one
+per-chromosome CRF), `profile_speed_diploid.py`, `bitpack.py`, and a `binary_cells`
+lookup in `FounderPathEncoder`.
+
+### E12-speed — inference is decode-bound, not encoder-bound
+
+Clean H200 profile of `e11-breedpop-affinity` (d256), per stage, ms (batch 16):
+
+| T | encoder | cell-MLP | Viterbi | marginal | pos/s (V) |
+|---|---:|---:|---:|---:|---:|
+| 1024 | 6.4 | 0.69 | **32.4** | 159 | 423k |
+| 4096 | 29.7 | 2.65 | **141** | 635 | 383k |
+
+Whole-chromosome decode (L=100k): Viterbi **2843 ms** (35k pos/s) → ~28 s/individual.
+
+- **The P=325 pair-state Viterbi dominates** (5× the encoder at T=1024); marginal
+  decode is another 5× on top. Decode cost is **independent of d_model**.
+- **Smaller models barely help throughput.** Encoder shrinks 6.4→3.6→2.1 ms
+  (d256→d128→d64) but Viterbi stays ~32 ms, so pos/s rises only 423k→449k→477k
+  (**+13%** for 25× fewer params).
+- **The binary cell-embed lookup is exact but gives ~0 speedup** (d256 ON vs OFF:
+  6.10 vs 6.40 ms, noise). The cell stage is **memory-bound** (it still materialises
+  `[B,T,K,d]`), and the encoder is only ~13–17 % of latency anyway. FLOPs ≠ wall-time
+  on this GPU. The intuition is right; the bottleneck is elsewhere.
+- **Real lever:** the O(P²)=O(K⁴) pair-state decode. The transition is factored
+  (`-c·nsw`, nsw∈{0,1,2} = per-chromosome switches), so the logsumexp likely factors
+  to ~O(P·K); that, not the encoder, is where speed should be spent. Kept `bitpack.py`
+  (8× smaller binary storage, popcount counts) for IO/memory, not compute.
+
+### E12-compress — d_model down loses accuracy and buys no speed
+
+Retrained the affinity recipe (1-epoch best-val) at smaller capacity:
+
+| model | params | val pair | WG dense pair/hap | WG sparse pair/hap | pos/s |
+|---|---:|---:|---:|---:|---:|
+| **d256/L6** | 5.1M | **0.759** | **0.513 / 0.624** | **0.662 / 0.730** | 423k |
+| d128/L4 | 0.9M | 0.623 | 0.335 / 0.573 | 0.510 / 0.674 | 449k |
+| d64/L2 | 0.2M | 0.584 | 0.363 / 0.591 | 0.521 / 0.684 | 477k |
+
+Compression is a **double loss** here: d128/d64 drop ~0.13–0.18 val pair and ~0.15
+WG pair while gaining only +6–13 % throughput (decode-bound). The earlier maize
+*haploid* result (d128/L4 ≈ d384/L12) does **not** transfer to this harder diploid
+breeding task — capacity matters. (Caveat: small models may be undertrained at the
+d256-tuned 1-epoch budget; d64 ≈ d128 on WG suggests both are far from their ceiling.)
+
+### E12-edge — whole-chrom decode is correct but a small lever here
+
+d256, dense WG, tiled (independent 1024 tiles) vs whole-chrom (one CRF/chromosome):
+
+| metric | tiled | whole-chrom | Δ |
+|---|---:|---:|---:|
+| genome-wide pair | 0.5126 | 0.5134 | +0.0008 |
+| **boundary-site pair** (±16 of tile cuts) | 0.5118 | **0.5212** | **+0.0094** |
+
+Whole-chrom removes the decode discontinuity at tile boundaries (**+0.9 % at boundary
+sites**, more on het cells), but boundaries are ~3 % of positions so the genome-wide
+gain is marginal — the 1024 encoder context + affinity/transition already recover
+quickly. It's the principled, near-free default; not a big accuracy lever on this sim.
+
+### E12-density — the model does better on sparse than dense
+
+d256 whole-chrom: **sparse 0.662** vs **dense 0.513** pair (genome-wide). Sparse
+(≈1–3 crossovers/chrom, realistic) chromosomes are intrinsically easier (mostly
+constant) despite the train(dense)/test(sparse) density gap. Both sit **below** the
+windowed val (0.759) — a real whole-genome generalisation gap, largest on the hard
+outbred-het cell (dense 0.151), and noisy at n=1 individual/cell. **Follow-up:** more
+individuals per cell for stable WG estimates; give small models more epochs;
+factored-decode speedup.
+
+- **Files:** `simulate_wholegenome.py`, `infer_wholegenome.py`,
+  `profile_speed_diploid.py`, `bitpack.py`, `train_crf.py` (`binary_cells`).
+- **Data:** `data/held-out/wg_<class>_<het>_<density>.npy` (12 individuals).
+- **Checkpoints:** `e12-affinity-d128L4` (0.6231), `e12-affinity-d64L2` (0.5840).
+- **Branch:** `crf-relatedness`.

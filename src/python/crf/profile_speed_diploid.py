@@ -45,11 +45,15 @@ def main():
     p.add_argument("--reps", type=int, default=10)
     p.add_argument("--chrom-len", type=int, default=100_000,
                    help="length for the whole-chromosome decode throughput test")
+    p.add_argument("--binary-cells", action="store_true",
+                   help="enable the binary cell-embed lookup fast-path (exact for 0/1 X)")
     p.add_argument("--workdir", default="/workdir/esb33")
     args = p.parse_args()
     device = torch.device("cuda")
     model = GRITSCRFDiploid.load_from_checkpoint(args.ckpt, map_location=device).eval().to(device)
     K, B, enc = args.num_parents, args.batch_size, model.encoder
+    enc.binary_cells = args.binary_cells
+    print(f"  binary_cells={enc.binary_cells}")
 
     print(f"\n[diploid speed] {Path(args.ckpt).parent.parent.name}  "
           f"d_model={enc.d_model}  P={model.P}  batch={B}  {torch.cuda.get_device_name(0)}")
@@ -101,8 +105,9 @@ def main():
         enc_share = e1 / (e1 + d1) * 100
         print(f"  T {t0}->{t1}: encoder x{e1/max(e0,1e-9):.1f}, viterbi x{d1/max(d0,1e-9):.1f}; "
               f"at T={t1} encoder is {enc_share:.0f}% of latency")
-        print(f"  cell-MLP is ~{rows[2][2]/max(rows[2][1],1e-9)*100:.0f}% of the encoder at "
-              f"T={rows[2][0]} → binary-lookup fast-path target")
+        mid = rows[len(rows) // 2]                            # representative T
+        print(f"  cell-MLP is ~{mid[2]/max(mid[1],1e-9)*100:.0f}% of the encoder at "
+              f"T={mid[0]} → binary-lookup fast-path target")
 
     out = Path(args.workdir) / "results" / "wg_speed.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
