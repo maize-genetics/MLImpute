@@ -1234,18 +1234,51 @@ sites**, more on het cells), but boundaries are ~3 % of positions so the genome-
 gain is marginal — the 1024 encoder context + affinity/transition already recover
 quickly. It's the principled, near-free default; not a big accuracy lever on this sim.
 
-### E12-density — the model does better on sparse than dense
+### E12-fix — whole-genome reaches E11 once a sim-data bug is fixed
 
-d256 whole-chrom: **sparse 0.662** vs **dense 0.513** pair (genome-wide). Sparse
-(≈1–3 crossovers/chrom, realistic) chromosomes are intrinsically easier (mostly
-constant) despite the train(dense)/test(sparse) density gap. Both sit **below** the
-windowed val (0.759) — a real whole-genome generalisation gap, largest on the hard
-outbred-het cell (dense 0.151), and noisy at n=1 individual/cell. **Follow-up:** more
-individuals per cell for stable WG estimates; give small models more epochs;
-factored-decode speedup.
+The first WG eval looked alarming (dense 0.513 ≪ windowed val 0.759, worst on
+high-founder cells). **Root cause: a generator bug, not the model.** In
+`_coalescent_feats`, the founder lineage-mosaic breakpoints (`ancestor_crossovers`,
+default 8) are a **fixed count regardless of T**. At T=100k that gave founder IBD
+tracts ~100× too long vs the T=1024 training data — an out-of-distribution
+founder-sharing structure, worst where many founders share (k8/outbred). Two
+diagnostics on k8S1-het (E11 = 0.756) isolated it:
 
-- **Files:** `simulate_wholegenome.py`, `infer_wholegenome.py`,
-  `profile_speed_diploid.py`, `bitpack.py`, `train_crf.py` (`binary_cells`).
-- **Data:** `data/held-out/wg_<class>_<het>_<density>.npy` (12 individuals).
+| | pair |  | pair |
+|---|---:|---|---:|
+| anc_cx=8 (OOD) | 0.484 | affinity ON | 0.476 |
+| **anc_cx=781 (matched)** | **0.752** | affinity OFF | 0.170 |
+
+So **affinity is working and essential** (+0.31; not the cause), and scaling
+`ancestor_crossovers ∝ T` (now `--anc-base·T/1024`) fixes the data. Regenerated all
+12 individuals and re-ran d256 whole-chrom:
+
+| density | WG pair (fixed) | WG hap | vs windowed val 0.759 |
+|---|---:|---:|---|
+| **dense** (training-matched) | **0.805** | 0.872 | **above** |
+| **sparse** (realistic) | **0.988** | 0.994 | far above (easy) |
+
+**Whole-genome now meets/exceeds the best E11 model** (dense 0.805 ≥ 0.759), per-cell
+within ±0.03 of E11 (k8S1-het 0.763 vs 0.756, outbred-het 0.615 vs 0.541) — the
+whole-chrom decode + whole-genome affinity add context the isolated windows lacked.
+(The WG numbers in E12-compress/E12-edge above are **pre-fix** and superseded here.)
+
+### E12-cpu — the factored decode IS a win on CPU (4.6×)
+
+The factored O(P+K) Viterbi that was *slower* on GPU (E12-speed) is **4.6× faster on
+CPU** (97→21 ms at P=325, B=1) — CPU lacks the parallelism that makes the fused O(P²)
+op free, so the FLOP cut translates to wall-time. Bit-identical to `_dcrf_viterbi`
+(path agreement 1.0000). Committed as `_dcrf_viterbi_factored` /
+`infer_wholegenome --decode viterbi-factored`: the CPU whole-genome decode path
+(decode is the bottleneck, and whole-chrom decode of 100k = 2.8 s on GPU). Encoder on
+GPU + factored decode on CPU is a sensible split.
+
+- **Files:** `simulate_wholegenome.py` (anc_cx scaling), `infer_wholegenome.py`,
+  `train_diploid.py` (`_dcrf_viterbi_factored`), `profile_speed_diploid.py`,
+  `bitpack.py`, `train_crf.py` (`binary_cells`).
+- **Data:** `data/held-out/wg_<class>_<het>_<density>.npy` (12 individuals, fixed).
 - **Checkpoints:** `e12-affinity-d128L4` (0.6231), `e12-affinity-d64L2` (0.5840).
+- **Open:** n=1 individual/cell (noisy per-cell); re-profile speed/compress on fixed
+  data; realistic founder-IBD-tract length is itself a modelling choice (matched
+  training here so WG ≥ E11).
 - **Branch:** `crf-relatedness`.
