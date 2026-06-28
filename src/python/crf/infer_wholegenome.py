@@ -41,6 +41,13 @@ from python.crf.train_diploid import (GRITSCRFDiploid, _dcrf_viterbi,
 DECODERS = {"viterbi": _dcrf_viterbi, "marginal": _dcrf_marginal}
 
 
+def _t(device):
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    import time
+    return time.perf_counter()
+
+
 def _starts(L, win, stride):
     s = list(range(0, max(1, L - win + 1), stride))
     if s[-1] != L - win:
@@ -74,10 +81,27 @@ def _ownership(starts, L, win, stride):
     return bounds
 
 
-def decode_chrom(model, feats, ext_emb, mode, decode, win, stride, device, bs):
-    """feats [L,K] tensor -> pred pair path [L] (long, cpu)."""
+def affinity_keep(rate, min_gap=0.03, margin=0.02):
+    """Sorted-rate largest-gap split: founders above the carried/background step.
+    Returns kept founder indices (np). No clear step (gap<min_gap) -> keep all."""
+    order = np.argsort(rate)[::-1]
+    sr = rate[order]
+    gaps = sr[:-1] - sr[1:]
+    cut = int(np.argmax(gaps))
+    if gaps[cut] < min_gap:                       # flat -> all founders carried
+        return np.arange(len(rate))
+    return np.where(rate >= sr[cut + 1] + margin)[0]
+
+
+def decode_chrom(model, feats, ext_emb, mode, decode, win, stride, device, bs,
+                 sel_pairs=None):
+    """feats [L,K] tensor -> pred pair path [L] (long, cpu). If sel_pairs given,
+    decode over that reduced pair-state subset and remap to original indices."""
     L = feats.shape[0]
     nsw, stay = model.nsw_pair, model.stay_bonus
+    if sel_pairs is not None:
+        nsw = nsw[sel_pairs][:, sel_pairs]         # reduced P'xP' switch matrix
+        decode = "viterbi" if decode == "viterbi-factored" else decode
     if decode == "viterbi-factored":            # O(P+K), faster on CPU (exact)
         decoder = lambda e, cc, n, s: _dcrf_viterbi_factored(e, cc, n, s, model.pi, model.pj)
     else:
@@ -87,6 +111,15 @@ def decode_chrom(model, feats, ext_emb, mode, decode, win, stride, device, bs):
     emis_w, c_w = _encode(model, feats, starts, win, ext_emb, device, bs)   # [nwin,win,*]
     bounds = _ownership(starts, L, win, eff_stride)
 
+    def _decode(emis_b, c_b):                       # [1,len,P] -> [len] orig-pair idx
+        e = emis_b[..., sel_pairs] if sel_pairs is not None else emis_b
+        t0 = _t(device)
+        p = decoder(e.to(device), c_b.to(device), nsw, stay)[0].cpu()
+        dt = _t(device) - t0
+        if sel_pairs is not None:
+            p = sel_pairs.cpu()[p]                  # remap reduced -> original pair idx
+        return p, dt
+
     if mode == "whole-chrom":
         P = emis_w.shape[-1]
         emis_full = torch.empty(L, P)
@@ -94,16 +127,16 @@ def decode_chrom(model, feats, ext_emb, mode, decode, win, stride, device, bs):
         for (lo, hi, s), ew, cw in zip(bounds, emis_w, c_w):
             emis_full[lo:hi] = ew[lo - s:hi - s]
             c_full[lo:hi] = cw[lo - s:hi - s]
-        pred = decoder(emis_full.unsqueeze(0).to(device),
-                       c_full.unsqueeze(0).to(device), nsw, stay)[0].cpu()
-        return pred
+        pred, dt = _decode(emis_full.unsqueeze(0), c_full.unsqueeze(0))
+        return pred, dt
 
     # tiled / overlap-stitch: decode each window, center-crop stitch the PATHS
     pred = torch.empty(L, dtype=torch.long)
+    dt = 0.0
     for (lo, hi, s), ew, cw in zip(bounds, emis_w, c_w):
-        p = decoder(ew.unsqueeze(0).to(device), cw.unsqueeze(0).to(device), nsw, stay)[0].cpu()
+        p, d = _decode(ew.unsqueeze(0), cw.unsqueeze(0)); dt += d
         pred[lo:hi] = p[lo - s:hi - s]
-    return pred
+    return pred, dt
 
 
 def acc(model, pred, h1, h2):
@@ -128,6 +161,11 @@ def main():
     p.add_argument("--win", type=int, default=1024)
     p.add_argument("--stride", type=int, default=512)
     p.add_argument("--founder-affinity", action="store_true")
+    p.add_argument("--prune-affinity", action="store_true",
+                   help="affinity largest-gap select carried founders -> decode the "
+                        "reduced pair-state subset (the smaller-CRF speed lever)")
+    p.add_argument("--prune-min-gap", type=float, default=0.03)
+    p.add_argument("--prune-margin", type=float, default=0.02)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--boundary-d", type=int, default=16,
                    help="report accuracy within +/-d of tile (win) boundaries")
@@ -142,11 +180,14 @@ def main():
         raise SystemExit(f"no files match {args.glob}")
     print(f"\n[whole-genome infer] mode={args.mode} decode={args.decode} "
           f"win={args.win} stride={args.stride} affinity={args.founder_affinity}")
-    hdr = f"{'individual':32s} {'pair':>7} {'hap':>7} {'bnd_pair':>9} {'pos':>10}"
+    hdr = (f"{'individual':32s} {'pair':>7} {'hap':>7} {'bnd_pair':>9} {'pos':>10} "
+           f"{'P_red':>6} {'dec_ms':>7}")
     print(hdr); print("-" * len(hdr))
 
+    pi_c, pj_c = model.pi.cpu().numpy(), model.pj.cpu().numpy()
     tot_pc = tot_hh = tot_n = 0.0
     tot_bpc = tot_bn = 0.0
+    tot_dt = 0.0; tot_pred = 0; nchrom = 0
     rows = []
     for f in files:
         arr = np.load(f)                                          # [NC, L, K+2]
@@ -154,40 +195,52 @@ def main():
         h1_all = torch.tensor(np.clip(arr[:, :, K], 0, K).astype(np.int64))
         h2_all = torch.tensor(np.clip(arr[:, :, K + 1], 0, K).astype(np.int64))
         ext = None
-        if args.founder_affinity:
+        sel_pairs = None
+        if args.founder_affinity or args.prune_affinity:
             aff = _founder_affinity(arr[:, :, :K].astype(np.float32))   # [K,2] over whole indiv
             ext = torch.tensor(aff, dtype=torch.float32, device=device).unsqueeze(0)
+        if args.prune_affinity:
+            sel = affinity_keep(aff[:, 0], args.prune_min_gap, args.prune_margin)
+            keep = set(int(i) for i in sel) | {K}    # always retain the null founder
+            sp = [pp for pp in range(model.P) if pi_c[pp] in keep and pj_c[pp] in keep]
+            sel_pairs = torch.tensor(sp, dtype=torch.long)
+        P_red = len(sel_pairs) if sel_pairs is not None else model.P
 
         ipc = ihh = inn = 0.0
-        ibpc = ibn = 0.0
+        ibpc = ibn = 0.0; idt = 0.0
         for ch in range(feats_all.shape[0]):
             feats = feats_all[ch]
             L = feats.shape[0]
-            pred = decode_chrom(model, feats, ext, args.mode, args.decode,
-                                args.win, args.stride, device, args.batch_size)
+            pred, dt = decode_chrom(model, feats, ext, args.mode, args.decode,
+                                    args.win, args.stride, device, args.batch_size,
+                                    sel_pairs=sel_pairs)
             pc, hh = acc(model, pred, h1_all[ch], h2_all[ch])
-            ipc += pc.sum().item(); ihh += hh.sum().item(); inn += L
+            ipc += pc.sum().item(); ihh += hh.sum().item(); inn += L; idt += dt
             # boundary mask: within +/-d of any win-multiple (tiled cut points)
             t = torch.arange(L)
             bnd = ((t % args.win) <= args.boundary_d) | ((t % args.win) >= args.win - args.boundary_d)
             ibpc += pc[bnd].sum().item(); ibn += int(bnd.sum())
         name = Path(f).stem
-        print(f"{name:32s} {ipc/inn:>7.4f} {ihh/inn:>7.4f} {ibpc/ibn:>9.4f} {int(inn):>10,}")
+        dec_ms = idt / feats_all.shape[0] * 1e3
+        print(f"{name:32s} {ipc/inn:>7.4f} {ihh/inn:>7.4f} {ibpc/ibn:>9.4f} {int(inn):>10,} "
+              f"{P_red:>6d} {dec_ms:>7.1f}")
         rows.append(f"{name}={ipc/inn:.4f}/{ihh/inn:.4f}")
         tot_pc += ipc; tot_hh += ihh; tot_n += inn
         tot_bpc += ibpc; tot_bn += ibn
+        tot_dt += idt; nchrom += feats_all.shape[0]
 
     print("-" * len(hdr))
     print(f"{'ALL':32s} {tot_pc/tot_n:>7.4f} {tot_hh/tot_n:>7.4f} {tot_bpc/tot_bn:>9.4f} "
-          f"{int(tot_n):>10,}")
+          f"{int(tot_n):>10,} {'':>6} {tot_dt/nchrom*1e3:>7.1f}")
     out = Path(args.workdir) / "results" / "wg_infer.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
+    prune = "prune " if args.prune_affinity else ""
     with open(out, "a") as fh:
         fh.write(f"\n[{Path(args.ckpt).parent.parent.name} mode={args.mode} "
-                 f"decode={args.decode} stride={args.stride}] {Path(args.glob).name}: "
+                 f"decode={args.decode} {prune}stride={args.stride}] {Path(args.glob).name}: "
                  + " | ".join(rows)
                  + f" | ALL={tot_pc/tot_n:.4f}/{tot_hh/tot_n:.4f} "
-                 f"bnd_pair={tot_bpc/tot_bn:.4f}\n")
+                 f"bnd_pair={tot_bpc/tot_bn:.4f} dec_ms/chrom={tot_dt/nchrom*1e3:.1f}\n")
     print(f"\nappended → {out}")
 
 
