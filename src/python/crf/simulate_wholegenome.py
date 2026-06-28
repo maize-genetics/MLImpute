@@ -53,6 +53,11 @@ def main():
     p.add_argument("--bad-frac", type=float, default=0.05)
     p.add_argument("--sharing-theta", type=float, default=6.0)
     p.add_argument("--read-snps", type=int, default=8)
+    p.add_argument("--anc-base", type=float, default=8.0,
+                   help="founder lineage-mosaic crossovers per 1024 sites (training "
+                        "rate). MUST scale with T or founder IBD tracts get ~T/1024x "
+                        "too long -> out-of-distribution (verified: anc_cx=8 over 100k "
+                        "gives k8S1-het 0.48 vs 0.75 when density-matched).")
     p.add_argument("--densities", default="sparse,dense")
     p.add_argument("--chunk", type=int, default=2,
                    help="chromosomes generated at once (memory: large T)")
@@ -63,9 +68,11 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     K, T, NC = args.num_parents, args.chrom_len, args.n_chrom
     rng = np.random.default_rng(args.seed)
+    anc_cx = max(1, round(args.anc_base * T / 1024.0))   # scale lineage tracts with T
 
     print(f"whole-genome eval set -> {out_dir}")
-    print(f"  {NC} chrom x {T:,} sites = {NC*T:,} positions/individual, K={K}")
+    print(f"  {NC} chrom x {T:,} sites = {NC*T:,} positions/individual, K={K}, "
+          f"anc_cx={anc_cx} (founder IBD tracts ~{T//anc_cx} sites)")
     manifest = []
     for density in args.densities.split(","):
         mn, mx = cross_range(density, T)
@@ -79,6 +86,7 @@ def main():
                     allele_sharing=0.2, bad_frac=args.bad_frac,
                     sharing_model="coalescent", sharing_theta=args.sharing_theta,
                     read_snps=args.read_snps, gamete_balance=0.5,
+                    ancestor_crossovers=anc_cx,
                     windows_per_individual=NC,
                     breeding_classes=[(1.0, kmin, kmax, het)],
                     class_inbred_frac=inbred_frac, chunk=args.chunk)
