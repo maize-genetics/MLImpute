@@ -17,11 +17,13 @@ interface LandingPageProps {
 }
 
 interface FeatureCard {
-  page: PageType;
+  page?: PageType;
+  href?: string;
   icon: string;
   title: string;
   description: string;
   tauriOnly?: boolean;
+  webOnly?: boolean;
 }
 
 const GITHUB_REPO_URL = 'https://github.com/maize-genetics/grits';
@@ -53,11 +55,20 @@ const features: FeatureCard[] = [
     description:
       'Analyze BED imputation output files. Explore parent assignments, view summary statistics, and visualize results with chromosome-level heatmaps.',
   },
+  {
+    href: DOCS_URL,
+    icon: mdiBookOpenVariant,
+    title: 'Documentation',
+    description:
+      'User guides, CLI reference, and development docs for running GRITS locally and in production.',
+    webOnly: true,
+  },
 ];
 
 const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   const visibleFeatures = features.filter(
-    (f) => !f.tauriOnly || isTauri
+    (f) =>
+      (!f.tauriOnly || isTauri) && (!f.webOnly || !isTauri)
   );
 
   return (
@@ -84,38 +95,52 @@ const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               <Icon path={mdiGithub} size={1} />
               View on GitHub
             </a>
-            {!isTauri && (
-              <a className="landing-github-link" href={DOCS_URL}>
-                <Icon path={mdiBookOpenVariant} size={1} />
-                Documentation
-              </a>
-            )}
           </div>
         </section>
 
         <section className="landing-features">
           <h2 className="landing-features-heading">Get Started</h2>
           <div className="landing-features-grid">
-            {visibleFeatures.map((feature) => (
-              <button
-                key={feature.page}
-                className="landing-feature-card"
-                onClick={() => onNavigate(feature.page)}
-              >
-                <div className="landing-feature-header">
-                  <div className="landing-feature-icon">
-                    <Icon path={feature.icon} size={0.95} />
+            {visibleFeatures.map((feature) => {
+              const cardContent = (
+                <>
+                  <div className="landing-feature-header">
+                    <div className="landing-feature-icon">
+                      <Icon path={feature.icon} size={0.95} />
+                    </div>
+                    <h3 className="landing-feature-title">{feature.title}</h3>
                   </div>
-                  <h3 className="landing-feature-title">{feature.title}</h3>
-                </div>
-                <p className="landing-feature-description">
-                  {feature.description}
-                </p>
-                <span className="landing-feature-action">
-                  Open <Icon path={mdiArrowRight} size={0.7} />
-                </span>
-              </button>
-            ))}
+                  <p className="landing-feature-description">
+                    {feature.description}
+                  </p>
+                  <span className="landing-feature-action">
+                    Open <Icon path={mdiArrowRight} size={0.7} />
+                  </span>
+                </>
+              );
+
+              if (feature.href) {
+                return (
+                  <a
+                    key={feature.title}
+                    className="landing-feature-card"
+                    href={feature.href}
+                  >
+                    {cardContent}
+                  </a>
+                );
+              }
+
+              return (
+                <button
+                  key={feature.page}
+                  className="landing-feature-card"
+                  onClick={() => onNavigate(feature.page!)}
+                >
+                  {cardContent}
+                </button>
+              );
+            })}
           </div>
         </section>
       </div>

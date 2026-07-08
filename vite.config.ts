@@ -10,8 +10,13 @@ const appVersion = JSON.parse(
 ).version as string;
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, isPreview }) => {
   const isWeb = mode === "web";
+  // Only proxy /docs during a real dev serve. `preview.proxy` defaults to
+  // `server.proxy`, so leaving the proxy set would make `preview:web` forward
+  // /docs to the MkDocs dev server instead of serving the built
+  // dist-web/docs/ files (and the deployed static site has no proxy at all).
+  const proxyDocsToMkDocs = isWeb && !isPreview;
 
   return {
     plugins: [react()],
@@ -29,6 +34,19 @@ export default defineConfig(({ mode }) => {
       watch: {
         ignored: ["**/src-tauri/**"],
       },
+      // In web-mode dev, proxy /docs/ to the local MkDocs server so the
+      // Documentation card works without a full production build.
+      // Start it with: pixi run -e docs docs-serve
+      proxy: proxyDocsToMkDocs
+        ? {
+            "/docs": {
+              target: "http://localhost:8000",
+              changeOrigin: true,
+              // MkDocs serves at its root, so strip the /docs prefix.
+              rewrite: (path) => path.replace(/^\/docs/, ""),
+            },
+          }
+        : undefined,
     },
 
     base: isWeb ? "./" : undefined,
