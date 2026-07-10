@@ -38,6 +38,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from python.crf.train_crf import FounderPathEncoder
 from python.crf.train_haploid import make_splits
+from python.crf.callbacks import EMACallback
 
 # --------------------------------------------------------------------------- #
 #  Pair-state CRF — state-count-agnostic recursion with a pair switch matrix.  #
@@ -487,6 +488,12 @@ class GRITSCRFDiploid(pl.LightningModule):
         pair_acc, hap_acc = self._accuracy(emis_p, c, batch["h1"], batch["h2"])
         self.log("val/loss", loss, prog_bar=True)
         self.log("val/pair_acc", pair_acc, prog_bar=True)
+        self.log("val_pair_acc", pair_acc)              # slash-free alias: ModelCheckpoint's
+                                                          # filename= can't safely interpolate a
+                                                          # metric name containing "/" (Lightning
+                                                          # treats it as a path separator and
+                                                          # scatters checkpoints into a stray
+                                                          # val/ subdir) — see callbacks below.
         self.log("val/hap_acc", hap_acc, prog_bar=True)
         self.log("val/gate", g.mean())
         return loss
@@ -540,52 +547,6 @@ class GRITSCRFDiploid(pl.LightningModule):
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
             opt, mode="min", factor=0.5, patience=5)
         return {"optimizer": opt, "lr_scheduler": sched, "monitor": "val/loss"}
-
-
-class EMACallback(pl.Callback):
-    """Exponential moving average of the weights. The EMA is swapped into the model
-    for every validation pass (so val/pair_acc — what ModelCheckpoint selects on —
-    and the saved checkpoint both reflect the averaged weights) and swapped back out
-    when training resumes. Targets the late-epoch oscillation directly: even when the
-    raw weights spike out of the basin, their moving average stays in it, so the
-    averaged decode is far steadier than any single late-epoch snapshot."""
-    def __init__(self, decay=0.999):
-        self.decay = decay
-        self.shadow = None
-        self._backup = None
-
-    def on_train_start(self, trainer, pl_module):
-        self.shadow = {k: v.detach().clone().float()
-                       for k, v in pl_module.state_dict().items()
-                       if v.is_floating_point()}
-
-    @torch.no_grad()
-    def on_train_batch_end(self, trainer, pl_module, *a):
-        if self.shadow is None:
-            return
-        d = self.decay
-        for k, v in pl_module.state_dict().items():
-            if k in self.shadow:
-                self.shadow[k].mul_(d).add_(v.detach().float(), alpha=1.0 - d)
-
-    @torch.no_grad()
-    def on_validation_start(self, trainer, pl_module):
-        if self.shadow is None or self._backup is not None:
-            return                                          # skip pre-train sanity val
-        self._backup = {k: v.detach().clone()
-                        for k, v in pl_module.state_dict().items() if k in self.shadow}
-        for k, v in pl_module.state_dict().items():
-            if k in self.shadow:
-                v.copy_(self.shadow[k].to(v.dtype))
-
-    @torch.no_grad()
-    def on_train_batch_start(self, trainer, pl_module, *a):
-        if self._backup is None:                            # restore raw weights once
-            return
-        sd = pl_module.state_dict()
-        for k, v in self._backup.items():
-            sd[k].copy_(v)
-        self._backup = None
 
 
 def parse_args():
@@ -646,6 +607,9 @@ def parse_args():
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--devices", type=int, default=1)
     p.add_argument("--run-name", default="diploid-pair")
+    p.add_argument("--resume", default=None,
+                   help="Path to a .ckpt to resume training from (optimizer/scheduler "
+                        "state included; passed as Trainer.fit(ckpt_path=...)).")
     return p.parse_args()
 
 
@@ -687,10 +651,13 @@ def main():
     # long-block data even as Viterbi accuracy stays good, so selecting on loss
     # can discard the best model. Accuracy is the quantity we report.
     callbacks = [
-        ModelCheckpoint(dirpath=str(ckpt_dir), monitor="val/pair_acc",
-                        mode="max", save_top_k=2,
-                        filename="d-{epoch:02d}-{val/pair_acc:.4f}"),
-        EarlyStopping(monitor="val/pair_acc", mode="max", patience=args.patience),
+        # monitor the slash-free "val_pair_acc" alias (logged alongside "val/pair_acc"):
+        # a filename= token containing "/" makes Lightning scatter checkpoints into a
+        # stray val/ subdir instead of writing directly under ckpt_dir.
+        ModelCheckpoint(dirpath=str(ckpt_dir), monitor="val_pair_acc",
+                        mode="max", save_top_k=2, save_last=True,
+                        filename="d-{epoch:02d}-{val_pair_acc:.4f}"),
+        EarlyStopping(monitor="val_pair_acc", mode="max", patience=args.patience),
     ]
     if args.ema:
         callbacks.append(EMACallback(args.ema_decay))
@@ -700,7 +667,7 @@ def main():
         accelerator="auto", devices=args.devices, precision=args.precision,
         val_check_interval=(args.val_check_interval or None),
         gradient_clip_val=args.grad_clip)
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=args.resume)
     print(f"Best checkpoint: {callbacks[0].best_model_path}")
 
 
