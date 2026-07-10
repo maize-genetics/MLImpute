@@ -1,8 +1,102 @@
-# Session handoff — crf-relatedness (2026-06-28, whole-genome + imputation metric)
+# Session handoff — crf-relatedness (2026-07-10, checkpoint hardening + eval.py + sim data regen)
 
 Status snapshot for resuming work. Full per-experiment detail is in
 [`docs/RESULTS.md`](RESULTS.md); experiment spec in [`docs/PLAN.md`](PLAN.md).
-Older active threads (2026-06-26 het, 2026-06-25 IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+Older active threads (2026-06-28 whole-genome, 2026-06-26 het, 2026-06-25 IBD-ceiling,
+2026-06-24 E1-maize) are below as history.
+
+## ACTIVE (2026-07-10): checkpoint/eval hardening + regenerated training data — DONE, pushed
+
+**Branch note:** `crf-relatedness` is now **in PR** — do not commit new features to it. All
+work this session is on a new branch **`crf-checkpoint-eval`** (branched off
+`crf-relatedness`, pushed to `origin`). Same rule applies going forward until that PR lands.
+
+**Done this session (committed `2620d1c`, pushed to `origin/crf-checkpoint-eval`):**
+- **Checkpointing was already mostly working** (both `train_haploid.py`/`train_diploid.py`
+  already had best-val `ModelCheckpoint`) but had a real bug: the monitored-metric filename
+  token (`{val/loss}`, `{val/pair_acc}`) contains a `/`, which Lightning treats as a path
+  separator — checkpoints were landing in a stray `val/` subdirectory instead of directly
+  under `checkpoints/<run-name>/` (the old handoff's `e1-*-val/loss=*.ckpt` glob was a
+  workaround for exactly this). **Fixed**: log a slash-free alias (`val_loss`, `val_pair_acc`,
+  `val_total_loss` incl. legacy `train_crf.py`) and monitor/interpolate that instead. Also
+  added `save_last=True` (stable resume anchor), `--resume` → `Trainer.fit(ckpt_path=...)`,
+  and gave `train_haploid.py` the same `--ema`/`--ema-decay` option `train_diploid.py` already
+  had (extracted `EMACallback` into new `crf/callbacks.py`, shared by both).
+- **New unified `crf/eval.py`** — one evaluator for both `GRITSCRFHaploid` and
+  `GRITSCRFDiploid` checkpoints, auto-detecting the type from the checkpoint's `state_dict`
+  (diploid registers `pair_table`; haploid does not) instead of needing two separate scripts
+  (`eval_test.py`/`eval_test_diploid.py`, left in place but superseded going forward). Founder-
+  path accuracy only (no label-free masked-site metric this pass). Also fixed the old
+  hardcoded-`cuda` device bug so eval runs CPU-only too.
+- **Verified** via a CPU smoke test (tiny sims, 2-epoch train, `--resume`, `--ema`) before
+  touching real scale — see commit `2620d1c` message for the full verification list.
+
+**Data regen (the old `/workdir/esb33` — all sim data + the default workdir — is now
+permission-denied to us):** regenerated the historical sims at a **new workdir**,
+`/local/workdir/zrm22/HackathonJun2026/grits_workdir/data/training/` (use this as the working
+substitute for `/workdir/esb33` until access is restored):
+```bash
+# haploid (pure defaults; matches old sim_alleles.npy / E1-probe exactly)
+python src/python/crf/simulate_alleles.py --workdir <WORKDIR>
+# diploid outbred (matches old sim_diploid_512.npy / E4-probe: F=0, coalescent, cx 1-4/gamete)
+python src/python/crf/simulate_alleles.py --workdir <WORKDIR> --out sim_diploid_512.npy \
+    --sites 512 --min-crossovers 1 --max-crossovers 4 \
+    --inbreeding 0 --gamete-balance 0.5 --sharing-model coalescent
+```
+
+**Trained + scored both (GPU 0 only, strictly sequential — GPU 1 left free the whole time for
+another user on this shared machine):**
+```bash
+CUDA_VISIBLE_DEVICES=0 ~/.pixi/bin/pixi run -- python src/python/crf/train_haploid.py \
+    --data <WORKDIR>/data/training/sim_alleles.npy --workdir <WORKDIR> \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed \
+    --max-epochs 5 --run-name haploid-sim
+
+CUDA_VISIBLE_DEVICES=0 ~/.pixi/bin/pixi run -- python src/python/crf/train_diploid.py \
+    --data <WORKDIR>/data/training/sim_diploid_512.npy --workdir <WORKDIR> \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed \
+    --max-epochs 5 --homo-penalty 3 --run-name diploid-sim512-h3
+
+# eval (either checkpoint, either model type — eval.py auto-detects)
+CUDA_VISIBLE_DEVICES=0 ~/.pixi/bin/pixi run -- python src/python/crf/eval.py \
+    --ckpt <WORKDIR>/checkpoints/<run-name>/last.ckpt \
+    --data <WORKDIR>/data/training/<sim>.npy --split test --workdir <WORKDIR>
+```
+- **Haploid** (5 epochs, d256/L6 5.07M): held-out **test Viterbi acc 0.9945** (emission-only
+  0.2375; breakpoint F1 ±2 = 0.962) — matches the historical PLAN.md §0 architecture-probe
+  result (val acc → 0.99).
+- **Diploid** (5 epochs, homo-penalty 3): held-out **test pair_acc 0.6186, hap_acc 0.7467**,
+  predicted-homozygous 0.0005 — near-exact match to the historical E4-probe result (pair_acc
+  0.614, hap_acc 0.743) despite being a fresh regeneration with a new seed realization. This is
+  a strong end-to-end validation that the regenerated sim, hardened training scripts, and new
+  `eval.py` all reproduce prior results faithfully.
+- Checkpoints: `<WORKDIR>/checkpoints/{haploid-sim,diploid-sim512-h3}/`. Results table:
+  `<WORKDIR>/results/eval.tsv`.
+
+**Gotcha for Monday — `pixi install --environment gpu` is BROKEN** (pre-existing, unrelated to
+this session's changes): fails building `mamba-ssm` from source — conda's pinned
+`cuda-toolkit 12.8` mismatches the PyPI `torch` wheel that resolves (`2.13.0+cu130`), so
+`nvcc`/`torch.utils.cpp_extension` reject the mismatch. `mamba-ssm` is only needed by the
+unused `bimamba/` reference encoder — **none of the CRF scripts import it**. Workaround (used
+successfully all session): skip `--environment gpu` entirely, use the plain **`default`** env,
+which already has a CUDA-capable `torch` (confirmed `torch.cuda.is_available()==True`, sees
+both H200s) — `CUDA_VISIBLE_DEVICES=N ~/.pixi/bin/pixi run -- python <script>` is all GPU
+training/eval needs.
+
+**NEXT STEPS (Monday):**
+1. Decide whether `crf-checkpoint-eval` merges into the `crf-relatedness` PR or opens its own
+   against `crf-relatedness`.
+2. **The original headline goal, still open**: train/eval on **real** maize data —
+   `NonCollapsedDatasets/singleShuffledMaizeDataset/fullMaizeDataset_all_diploid.npy`
+   (`(1346838, 512, 26)` int8, labeled, pre-windowed — feeds `make_splits`/
+   `make_diploid_splits` directly, `--limit-n` for a subset as the old E1-maize run did). The
+   sibling `fullMaizeDataset.npy` (no `_all_diploid`) is broken — no label column, don't use.
+3. **Next week**: rebuild the real maize dataset via the new ropebwt3 reference-coordinate
+   lookup option (sibling `../ropebwt_refMap/` dir) and re-score with `eval.py` — same matrix
+   layout, no code changes needed, `eval.py` is the measurement tool for that comparison.
+4. Broader `crf-relatedness` roadmap (E5 relatedness conditioning, E6 SNP r², etc. — see
+   `docs/PLAN.md`) is unaffected by today's work and remains open.
+
 
 ## ACTIVE (2026-06-28): whole-genome scale + the imputation metric — DONE, pushed
 
