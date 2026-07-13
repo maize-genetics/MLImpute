@@ -23,6 +23,13 @@ This fix is deliberately kept downstream (here), not pushed into ropebwt3-phg's 
 windowing size and the unknown-state encoding are grits-CRF-specific choices, and even grits
 itself keeps windowing external to its own PS4G parser.
 
+Optional: `--target-num-parents` trims a real panel down to a checkpoint's trained `num_parents`
+(e.g. a real K=25 panel -> K=24 to match a checkpoint trained on 24 simulated founders, no
+retraining needed). Drops the least-covered founder(s) genome-wide — "least covered" = fewest
+rows with any nonzero read support for that founder — until the panel reaches the target size.
+Any true label that pointed at a dropped founder becomes unknown (state `K`), same as an
+unlabeled bin; those instances are genuinely unrepresentable in the smaller panel.
+
 Usage:
     python src/python/crf/ropebwt_npy_to_matrix.py \
         --npy ropebwt_refMap/bench_ps4g_npy/results_fixed/full_1M.npy \
@@ -30,6 +37,7 @@ Usage:
         --gametes ropebwt_refMap/bench_ps4g_npy/results_fixed/full_1M.npy.gametes.tsv \
         --num-parents 25 --window-size 512 \
         --out grits_workdir/data/real/ropebwt_oh43_1M.npy
+        [--target-num-parents 24]
 
 To point at new reads later, only --npy/--bins/--gametes (and --out) need to change.
 """
@@ -56,6 +64,11 @@ def parse_args():
                    help="Rows per window (matches grits' T=512 site-window convention).")
     p.add_argument("--step-size", type=int, default=None,
                    help="Window stride; defaults to --window-size (non-overlapping).")
+    p.add_argument("--target-num-parents", type=int, default=None,
+                   help="If given and < the source panel size, drop the least-covered "
+                        "founder(s) genome-wide (fewest rows with any nonzero read support) "
+                        "until the panel reaches this size. Labels pointing at a dropped "
+                        "founder become unknown. Default: off, panel size unchanged.")
     p.add_argument("--out", required=True, help="Output .npy path.")
     return p.parse_args()
 
@@ -93,10 +106,35 @@ def main():
     feats = np.clip(arr[:, :K], 0, 127).astype(np.int8)
     gA = arr[:, K].astype(np.int64)
     gB = arr[:, K + 1].astype(np.int64)
-    unk = gA < 0
-    gA[unk] = K                                                # -1 -> real "unknown" state
-    unk = gB < 0
-    gB[unk] = K
+    gA[gA < 0] = K                                             # -1 -> real "unknown" state
+    gB[gB < 0] = K
+
+    if args.target_num_parents is not None:
+        target = args.target_num_parents
+        if target > K:
+            raise ValueError(f"--target-num-parents {target} > source panel size {K}")
+        if target < K:
+            hits = (feats != 0).sum(axis=0)                    # [K] rows-with-coverage, genome-wide
+            n_drop = K - target
+            drop_idx = np.argsort(hits, kind="stable")[:n_drop]
+            keep_idx = np.setdiff1d(np.arange(K), drop_idx)    # sorted ascending
+            names = (gametes.sort_values("gameteIndex")["sampleName"].to_numpy()
+                     if gametes is not None else np.array([str(i) for i in range(K)]))
+            print(f"Dropping {n_drop} least-covered founder(s) (target K={target}, source K={K}):")
+            for i in np.sort(drop_idx):
+                print(f"  {names[i]:<12} idx={i:<3} hits={hits[i]:,}")
+            print(f"  lowest kept: {names[keep_idx[np.argmin(hits[keep_idx])]]}  "
+                  f"hits={hits[keep_idx].min():,}")
+
+            remap = np.full(K + 1, target, dtype=np.int64)     # default: dropped + old unknown -> new unknown
+            remap[keep_idx] = np.arange(len(keep_idx))         # kept founders -> compacted index
+            gA = remap[gA]
+            gB = remap[gB]
+            feats = feats[:, keep_idx]
+            K = target
+        else:
+            print(f"--target-num-parents {target} == source panel size; nothing to drop")
+
     labels = np.stack([gA, gB], axis=1).astype(np.int8)        # [n_rows, 2]
     rows = np.concatenate([feats, labels], axis=1)             # [n_rows, K+2] int8
 
