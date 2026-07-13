@@ -1,9 +1,85 @@
-# Session handoff — crf-relatedness (2026-07-10, checkpoint hardening + eval.py + sim data regen)
+# Session handoff — crf-relatedness (2026-07-13, sim→real transfer eval + real-data consistency check)
 
 Status snapshot for resuming work. Full per-experiment detail is in
 [`docs/RESULTS.md`](RESULTS.md); experiment spec in [`docs/PLAN.md`](PLAN.md).
-Older active threads (2026-06-28 whole-genome, 2026-06-26 het, 2026-06-25 IBD-ceiling,
-2026-06-24 E1-maize) are below as history.
+Older active threads (2026-07-10 checkpoint/eval hardening + sim data regen, 2026-06-28
+whole-genome, 2026-06-26 het, 2026-06-25 IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+
+## ACTIVE (2026-07-13): sim→real transfer eval + real-data consistency check — DONE
+
+**Question (user-set).** Do the sim-trained checkpoints from 2026-07-10 (`haploid-sim`,
+`diploid-sim512-h3`) carry any real signal on **real** data, and is
+`fullMaizeDataset_all_diploid.npy` still consistent with the documented real-data findings
+(the 72% either-match / true-founder-deficit build problem)?
+
+**Data consistency — CONFIRMED unchanged.** Re-derived the either-match diagnostic (same
+logic as `crf/sfs_sharing.py`'s `analyze()`; `matplotlib` isn't installed in this pixi env so
+replicated the print-table computation standalone — no repo files changed) on the current
+copies of both real files:
+
+| file | het | H1 | H2 | either |
+|---|---|---|---|---|
+| Real maize | 0.00 | 72% | 72% | **72%** |
+| Real cassava | 1.00 | 42% | 41% | **72%** |
+
+Exact match to the documented table in `docs/notes/cassava_data_diagnostic.md`. The real-data
+build (true-founder deficit, sim ~96% either-match vs real 72%) is unchanged since it was
+diagnosed — still the real-data **BUILD problem** flagged to zrm22, not fixed by anything in
+between, and not a folding-artifact/measurement issue (that caveat was specific to the SFS
+*shape*, not this either-match number — see the 2026-06-25 section below).
+
+**Sim→real transfer results** (scored with the new `crf/eval.py`; both checkpoints trained
+2026-07-10 purely on simulated data, never on real data; rows appended to
+`grits_workdir/results/eval.tsv`):
+- **Haploid** (`haploid-sim` ckpt → real maize, `--limit-n 250000 --split test` — the
+  identical held-out rows the historical E1-maize benchmark used): Viterbi acc **0.560** vs
+  the real-*trained* benchmark 0.682 (CRF) / 0.614 (HMM); emission-only 0.279. The learned
+  transition structure still adds real value cross-domain (+0.28 over emission-only) but
+  breakpoints are heavily over-called (precision 0.052 @±0, pred 822,647 vs true 141,229) —
+  sim-trained transitions read real data's missingness (72% either-match) as near-constant
+  switching.
+- **Diploid** (`diploid-sim512-h3` ckpt → real **cassava**, not maize — maize is inbred
+  H1==H2 and a poor match for a model trained on *outbred* sim data; the real, outbred,
+  same-layout comparison target is `NonCollapsedDatasets/singleShuffledCassavaDataset/
+  fullMaizeDataset_all_diploid.npy` — mislabeled filename, content is real cassava,
+  `(278053, 512, 26)`, het=1.00, discovered this session): pair_acc **0.0357**, hap_acc
+  **0.2088** — near-identical to the documented diploid-HMM-on-cassava baseline (~0.049/0.215,
+  `docs/notes/cassava_data_diagnostic.md`). On this file the 72%-either-match ceiling
+  dominates: there's little daylight between the sim-trained CRF and a hand-tuned HMM here —
+  data quality is the binding constraint, not the model.
+
+**Conclusion.** Sim→real transfer partially works — haploid clearly beats its own
+emission-only floor and shows genuine structure-learning transfer, but is capped hard by the
+real-data build deficit, especially on cassava where the ceiling swallows any model
+difference. This confirms the ropebwt3 reference-coordinate rebuild (next-week item) is the
+actual lever to pull, not further CRF modeling — matches what was already suspected from the
+E4/E-IBD threads.
+
+**Commands (this session, GPU 0, single short inference pass each — not sustained training):**
+```bash
+# real maize (haploid) — historically-comparable split
+CUDA_VISIBLE_DEVICES=0 ~/.pixi/bin/pixi run -- python src/python/crf/eval.py \
+    --ckpt <WORKDIR>/checkpoints/haploid-sim/last.ckpt \
+    --data NonCollapsedDatasets/singleShuffledMaizeDataset/fullMaizeDataset_all_diploid.npy \
+    --num-parents 24 --limit-n 250000 --split test --workdir <WORKDIR>
+
+# real cassava (diploid) — note the misleading filename, content is cassava not maize
+CUDA_VISIBLE_DEVICES=0 ~/.pixi/bin/pixi run -- python src/python/crf/eval.py \
+    --ckpt <WORKDIR>/checkpoints/diploid-sim512-h3/last.ckpt \
+    --data NonCollapsedDatasets/singleShuffledCassavaDataset/fullMaizeDataset_all_diploid.npy \
+    --num-parents 24 --split test --workdir <WORKDIR>
+```
+
+**Gotcha for next time:** this box gives us only **1 CPU core**, so CPU-only `eval.py` on
+25k+ windows is impractically slow (hit a 5-minute timeout with no completion). Used a single
+short GPU inference pass instead (confirmed both GPUs idle at the time) — that's a very
+different footprint from a sustained training job, but still check GPU load first on this
+shared machine before running even a quick eval.
+
+**NEXT STEPS:** unchanged from 2026-07-10 — this branch still has no real-*trained* model
+(only sim-trained checkpoints evaluated on real data so far); the branch/PR decision is still
+open; and the ropebwt3 rebuild (next week) now has a concrete before/after baseline to check
+against once it lands (does either-match rise meaningfully above 72%?).
 
 ## ACTIVE (2026-07-10): checkpoint/eval hardening + regenerated training data — DONE, pushed
 
