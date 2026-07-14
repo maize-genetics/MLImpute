@@ -16,15 +16,30 @@ Usage:
     python src/python/crf/eval.py --ckpt <path.ckpt> --data <path.npy> \
         --num-parents 24 --split test
     # --mode {auto,haploid,diploid} to force detection (default auto)
+
+Haploid checkpoints trained with --relatedness (ext_dim > 0, train_haploid.py) are
+auto-detected from the checkpoint's own hyperparameters and fed the affinity signal
+`forward()` needs (silently zeroed otherwise, since forward(X, ext_emb=None) skips the
+affinity term) — two modes, matching the two situations that come up in practice:
+  - `--windows-per-individual G` given: the --data file holds MULTIPLE simulated
+    individuals (G contiguous windows each, matching how it was built and trained);
+    reuses train_haploid.py's own make_individual_splits/IndividualRelatednessDataset
+    so each window gets its own individual's affinity, exactly as in training.
+  - omitted: --data is treated as ONE real individual's genome (e.g. real reads with
+    no per-individual grouping) — one genome-wide affinity vector is computed from the
+    *entire* file (train_haploid.py's _founder_affinity is label-free, so this isn't
+    leakage) and broadcast to every scored window.
 """
 
 import argparse
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from python.crf.train_haploid import GRITSCRFHaploid, make_splits
+from python.crf.train_haploid import (
+    GRITSCRFHaploid, make_splits, make_individual_splits, _founder_affinity)
 from python.crf.train_diploid import GRITSCRFDiploid, make_diploid_splits, _dcrf_viterbi
 from python.crf.metrics import breakpoint_counts, prf
 
@@ -50,6 +65,11 @@ def parse_args():
                    help="Results summary is appended under <workdir>/results/.")
     p.add_argument("--tag", default="",
                    help="Optional label for the results line (e.g. arm name).")
+    p.add_argument("--windows-per-individual", type=int, default=None,
+                   help="Haploid --relatedness checkpoints only: G windows/individual "
+                        "in --data. Given -> multi-individual sim split (matches "
+                        "training). Omitted -> --data is treated as one real "
+                        "individual's genome-wide data. Ignored for ext_dim=0 checkpoints.")
     return p.parse_args()
 
 
@@ -62,7 +82,11 @@ def detect_mode(ckpt_path):
 
 
 @torch.no_grad()
-def evaluate_haploid(model, ds, device, batch_size, num_workers):
+def evaluate_haploid(model, ds, device, batch_size, num_workers, fixed_ext_emb=None):
+    """fixed_ext_emb: [K,2] single-individual affinity, broadcast to every batch
+    (single real-individual mode). None + no "ext_emb" in the batch => no affinity
+    (ext_dim=0 checkpoints, unchanged behavior). Batch already carries "ext_emb" =>
+    multi-individual sim mode (IndividualRelatednessDataset), used as-is."""
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False,
                         num_workers=num_workers, pin_memory=True)
     n = vit_correct = emis_correct = 0
@@ -70,11 +94,15 @@ def evaluate_haploid(model, ds, device, batch_size, num_workers):
     for batch in loader:
         X = batch["input_embeds"].to(device)
         tags = batch["labels"].to(device)
+        if fixed_ext_emb is not None:
+            ext_emb = fixed_ext_emb.unsqueeze(0).expand(X.shape[0], -1, -1).to(device)
+        else:
+            ext_emb = batch["ext_emb"].to(device) if "ext_emb" in batch else None
         if device.type == "cuda":
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                emis_f, g, c = model(X)
+                emis_f, g, c = model(X, ext_emb=ext_emb)
         else:
-            emis_f, g, c = model(X)
+            emis_f, g, c = model(X, ext_emb=ext_emb)
         pred_vit = model.decode(emis_f, c)              # respects no_transition
         pred_emis = emis_f.argmax(dim=-1)                # emission-only
         vit_correct += (pred_vit == tags).sum().item()
@@ -120,13 +148,32 @@ def main():
     if mode == "haploid":
         model = GRITSCRFHaploid.load_from_checkpoint(args.ckpt, map_location=device)
         model.eval().to(device)
-        _, val_ds, test_ds = make_splits(
-            args.data, args.num_parents, args.val_frac, args.test_frac,
-            limit_n=args.limit_n)
-        ds = test_ds if args.split == "test" else val_ds
+        needs_affinity = getattr(model, "ext_dim", 0) > 0
 
-        r = evaluate_haploid(model, ds, device, args.batch_size, args.num_workers)
-        print(f"\n[{tag}] mode=haploid split={args.split}  N_sites={r['n']:,}")
+        fixed_ext_emb = None
+        if needs_affinity and args.windows_per_individual:
+            _, val_ds, test_ds = make_individual_splits(
+                args.data, args.num_parents, args.val_frac, args.test_frac,
+                args.windows_per_individual, limit_n=args.limit_n)
+            ds = test_ds if args.split == "test" else val_ds
+        else:
+            _, val_ds, test_ds = make_splits(
+                args.data, args.num_parents, args.val_frac, args.test_frac,
+                limit_n=args.limit_n)
+            ds = test_ds if args.split == "test" else val_ds
+            if needs_affinity:
+                data_full = np.load(args.data, allow_pickle=True, mmap_mode="r")
+                feats_full = np.asarray(data_full[:, :, :args.num_parents])
+                fixed_ext_emb = torch.tensor(
+                    _founder_affinity(feats_full), dtype=torch.float32)
+                print(f"  ext_dim={model.ext_dim}: computed one genome-wide affinity "
+                      f"vector from the full file ({data_full.shape[0]:,} windows) — "
+                      f"single real-individual mode (--windows-per-individual not given)")
+
+        r = evaluate_haploid(model, ds, device, args.batch_size, args.num_workers,
+                             fixed_ext_emb=fixed_ext_emb)
+        print(f"\n[{tag}] mode=haploid split={args.split}  N_sites={r['n']:,}  "
+              f"affinity={'on' if needs_affinity else 'off'}")
         print(f"  Viterbi (full decode) acc : {r['vit_acc']:.4f}")
         print(f"  emission-only argmax  acc : {r['emis_acc']:.4f}")
         print(f"  Viterbi - emission        : {r['vit_acc'] - r['emis_acc']:+.4f}")
@@ -143,7 +190,8 @@ def main():
         bp_fields = "\t".join(
             f"bpP{t}={bp_str[t][0]:.3f}\tbpR{t}={bp_str[t][1]:.3f}\t"
             f"bpF{t}={bp_str[t][2]:.3f}" for t in TOLS)
-        line = (f"{tag}\tmode=haploid\tsplit={args.split}\tN={r['n']}\t"
+        line = (f"{tag}\tmode=haploid\tsplit={args.split}\taffinity={needs_affinity}\t"
+                f"N={r['n']}\t"
                 f"viterbi={r['vit_acc']:.4f}\temis_only={r['emis_acc']:.4f}\t"
                 f"{bp_fields}\tckpt={args.ckpt}\n")
 
