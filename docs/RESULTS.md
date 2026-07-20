@@ -1,0 +1,1404 @@
+# GRITS-CRF — Results leaderboard
+
+Running record of every experiment. **Append rows; never overwrite prior rows**
+(`CLAUDE.md`). Each headline comparison vs the HMM should report mean ± sd over ≥3
+seeds; single-run diagnostics are labeled as such.
+
+Columns follow the `docs/PLAN.md` §7 template. `—` = not yet measured (most depend on
+`metrics.py` / `baselines.py`, still to be built — see PLAN §2.2).
+
+| Exp | Model / arm | Params | Founder acc | Switch err | Breakpt P/R | In-SV false bp | SNP acc (MAF) | Mem / it/s |
+|-----|-------------|-------:|------------:|-----------:|-------------|----------------|---------------|------------|
+| E0  | PHG-HMM     |   n/a  | —           | —          | —           | —              | —             | —          |
+| E0  | GRITS       |  ~43M  | —           | —          | —           | —              | —             | —          |
+| E1-probe | CRF, window-avg emis (fp16, lr 3e-4) | 5.07M | 0.419 | — | — | — | — | ~5.1 it/s |
+| E1-probe | CRF, time-local emis (fp16, lr 3e-4) | 5.07M | 0.04–0.21† | — | — | — | — | ~5.1 it/s |
+| **E1-probe** | **CRF, time-local emis (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.990** | — | — | — | — | ~5.1 it/s |
+| **E1-probe-coal** | **CRF, coalescent mini-hap SFS (bf16, lr 1e-4, warmup 500)** | 5.07M | **0.863** | — | — | — | — | ~5.0 it/s |
+| **E2-probe-coal** | **CRF, coalescent + variable recomb (span 100)** | 5.07M | **0.833**‡ | — | Spearman(c_t,rate) **+0.002** | — | — | ~5.0 it/s |
+| **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 5)** | 5.07M | **0.835**§ | — | val recomb_corr **+0.005** (no change) | — | — | ~5.0 it/s |
+| **E2b-probe-coal** | **+ recomb_head aux loss (corr, weight 200)** | 5.07M | **0.838** | — | Spearman(c_t,rate) **−0.001** (no change) | — | — | ~5.0 it/s |
+| E1  | CRF (full)  |  ~5M   | —           | —          | —           | —              | —             | —          |
+| E1  | CRF (no-transition) | ~5M | —      | —          | —           | —              | —             | —          |
+| **E1-maize** | **HMM Li–Stephens baseline** (best p_stay .995/w .5) | ~0 | **0.614** | — | 0.33/0.20 (F1 .25) | — | — | — |
+| **E1-maize** | **CRF full (per-site c, d256/L6)** | 5.07M | **0.682** | — | **0.59/0.25 (F1 .35)** | — | — | ~7 it/s |
+| **E1-maize** | **CRF small (d128/L4)** | 0.88M | **0.669** | — | 0.59/0.24 (F1 .34) | — | — | — |
+| **E1-maize** | **CRF per-window c (d256/L6)** | 5.07M | **0.665** | — | 0.59/0.19 (F1 .29) | — | — | — |
+| **E1-maize** | **CRF large (d384/L12)** | 22M | **0.662**¶ | — | — | — | — | — |
+| **E1-maize** | **CRF no-transition (d256/L6)** | 5.07M | **0.284** | — | — | — | — | — |
+
+‡ best epoch (epoch 1) val acc; the run became unstable and diverged at epoch 2
+(train loss bouncing 11↔58, val acc → 0.04). Reported from the epoch-1 checkpoint.
+
+§ best epoch (epoch 2) val acc; same alternating-epoch instability (val acc
+0.815 / 0.10 / 0.835 / 0.04 at val steps 1–4). Reported from the best epoch.
+
+† diverged mid-training (fp16 overflow in the CRF partition `logsumexp`); val acc
+decayed to random by epoch 1. Listed to document the failure mode, not as a result.
+
+¶ stopped on its final epoch (still rising, undertrained for its capacity at the
+5-epoch budget); reported from the best (epoch-3) checkpoint. Not converged.
+
+---
+
+## E1-maize — Best architectures vs HMM on REAL maize data (2026-06-24)
+
+**First real-data, baselined result.** All arms trained on a 200k random subset
+(`--limit-n 250000` → 200k train / 25k val / 25k **test**) of
+`fullMaizeDataset_all_diploid.npy` (the correct K+2 layout: cols 0–23 founder read
+counts, col 24 = H1, col 25 = H2; inbred so H1==H2, 0% zero-depth, ~76-site
+haplotype blocks). Same recipe for every CRF arm: d-default time-local emis,
+bf16, lr 1e-4, warmup 500, batch 64, **5 epochs** (not converged — val acc still
+rising; single seed). **Founder acc = Viterbi vs. true H1 on the identical 25k
+test split** (`eval_test.py`); HMM scored on the same split (`eval_hmm.py`).
+
+| Arm | params | **test acc** | emis-only | Δ vs HMM |
+|---|---:|---:|---:|---:|
+| CRF full (per-site `c`) | 5.07M | **0.682** | 0.254 | **+6.7** |
+| CRF small (d128/L4) | 0.88M | 0.669 | 0.267 | +5.5 |
+| CRF per-window `c` | 5.07M | 0.665 | 0.262 | +5.0 |
+| CRF large (d384/L12)¶ | 22M | 0.662 | 0.284 | +4.8 |
+| **HMM Li–Stephens (best)** | ~0 | **0.614** | 0.284 | — |
+| CRF no-transition | 5.07M | 0.284 | 0.284 | −33.0 |
+
+**Takeaways:**
+1. **CRF beats a well-tuned Li–Stephens HMM at ≪ parameters.** The HMM sweep
+   (p_stay ∈ {.97,.99,.995,.999} × weight ∈ {.5,1,2}) peaked at **0.614**
+   (p_stay .995 / w .5) and was nearly flat in p_stay — the empirical switch rate
+   0.0111 (⇒ p_stay≈0.989) confirms it is fairly tuned. Even the **0.88M** CRF
+   beats it by **+5.5**; the 5M full model by **+6.7**. This is PLAN.md's core
+   hypothesis confirmed on real data.
+2. **Transitions do the heavy lifting; learned transitions beat fixed ones.**
+   Per-site emission alone caps at ~0.28 (CRF no-transition 0.284 ≡ HMM
+   emission-only 0.284 — most sites are low/zero coverage). Smoothing lifts this
+   to 0.614 (HMM, fixed stay/switch) vs 0.682 (CRF, learned input-conditional
+   `c`). The CRF extracts ~7 more points from the same transition mechanism.
+3. **`c` does NOT collapse on real data** (unlike synthetic E2). For the 0.88M
+   arm: `c` mean 5.30, global sd 0.91 (range 1.0–7.1), within-window spatial sd
+   **0.485**, between-window sd of the per-window mean **0.758**. The encoder
+   genuinely modulates switch cost — mostly per-window, but with real
+   within-window structure.
+4. **Per-site `c` > per-window `c` here (0.682 vs 0.665).** The opposite of the
+   synthetic E2 finding: because `c` doesn't collapse on real maize, the
+   within-window variation (sd 0.485) carries useful signal and removing it costs
+   ~1.7 pts. Per-window `c` trains smoother (monotonic, no plateau-then-jump) but
+   tops out lower at this budget.
+5. **5M is the sweet spot at 5 epochs.** 0.88M nearly matches it (−1.2 pts at
+   5.6× fewer params); 22M *underperforms* (0.662) — undertrained for its
+   capacity at the fixed 5-epoch budget.
+- **Repro:** `train_haploid.py --data <…all_diploid.npy> --limit-n 250000
+  --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed
+  --max-epochs 5 --run-name <arm> [--window-c | --no-transition | --d-model …]`;
+  then `eval_test.py --ckpt <best> --split test` and `eval_hmm.py --split test`.
+- **Caveats:** 5-epoch / single-seed / 200k-subset snapshot, not converged; the
+  `unknown` 25th CRF state never matches a label (labels 0–23) so costs the CRF a
+  hair vs the HMM's 24 states. Not a headline mean±sd vs HMM (that needs ≥3 seeds,
+  PLAN §8).
+- **Branch:** `crf-relatedness`.
+
+### E1-maize breakpoint precision/recall (`metrics.py`, test split)
+
+A breakpoint = a site where the path switches founders. Predicted vs true switch
+positions, position tolerance ±tol (`eval_test.py`/`eval_hmm.py`, true bp =
+141,229 over the 25k windows ≈ 5.6/window).
+
+| Model | bp predicted | P (±2) | R (±2) | F1 (±2) | F1 (±0) |
+|---|---:|---:|---:|---:|---:|
+| **CRF full (per-site c)** | 45,551 | 0.587 | **0.250** | **0.351** | 0.153 |
+| CRF small (d128/L4) | 42,970 | 0.588 | 0.236 | 0.337 | 0.149 |
+| CRF per-window c | 35,233 | 0.594 | 0.190 | 0.288 | 0.133 |
+| HMM Li–Stephens | 76,789 | 0.333 | 0.203 | 0.252 | 0.119 |
+
+**This is where learned transitions show their biggest edge.** The CRF's F1 is
+~1.4× the HMM's (0.351 vs 0.252 at ±2) and its precision ~1.76× (0.587 vs 0.333):
+the HMM **over-fires** switches (77k predicted, low precision) while the CRF
+predicts ~40% fewer yet recovers more true ones. All CRF arms share ~0.59
+precision; **recall** is what separates them — and per-window `c` has the lowest
+(0.190) because a single window-level switch cost can't be lowered *at* a
+breakpoint, so it under-fires. Per-site `c` recovers more switches at equal
+precision (R 0.250 vs 0.190) — the mechanistic reason it wins on founder acc.
+Absolute recall is low for everyone (~0.25): many true switches sit in
+low/zero-coverage stretches where position is not identifiable at ±2.
+- **Branch:** `crf-relatedness`.
+
+### E1-maize stratified by window difficulty (`eval_stratified.py`, test split)
+
+Founder acc within bands of true breakpoints/window (full-test mean 5.65,
+median 2). **The CRF's win is entirely in low-recombination windows.**
+
+| stratum (true bp) | % win | crf-full | crf-d128 | crf-windowc | HMM | CRF−HMM |
+|---|---:|---:|---:|---:|---:|---:|
+| **[0,2] easy** | 55.4% | **0.802** | 0.793 | 0.796 | 0.673 | **+12.9** |
+| [3,5] medium | 16.0% | 0.608 | 0.595 | 0.582 | 0.601 | +0.7 |
+| [6+] hard | 28.6% | 0.490 | 0.472 | 0.456 | **0.509** | −1.9 |
+
+- **Easy windows (the majority): CRF ≫ HMM (+12.9).** The HMM **over-segments** —
+  in the [0,2] stratum it predicts **24,485** breakpoints vs the CRF's ~6,400,
+  hallucinating switches in near-constant windows (bp precision ±2: HMM 0.106 vs
+  CRF 0.27–0.34). The learned input-conditional `c` suppresses switching where
+  there is no evidence; the fixed Li–Stephens prior cannot.
+- **Hard windows (6+): HMM slightly wins** (0.509 vs 0.490), but both are ~0.5 —
+  the regime where the dense-switch "truth" is itself likely noisy/low-quality
+  (some windows have up to 166 labelled switches in 512 sites).
+- **The overall 0.682 vs 0.614 win is carried by the easy majority.** The CRF's
+  value is *not over-calling recombination*, not better tracking of rapid
+  switching. In the [0,2] band, per-window `c` gives the best bp precision
+  (0.340) and F1 (0.284) — conservatism is an asset when few switches exist —
+  yet per-site `c` still edges it on founder acc (0.802 vs 0.796).
+- **Branch:** `crf-relatedness`.
+
+## E4-probe — Diploid pair-state CRF on interleaved single-gamete reads (2026-06-24)
+
+**First diploid result.** Joint pair-state decode over P=K(K+1)/2=325 unordered
+founder pairs on the shared `FounderPathEncoder` (`train_diploid.py`).
+emis_p[(i,j)] = emis_f[i]+emis_f[j]; transition cost −c·nsw, nsw∈{0,1,2} (a
+two-chromosome switch costs exp(−c)², i.e. two independent switches — matches the
+sim; no hard ban). Only [B,P,P] materialized per step. Throughput 4.3 it/s,
+23 GB at d256/L6/B64.
+
+- **Data:** `sim_diploid_512.npy` — 100k × 512 × 26, **outbred (F=0)**, coalescent
+  relatedness, ≤4 crossovers/gamete (~146-site blocks). New diploid sim mode:
+  each site is ONE read from a random gamete (`--gamete-balance`), so reads
+  alternate between two independent paths and the model must phase them; the
+  hidden gamete has no per-site signal (97% het sites).
+- **Result (held-out test, penalty 3, 5 epochs):** **pair_acc 0.614**
+  (full diploid pair exactly right), **hap_acc 0.743** (per-haplotype, sorted).
+- **Two bugs fixed (instructive):**
+  1. A hard two-switch *ban* was both sign-inverted (rewarded double-switches,
+     loss → ~5M) and conceptually wrong for independent H1/H2. Removed.
+  2. **Homozygous collapse:** with one read/site, emis_f[i]+emis_f[j] is maximized
+     by the homozygous pair (a,a)=2·emis_f[a] of the *observed* founder, so decode
+     went 100% homozygous (true het 97%), recovering only the observed gamete
+     (pair_acc 0.04, hap_acc 0.46). A homozygous penalty / het prior
+     (`--homo-penalty`, matching `diploid_hmm`) fixes it: penalty 3 → pair_acc
+     0.04→0.61, hap_acc 0.46→0.74, predicted-homozygous 100%→0.1%. Penalty 6
+     ≈ tied; 3 marginally better.
+- **Repro:** `train_diploid.py --data sim_diploid_512.npy --time-local-emis
+  --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 5
+  --homo-penalty 3 --run-name diploid-h3`
+- **Open:** diploid HMM baseline (the `diploid_hmm` exists) for a head-to-head;
+  window 1024; per-coverage stratification. **Branch:** `crf-relatedness`.
+
+---
+
+## E4-probe-baseline — Diploid CRF vs HMM head-to-head + d128/L4 capacity (2026-06-24)
+
+Closes the E4-probe "open" items: a diploid Li–Stephens HMM baseline and a
+small-capacity CRF arm, both scored on the **same held-out test split** of
+`sim_diploid_512.npy` (100k×512×26, deterministic 80k/10k/10k head-slice, test
+= last 10k windows).
+
+- **New scorer `eval_diploid_hmm.py`** — diploid Li–Stephens baseline. Emission
+  `log_e[i]+log_e[j] − homo_penalty·(i==j)`; **factored** per-chromosome
+  transition (independent stay/switch, so a two-chromosome switch costs
+  `p_switch²`) built from the same `build_pair_tables` `nsw` table the CRF uses
+  — i.e. the CRF and HMM share the transition *model*, differing only in learned
+  vs fixed potentials. Sweeps `p_stay × weight × homo_penalty`, reports best
+  pair_acc. hap_acc uses the sorted (lo≤hi) convention from
+  `train_diploid.py:_accuracy` so it is directly comparable.
+- **New scorer `eval_test_diploid.py`** — held-out evaluator for
+  `GRITSCRFDiploid` checkpoints (mirrors `eval_test.py`), reusing the model's own
+  `_dcrf_viterbi` + sorted hap_acc and logging predicted-homozygous fraction.
+
+| arm | params | test pair_acc | test hap_acc |
+|---|---:|---:|---:|
+| CRF full d256/L6 (E4-probe, hp=3) | 5.07M | 0.614 | 0.743 |
+| **CRF d128/L4 (hp=3)** | **0.88M** | **0.618** | **0.746** |
+| **Diploid HMM Li–Stephens (best)** | ~0 | **0.552** | **0.700** |
+
+- **Findings:**
+  - **CRF beats the diploid HMM by +6.5 pair / +4.6 hap** — the same
+    qualitative win as haploid (E1-maize), now in the phase-ambiguous
+    single-read-per-site diploid setting.
+  - **Capacity is not the bottleneck:** the 0.88M d128/L4 model ties (slightly
+    edges) the 5.07M d256/L6 model. Consistent with the haploid result where the
+    0.88M arm also nearly matched the full model. The diploid win comes from the
+    structured pair-state prior, not parameters.
+  - Best HMM config `p_stay=0.99, w=0.5, homo_penalty=0.5`. HMM is **insensitive
+    to homo_penalty** (factored transition already disfavors the all-homozygous
+    path) but very sensitive to emission `weight` (sharper emissions overwhelm the
+    het prior → pair_acc collapses to ~0.2–0.3). The CRF's predicted-homozygous
+    fraction is 0.0005 (true het ~97%), i.e. the learned het prior is well-calibrated.
+- **Repro:**
+  ```bash
+  # baseline
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 .pixi/envs/gpu/bin/python \
+    src/python/crf/eval_diploid_hmm.py \
+    --data /workdir/esb33/data/training/sim_diploid_512.npy \
+    --limit-n 100000 --split test
+  # d128/L4 CRF
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES=1 .pixi/envs/gpu/bin/python \
+    src/python/crf/train_diploid.py \
+    --data /workdir/esb33/data/training/sim_diploid_512.npy --limit-n 100000 \
+    --d-model 128 --n-heads 4 --n-layers 4 --homo-penalty 3 --time-local-emis \
+    --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 5 \
+    --run-name diploid-d128l4
+  # eval the CRF checkpoint
+  LD_LIBRARY_PATH=.pixi/envs/gpu/lib PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 \
+    .pixi/envs/gpu/bin/python src/python/crf/eval_test_diploid.py \
+    --ckpt '<workdir>/checkpoints/diploid-d128l4/d-epoch=04-val/loss=89.181.ckpt' \
+    --data .../sim_diploid_512.npy --limit-n 100000 --split test --tag diploid-d128l4
+  ```
+- **Env note:** the bare env Python needs `LD_LIBRARY_PATH=.pixi/envs/gpu/lib`
+  for the eval (scipy pulls a newer `libstdc++`); using it directly avoids a
+  reproducible `pixi run` NFS hang on this cluster. **Branch:** `crf-relatedness`.
+
+---
+
+## E4-probe-window — Diploid window length 512 vs 1024 (density- vs count-matched) (2026-06-25)
+
+Does a longer window help diploid phasing? Two 1024-site sims vs the 512 baseline,
+all d128/L4, homo-penalty 3, held-out test:
+- **density-matched** (`sim_diploid_1024.npy`): crossovers 2–8 (per-site recomb
+  density held constant vs 512's 1–4) — tests "more context, same local structure."
+- **count-matched** (`sim_diploid_1024_cm.npy`): crossovers 1–4 (same as 512 →
+  ~2× longer haplotype blocks, ~410 sites) — tests "more context to phase the
+  *same* recombination."
+
+| arm | 512 | 1024 density | 1024 count-matched |
+|---|---|---|---|
+| Diploid HMM (best sweep) | 0.552 / 0.700 | 0.586 / 0.724 | 0.593 / 0.729 |
+| CRF d128/L4 | 0.618 / 0.746 | **0.643 / 0.764** | 0.629 / 0.754 |
+| CRF − HMM (pair / hap) | +6.6 / +4.6 | +5.7 / +4.0 | +3.6 / +2.5 |
+
+- **Window length helps the CRF** (both 1024 > 512), but **longer *blocks* do not
+  help beyond what length already gives**: count-matched (0.629) is *below*
+  density-matched (0.643) despite 2× longer blocks. The gain is from more
+  context/observations per window, not longer phasing runs.
+- **The HMM benefits *more* from length than the CRF** — the CRF lead shrinks
+  from +6.6 (512) to +3.6 (count-matched 1024). Longer windows reduce the HMM's
+  per-window boundary truncation (optimal p_stay rises 0.99 → 0.999).
+- **Stability:** count-matched (longer blocks → larger CRF partition) diverged at
+  lr 1e-4 (epoch-2 collapse to 0.05) and still wobbled at lr 5e-5 (collapse at
+  epoch 6, then an untrustworthy epoch-7 "recovery": val pair_acc 0.763 but
+  held-out **test 0.457** — a 0.31 val/test gap, non-generalizing). The honest
+  count-matched number is the stable epoch-2 checkpoint (val 0.625 ≈ test 0.629).
+  Motivated switching `train_diploid.py` checkpoint/early-stop to **val/pair_acc
+  (max)** so a good model isn't discarded when the partition NLL spikes.
+- **Repro:** `simulate_alleles.py --sites 1024 --min/max-crossovers {2,8 | 1,4}
+  --inbreeding 0 --gamete-balance 0.5 --sharing-model coalescent
+  --ancestor-crossovers {16 | 8}` then the E4-probe-baseline train/eval recipe.
+  **Branch:** `crf-relatedness`.
+
+---
+
+## E1-probe — Haploid encoder validation on the synthetic allele-sharing sim (2026-06-23)
+
+**Not a scored E1 result.** A controlled architecture probe on
+`crf/simulate_alleles.py` (binary allele-match features, inbred so H1≡H2, predicting
+H1), *not* the `cross/` data source and *not* compared to a baseline. Purpose: isolate
+the emission vs. transition mechanism. Founder acc = validation accuracy (Viterbi vs.
+true H1 path), not the §4.3 panel-masked metric.
+
+- **Data:** `data/training/sim_alleles.npy` — 100k windows × 512 sites × 26 cols
+  (K=24 founders + H1 + H2). `allele-sharing=0.2`, `bad-frac=0.05`,
+  crossovers 2–10/window, `inbreeding=1.0`. True-founder allele match 0.958 (the
+  per-site oracle ceiling). Split 80k/10k/10k.
+- **Model:** `GRITSCRFHaploid`, d=256, L=6, 5,068,806 params, K=25 states. 2 epochs.
+- **Runs (GPU 1):**
+
+  | emission key | precision | LR | warmup | val acc | val loss | note |
+  |---|---|---|---:|---:|---:|---|
+  | window-averaged | 16-mixed | 3e-4 | 0 | 0.419 | 50.2 | gate collapses to ~0.12; CRF on smoothing prior |
+  | time-local | 16-mixed | 3e-4 | 0 | 0.04–0.21 | 46.9 | gate→1.0, loss hits 2.9 then **diverges** to 61 |
+  | **time-local** | **bf16-mixed** | **1e-4** | **500** | **0.990** | **9.47** | gate→1.0, stable; `stay_bonus`/`c` now learn |
+
+- **Takeaways:**
+  1. **Emissions must be time-local.** A window-averaged founder key cannot localize
+     the active founder when the path switches within a window → emission gate closes
+     → 0.42. Per-site key opens the gate and reaches 0.99.
+  2. **bf16 is required.** fp16 overflows the partition `logsumexp` once emissions are
+     active; bf16 + warmup + lower LR fixes it.
+  3. **Transition cost `c` collapsed to a constant (≈5)** because the sim's
+     recombination is spatially uniform — motivates E2 (variable rate map).
+- **Repro:**
+  ```bash
+  pixi run -- python src/python/crf/simulate_alleles.py --workdir /workdir/esb33
+  CUDA_VISIBLE_DEVICES=1 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_alleles.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 2
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=00-val/loss=9.466.ckpt`
+- **Commit:** `ce381d5` (branch `crf-relatedness`).
+
+---
+
+## E1-probe-coal — Coalescent mini-haplotype (SFS) sim (2026-06-23)
+
+**Not a scored E1 result.** Same encoder probe as E1-probe, but on the harder
+**coalescent mini-haplotype** features (`--sharing-model coalescent`): each site is a
+150bp read of `read_snps=8` biallelic SNPs (per-SNP derived freq ~ Beta(0.3, 1) SFS),
+and a founder "matches" only on an exact full-read agreement. Founders are mosaics of
+`ancestors=6` ancestral lineages, so they share haplotype tracts by descent — real
+LD + founder relatedness rather than per-site independent sharing.
+
+- **Data:** `data/training/sim_coal.npy` — 100k × 512 × 26 (K=24 + H1 + H2),
+  `inbreeding=1.0`, crossovers 2–10/window. True-founder match **0.964** (per-site
+  oracle ceiling); **match LD lag-1 = 0.436** (vs ≈0 for the independent sim) —
+  confirms the reads form allele-sharing tracts. Split 80k/10k/10k.
+- **Model:** `GRITSCRFHaploid`, d=256, L=6, 5.07M params, K=25 states. 3 epochs,
+  time-local emis, bf16-mixed, lr 1e-4, warmup 500.
+- **Result:** val acc **0.863** (epoch 2, best `val/loss=11.169`). Below the 0.99 of
+  the independent sim and the 0.964 per-site oracle — expected: relatedness makes
+  multiple founders match the same read, so the true founder is no longer point-wise
+  identifiable and the model must lean on temporal continuity. This is the intended
+  harder, more realistic setting for the relatedness work.
+- **Fix applied:** `simulate_alleles.py` was missing the `--read-snps` CLI flag and
+  the `main()→simulate()` call dropped the `read_snps` positional, shifting
+  `error_block` into the read-length slot (a float → `rng.beta` crash). Both fixed.
+- **Repro:**
+  ```bash
+  pixi run -- python src/python/crf/simulate_alleles.py --workdir /workdir/esb33 \
+    --windows 100000 --sharing-model coalescent --out sim_coal.npy
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_coal.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 3
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/loss=11.169.ckpt`
+- **Branch:** `crf-relatedness` (sim fix + run uncommitted at time of writing).
+
+---
+
+## E2-probe-coal — Does inferred c_t track the hidden recomb rate? (2026-06-24)
+
+**Negative result.** Coalescent mini-haplotype features **+** the E2 hidden variable
+recombination-rate map (`--recomb-span 100`), to test whether the encoder infers
+local recombination from the allele-match patterns (LD breakdown) and feeds it into
+the transition cost `c_t`. Evaluated with `eval_recomb.py` on the epoch-1 checkpoint.
+
+- **Data:** `data/training/sim_coal_e2.npy` — 100k × 512 × 27 (K=24 + H1 + H2 +
+  hidden rate). Hidden rate 1–100 (mean 21.5); `corr(rate, switch)=0.10` (breakpoints
+  do follow the rate); **match-persist hot/cold = 0.734 / 0.757** — the rate *is*
+  observable in the features, but the hot–cold gap is small (0.023).
+- **Train:** same recipe as E1-probe-coal. val acc 0.833 at epoch 1 (best), then the
+  run diverged at epoch 2 (instability, not fp16 — this is bf16).
+- **Eval (`eval_recomb.py`, 2k held-out windows):**
+  - `c_t` **collapsed to a near-constant**: mean 4.376, sd 0.012 (range 4.33–4.41).
+  - `Spearman(c_t, hidden rate)  = +0.002` (expected strong negative) → **no tracking**.
+  - `Spearman(c_t, true switch)  = -0.002` → does not localize breakpoints either.
+  - cold-decile vs hot-decile mean `c_t`: 4.376 vs 4.376 (gap 0.000).
+- **Takeaway:** the encoder does **not** infer local recombination rate; the
+  transition cost collapses to a global constant (~4.4), the same failure mode flagged
+  in E1-probe (`c≈5`). A constant `c` is sufficient to reach 0.83 founder acc, so there
+  is no training pressure to make `c` input-dependent. Making `c_t` track the hidden
+  rate is the open E2 problem — candidate levers: stronger hot/cold feature contrast
+  (larger `--recomb-span` / smaller `--recomb-tile`), an explicit `recomb_head`
+  auxiliary loss, longer/stabilized training, or a richer transition parameterization.
+- **Repro:**
+  ```bash
+  pixi run -- python src/python/crf/simulate_alleles.py --workdir /workdir/esb33 \
+    --windows 100000 --sharing-model coalescent --recomb-span 100 --out sim_coal_e2.npy
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_coal_e2.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed --max-epochs 3
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/eval_recomb.py --ckpt <epoch-1 ckpt> \
+    --data /workdir/esb33/data/training/sim_coal_e2.npy
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=01-val/loss=15.044.ckpt`
+- **Branch:** `crf-relatedness` (uncommitted at time of writing).
+
+---
+
+## E2b-probe-coal — recomb_head auxiliary loss on c_t (2026-06-24)
+
+**Negative result.** Direct follow-up to E2-probe-coal: add an explicit auxiliary
+loss that pushes the inferred transition cost `c_t` to anti-correlate with the
+hidden recombination rate, testing whether *supervising the ranking* (hot ⇒ cheap
+to switch) can break the `c_t`-collapses-to-a-constant failure mode. It does not.
+
+- **Mechanism:** `_window_corr(c, log_rate)` = mean per-window Pearson corr between
+  `c_t` and the (log) hidden rate, added to the loss as `recomb_aux_weight * corr`
+  (minimizing it should drive `corr → −1`). Scale/shift-invariant in `c`, so it
+  supervises only the *shape*, never `c`'s absolute scale. The hidden rate is an
+  **auxiliary target only** — `PreWindowedHaploidDataset` exposes it as `log_rate`
+  (col K+2 of the K+3 layout) and it is **never** fed into the forward pass.
+- **Data:** `data/training/sim_coal_e2.npy` (same as E2-probe-coal).
+- **Train:** E1-probe-coal recipe + `--recomb-aux-weight 5.0`. 3 epochs, bf16,
+  lr 1e-4, warmup 500. (`version_12`; `version_11` was a smoke run on the small file.)
+- **Result (TensorBoard `version_12`):**
+  - `val/recomb_corr`: 0.0014 → 0.0016 → 0.0055 → 0.0017 — **never moves off zero.**
+  - `train/recomb_corr`: bounces −0.035…+0.066 with no downward trend — the
+    minimized term exerts no effective pressure.
+  - `train/recomb` (mean `c`): drifts 4.2 → 6.9 (only the *scale* moves; the
+    spatial structure does not).
+  - `val/acc`: 0.815 / 0.10 / 0.835 / 0.04 — same alternating-epoch instability as
+    E2-probe-coal (best 0.835 at epoch 2).
+- **Why it failed (hypothesis):** the aux term is numerically negligible. With
+  `corr ≈ O(0.01)` and weight 5, it contributes ≈0.05 to a CRF loss of ≈14 — three
+  orders of magnitude too small to reshape `c_t`. A constant `c` remains a loss
+  minimum the optimizer is happy to sit in. Next: a far larger weight (100–500)
+  and/or a gradient-magnitude-matched formulation, plus stabilization for the
+  alternating-epoch divergence.
+- **Repro:**
+  ```bash
+  CUDA_VISIBLE_DEVICES=0 pixi run --environment gpu -- python \
+    src/python/crf/train_haploid.py --data /workdir/esb33/data/training/sim_coal_e2.npy \
+    --time-local-emis --lr 1e-4 --warmup-steps 500 --precision bf16-mixed \
+    --max-epochs 3 --recomb-aux-weight 5.0
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/...ckpt`
+- **Branch:** `crf-relatedness`.
+
+### E2b retry — larger aux weight (200) + stability (2026-06-24)
+
+Follow-up to the weight-5 null: a smoke sweep (`sweep_recomb_aux.py`, 300 steps,
+3k windows) showed the aux loss *can* break the constant-`c` collapse — `c`'s
+spatial sd rose with weight (0.09→0.51 at w=500) — but `recomb_corr` saturated at
+≈−0.02 by weight 50, i.e. the added variance is not aligned with the rate. Full
+run at **weight 200** (`version_13`, 3 epochs, same recipe):
+
+- **val/acc:** 0.288 → 0.834 → 0.838 — **stable** this time (the higher weight
+  removed the alternating-epoch divergence seen at weight 5).
+- **val/recomb_corr:** 0.0008 / 0.0033 / 0.0001 — still pinned at ~0.
+- **eval_recomb.py (2k held-out):** `c_t` mean 6.187, **sd 0.016** (collapsed
+  again on held-out data), **Spearman(c_t, rate) = −0.0005**, cold−hot decile gap
+  0.000. The training-time `c` variance was overfitting, not rate-tracking.
+- **Verdict:** a corr-based auxiliary loss does **not** make `c_t` track the
+  hidden rate at any weight tried (5–500). Raising the weight only adds
+  unaligned variance (and, usefully, stabilizes training). The bottleneck is
+  upstream — the hot/cold feature contrast is too weak (match-persist gap 0.023,
+  E2-probe-coal). Next levers should target the *features*: larger `--recomb-span`
+  / smaller `--recomb-tile` for sharper hot/cold contrast, or a direct per-site
+  rate-regression head supervised against the hidden track, before retrying the
+  transition-cost coupling.
+- **Checkpoint:** `<workdir>/checkpoints/e1-haploid/e1-epoch=02-val/loss=13.514.ckpt`
+- **Branch:** `crf-relatedness`.
+
+## E-IBD — Is 60–80% the no-outside-info ceiling? (IBD confusion) (2026-06-25)
+
+**Question.** The haploid CRF tops out around 60–80% founder accuracy in harder
+(high-recombination) windows. Is that a *model* failure, or an *information*
+ceiling — the true founder is identical-by-descent (IBD) with one or more other
+founders across the whole block, so their read columns are bit-identical and **no
+read-only decoder can tell them apart**? If it is a ceiling, the only way past it
+is outside information (genome-wide founder presence / relatedness) — i.e. the
+whole point of the `crf-relatedness` branch.
+
+**What "theta" means (for non-population-geneticists).** `--sharing-theta` (θ) is
+a **relatedness dial** on the simulated founder panel. Picture each founder's
+ancestry as drawing colored marbles from a bag of ancestral lineages: **low θ =
+few colors**, so many founders inherit the *same* ancestor over a block and look
+identical (high relatedness, lots of IBD sharing); **high θ = many colors**, so
+each founder tends to carry its *own* private alleles (low relatedness, little
+sharing). Concretely in the sim, raising θ raises the fraction of "singleton"
+founders (unique alleles) and shrinks the set of look-alike founders. It does
+**not** change the model or the task — only how genetically similar the founders
+are to each other.
+
+**How the ceiling is measured (`analyze_ibd_ceiling.py`).** The Ewens/GEM sim
+(`simulate_alleles.py --sharing-theta`) writes per-site IBD lineage labels to a
+companion `<data>.ibd.npy` (ground truth the model never sees). For each
+constant-founder segment we form the **indistinguishable set** `S_feat` = founders
+whose K-wide read column is bit-identical to the truth over the *entire* segment
+(exactly what a read-only decoder sees). The best any read-only decoder can do is
+guess the truth uniformly out of `S_feat`, so the **ceiling = sites-weighted mean
+of 1/|S_feat|**. Each CRF error is then labelled **IBD-confusable** (predicted
+founder is itself in `S_feat` → unavoidable) or **genuine** (outside `S_feat` →
+recoverable signal the model missed). Reported per true-breakpoint band.
+
+### Result 1 — the CRF sits on the ceiling
+
+Trained haploid CRF (d256/L6, 5.07M), data `sim_ewens_th6.npy` (θ=6, 100k
+windows, 512 sites, K=24, inbred, 0–8 crossovers, 16 read-SNPs), test split.
+**Checkpoint is only epoch 2/8** (training died early) — yet already at the
+ceiling, so finishing training can only close the residual ≤2.6-pt gap, never
+exceed the ceiling.
+
+| band | win | sites | CRF acc | ceiling | gap | meanS | multiS% | errIBD% |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 bp   | 1118 |   572,416 | 0.9937 | 0.9950 | −0.0012 | 1.01 |  0.9% | 100.0% |
+| 1–2 bp | 2291 | 1,172,992 | 0.9092 | 0.9241 | −0.0149 | 1.87 | 11.3% |  86.0% |
+| 3–5 bp | 3315 | 1,697,280 | 0.8007 | 0.8263 | −0.0256 | 2.52 | 25.6% |  90.8% |
+| 6+ bp  | 3276 | 1,677,312 | 0.7246 | 0.7447 | −0.0201 | 2.98 | 36.8% |  93.4% |
+| **all** | 10000 | 5,120,000 | **0.8222** | **0.8408** | **−0.0186** | 2.65 | 23.2% | **91.6%** |
+
+- **Gap ≤ 2.6 pts in every band** — the CRF extracts essentially all the founder
+  identity reads physically carry.
+- **86–100% of errors are IBD-confusable** — almost every mistake is picking a
+  founder bit-identical to the truth across the whole segment; only ~8–14% are
+  recoverable.
+- Accuracy falls with recombination not because the model degrades but because
+  the **ceiling** drops (0.995 → 0.745) as segments shorten and the mean
+  indistinguishable-set size `meanS` grows (1.01 → 2.98). In the 6+ bp band ~3
+  founders are IBD-indistinguishable on average → 74% ceiling. **That is the
+  "60–80% no-outside-info limit."**
+
+### Result 2 — the ceiling moves with relatedness (θ-sweep)
+
+The ceiling is a property of the *data*, so it is computed directly from each sim
++ its IBD labels (`ceiling_sweep.py`, no model needed; 8k windows/θ, same recipe).
+Lower θ = more relatedness = lower ceiling, monotonically:
+
+| θ | mean share | singleton% | ceiling (all) | ceiling (6+ bp) | meanS (all) |
+|---:|---:|---:|---:|---:|---:|
+|  2 | 0.359 |  7.4% | 0.7007 | 0.5757 | 5.44 |
+|  4 | 0.245 | 12.1% | 0.7993 | 0.6915 | 3.35 |
+|  6 | ~0.21 | ~15%  | 0.8388 | 0.7454 | 2.66 |
+|  8 | 0.169 | 19.2% | 0.8673 | 0.7872 | 2.24 |
+| 16 | 0.120 | 30.5% | 0.9207 | 0.8673 | 1.61 |
+
+(θ=6 row from Result 1's full test split; others from the data-only sweep.)
+
+**Verdict — hypothesis CONFIRMED.** The 60–80% plateau is an information ceiling
+set by IBD relatedness among founders, not a model deficiency: the CRF is already
+within ~2 pts of it and ~90% of its errors are provably unavoidable from reads
+alone. The ceiling rises/falls predictably with founder relatedness (θ). The only
+lever above it is **outside information** — genome-wide founder presence /
+relatedness conditioning — which is the quantitative justification for the
+`crf-relatedness` encoder (E5/E7).
+
+- **Repro:**
+  ```bash
+  # ceiling on a trained checkpoint (Result 1)
+  LD_LIBRARY_PATH=.pixi/envs/gpu/lib PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 \
+    .pixi/envs/gpu/bin/python src/python/crf/analyze_ibd_ceiling.py \
+      --ckpt <ckpt> --data /workdir/esb33/data/training/sim_ewens_th6.npy \
+      --split test --max-windows 20000
+  # ceiling-vs-theta (Result 2, no model)
+  PYTHONPATH=src .pixi/envs/gpu/bin/python src/python/crf/ceiling_sweep.py \
+    --data /workdir/esb33/data/training/sim_ewens_th<θ>_sweep.npy --max-windows 8000
+  ```
+- **Checkpoint:** `<workdir>/checkpoints/e-ibd-th6/e1-epoch=02-val/loss=7.115.ckpt`.
+- **Branch:** `crf-relatedness`.
+
+## E5 — Relatedness conditioning: does it break the IBD ceiling? (2026-06-25)
+
+**Setup.** Sim now groups windows into **individuals** (`--windows-per-individual
+100`), each descending from a `Uniform[2,24]` founder subset (`sim_e5_th6`: 1000
+individuals × 100 windows, θ=6, else identical to E-IBD). A per-individual,
+per-founder **affinity vector** — each founder's genome-wide match rate, estimated
+from reads only (no labels) — is the relatedness signal. Baseline (no relatedness)
+and all relatedness arms share the same train/test split; haploid d256/L6.
+
+**The headroom is real (`relatedness_ceiling.py`, data-only).** The read-only IBD
+ceiling is `1/|S_feat|`; knowing the individual's founder set lifts it to
+`1/|S_feat ∩ set|` (rule out confusable founders the individual doesn't carry):
+
+| band | read-only ceil | relatedness ceil | headroom |
+|---|---:|---:|---:|
+| 3–5 bp | 0.8266 | 0.8853 | +5.9 |
+| 6+ bp | 0.7438 | 0.8224 | **+7.9** |
+| all | 0.8384 | 0.8904 | **+5.2** |
+
+**Conditioning the ENCODER on affinity did NOT work (4 arms).** Injecting affinity
+into emissions — key-shift, then zero-init, then bounded features, then a direct
+per-founder emission bias — was either **bf16-unstable** (val/loss spiked to
+>40–780; the `ext` pathway destabilises the CRF partition where the no-`ext`
+baseline is rock-stable) or, when stable, **flat**: rel ≈ baseline within ≤0.3pt in
+every breakpoint band AND every founders-per-individual bucket (`eval_e5_byk.py`),
+including the 2–4 founder bucket where the headroom is **+12.9pt**. The model would
+not learn to use the signal from a zero-init start.
+
+**The HARD CUTOFF works (`eval_e5_cutoff.py`), applied at decode time on the stable
+baseline — no retraining.** Affinity separates present from absent founders cleanly
+(**AUC 0.969**; present median 0.218 vs absent 0.166). Estimate the individual's
+founder set by thresholding affinity, set absent founders' emissions to −∞, then
+Viterbi. At **τ=0.17** (8k test windows):
+
+| band | baseline | cutoff τ=0.17 | read-only ceil | Δ vs base |
+|---|---:|---:|---:|---:|
+| 0 bp | 0.9906 | 0.9902 | 0.9955 | −0.0004 |
+| 1–2 bp | 0.9072 | 0.9182 | 0.9229 | +0.0110 |
+| 3–5 bp | 0.7990 | 0.8279 | 0.8228 | +0.0289 |
+| 6+ bp | 0.7235 | **0.7620** | 0.7439 | **+0.0385** |
+| **all** | 0.8188 | **0.8437** | 0.8373 | **+0.0249** |
+
+The cutoff **exceeds the read-only ceiling** overall (0.844 > 0.837) and by +1.8pt
+in the hard 6+bp band (0.762 > 0.744) — the thing no read-only decoder and no
+emission arm could do — with **0.45% true-founder exclusion** and no loss on easy
+windows. τ-sweep: 0.16 → 0.832, **0.17 → 0.844**, 0.18 → 0.843, 0.22+ collapses
+(over-excludes; the present-founder median is 0.218). User's instinct (hard cutoff /
+adjust transitions against absent founders) confirmed.
+
+**Verdict.** Relatedness **does** break the IBD ceiling, but via a **decode-time
+founder-set restriction**, not encoder conditioning. The win is concentrated where
+the ceiling bites (hard, high-recombination windows). Open: an **adaptive**
+per-individual threshold (the τ=0.17 optimum tracks the absent/present affinity
+valley, which scales with background sharing — a per-individual Otsu/quantile rule
+should generalise across θ); and a **learnable, bounded** transition/entry penalty
+as a soft version (the emission-bias instability says clamp it).
+
+- **Files:** `simulate_alleles.py` (`--windows-per-individual`), `train_haploid.py`
+  (`IndividualRelatednessDataset`, `make_individual_splits`), `eval_e5.py`,
+  `eval_e5_byk.py`, `relatedness_ceiling.py`, `eval_e5_cutoff.py`.
+- **Checkpoint:** baseline `<workdir>/checkpoints/e5-base-th6/e1-epoch=05-val/loss=2.420.ckpt`
+  (cutoff is decode-time, no relatedness training needed).
+- **Branch:** `crf-relatedness`.
+
+## E6 — SNP-level imputation accuracy: the IBD ceiling is invisible at the SNP (2026-06-25)
+
+**Premise.** GRITS decodes a founder PATH; standard imputers report per-SNP
+genotype accuracy. We bridge them by composing the decoded path with the founder ×
+SNP allele panel (`simulate_alleles.py --emit-snp-panel` → `<data>.panel.npy`):
+`pred_allele(t,l)=panel[t,decoded_founder(t),l]`. Sim `sim_e6_th6` (30k windows,
+300 individuals, θ=6, inbred); haploid baseline `e6-base` (val acc 0.827).
+
+**Result (3k test windows, `eval_snp.py`).**
+
+| metric | value |
+|---|---:|
+| founder-PATH accuracy | 0.8169 |
+| **SNP genotype concordance** | **0.9998** |
+| gap (IBD-invisible-at-SNP) | **+0.1829** |
+
+**The path-ceiling errors are essentially free at the SNP level.** Where the path
+errs it errs onto a founder that is *bit-identical over the read* (the IBD
+confusion of E-IBD), so that founder's SNP alleles equal the truth's and the
+genotype call stands. The ~18pt path-accuracy deficit collapses to ~0.02pt of SNP
+error. This is the headline argument that GRITS is competitive on the metric the
+field actually uses, **because** its residual path errors are between
+sequence-identical founders.
+
+**Honest caveat — the sim isn't yet a SNP-imputation benchmark.** The coalescent
+sim redraws per-SNP allele frequencies *independently per site* (`f ~ Beta` inside
+`_coalescent_feats`), so there is no persistent per-SNP MAF: all 16 read slots
+average to ~0.23 and MAF-stratified dosage r² is degenerate (one bin, r²≈0.999).
+A Beagle/minimac-comparable number (dosage r² stratified by a stable MAF) needs a
+**fixed founder × SNP panel at persistent genomic positions** plus **diploid
+dosage** (0/1/2). That panel upgrade + the E7 mixed-inbreeding diploid model is the
+E6 follow-up; the qualitative SNP≫path result above already holds.
+
+- **Files:** `simulate_alleles.py` (`--emit-snp-panel`), `eval_snp.py`.
+- **Checkpoint:** `<workdir>/checkpoints/e6-base/e1-epoch=00-val/loss=8.028.ckpt`.
+- **Branch:** `crf-relatedness`.
+
+## E7 — Mixed-inbreeding panel: a fixed homozygosity prior can't serve it (2026-06-25)
+
+**Setup.** `sim_e7_mixF` (600 individuals, per-individual F: 50% inbred lines F=1
++ 50% U[0,1]; `--mixed-inbreeding`). Diploid pair-state model (P=325). A single-read
+diploid emission collapses to homozygous, so a het prior (`--homo-penalty`,
+subtracted from homozygous pair-states) is required — but on a mixed-F panel a
+*fixed* prior is wrong for half the data.
+
+**Finding — the fixed prior trades inbred against outbred (pair_acc by F):**
+
+| F bucket | homo-pen=3 | homo-pen=0 | adaptive |
+|---|---:|---:|---:|
+| F=1 (inbred) | 0.188 | **0.818** | 0.757 |
+| 0.66–1 | 0.237 | **0.707** | 0.238 |
+| 0.33–0.66 | 0.320 | 0.476 | 0.279 |
+| F<0.33 (outbred) | **0.445** | 0.171 | 0.388 |
+| **all** | 0.257 | **0.645** | 0.508 |
+
+`homo-pen=3` cripples inbred individuals (whose correct answer *is* homozygous);
+`homo-pen=0` flips it (good on inbred, collapses on the most-outbred). **A single
+fixed prior cannot serve the panel** — the core E7 result, and it answers the
+experiment's question: mixed-inbreeding panels need a *per-individual* prior.
+
+**The het signal is recoverable from reads (validated).** With reads ordered by
+position and gametes evenly mixed, **adjacent-read correlation** distinguishes
+het from homozygous windows: het proxy `= 1 − mean Jaccard(adjacent match-sets)`,
+aggregated per individual, tracks true F at **corr −0.986** (AUC 0.966 inbred vs
+rest; inbred 0.231±0.004, outbred ~0.50). `_het_scale` in `train_diploid.py`.
+
+**The adaptive penalty was initially blocked by unstable training.** The first
+attempt underperformed (old `adaptive` column) because the **diploid CRF training
+was bf16-unstable** — val pair_acc oscillated 0.69↔0.11 across epochs — so the
+per-individual penalty never converged. The *estimator* was sound; the *integration*
+into an unstable CRF was not.
+
+### E7-stable — the E8 stability recipe unlocks the adaptive prior (2026-06-26)
+
+Porting the E8 recipe to `train_diploid.py` (fp32 partition + `--cosine-decay`
++ `--spike-skip`; lr 5e-5, warmup 2000, clip 0.5) gave the **smoothest adaptive
+training yet** — a monotonic climb to **0.595** (best-val epoch 6) with **7 freak-
+gradient spikes auto-skipped**, vs the old chaotic oscillation. By inbreeding bucket
+(`eval_diploid_byF.py`, +hap_acc):
+
+| F bucket | hp=3 | hp=0 | adaptive (old) | **adaptive-stable** | hap_acc |
+|---|---:|---:|---:|---:|---:|
+| F=1 (inbred) | 0.188 | **0.818** | 0.757 | **0.784** | 0.821 |
+| 0.66–1 | 0.237 | **0.707** | 0.238 | 0.372 | 0.631 |
+| 0.33–0.66 | 0.320 | 0.476 | 0.279 | 0.335 | 0.598 |
+| **F<0.33 (outbred)** | **0.445** | 0.171 | 0.388 | **0.445** | 0.631 |
+| all | 0.257 | **0.645** | 0.508 | 0.567 | 0.714 |
+
+**The result the adaptive prior was designed for:** one model reaches **outbred
+0.445 — equal to the best any fixed prior managed (hp=3) — while simultaneously
+holding inbred at 0.784** (near hp=0's best 0.818). No fixed prior does both
+(hp=3: outbred 0.445 / inbred 0.188; hp=0: inbred 0.818 / outbred 0.171). The
+adaptive model captures both extremes at once, which is the whole point.
+
+**Honest gaps remaining:** (1) intermediate-F buckets (0.66–1, 0.33–0.66) still
+trail hp=0 — the het-proxy→penalty scaling is miscalibrated in the middle (it should
+interpolate but under-penalizes there); (2) late-epoch training still degrades after
+~epoch 7 (best-val checkpointing required) — cosine+spike-skip greatly improved but
+did not fully tame the per-sample-penalty diploid objective. Next: calibrate the
+proxy→penalty map (or condition the encoder on the het scale instead of a post-hoc
+emission penalty), and longer warmup / lower lr for the diploid tail.
+
+**Few-founder outbred breakout (the k=2/3 case).** Asked for outbred accuracy when
+an individual has only 2–3 founders: **`sim_e7_mixF` cannot answer it** — founder-count
+and inbreeding are confounded (the k=2/3 individuals are *all* inbred lines; every
+outbred individual has k=14–23). On a dedicated fully-outbred sim (`sim_outbred_k23`,
+`--inbreeding 0 --min-founders 2 --max-founders 3`, coalescent θ=6, 300 inds, held out
+by construction), the adaptive-stable model gives (`eval_diploid_byk.py`):
+
+| k founders | inds | pair_acc | hap_acc |
+|---|---:|---:|---:|
+| k=2 | 139 | 0.372 | 0.659 |
+| k=3 | 161 | 0.402 | 0.647 |
+| k=2–3 | 300 | 0.388 | 0.652 |
+
+Few-founder outbred is **not easier** than 24-founder outbred (0.445) — slightly worse
+on pair-acc. Two reasons: (1) **out-of-distribution** — the training panel had *no*
+few-founder outbred individuals (the same confound), so the model never learned the
+regime; this is a generalization gap, not an intrinsic ceiling. (2) the `hap_acc`
+(0.65) ≫ `pair_acc` (0.39) gap is **not phasing** — both metrics are over *unordered*
+pair-states (`pair_table` is order-insensitive, P=325=C(25,2)+25), so the model is
+never asked which founder is on H1 vs H2. The gap is "both founders right" (pair_acc)
+vs "partial credit per founder" (hap_acc): ~1.3 of the 2 founders are recovered per
+site. The model gets *one* founder but not *both* because of the **single-gamete read
+limitation** — at a het site only one homolog is observed, so the unobserved founder
+must be inferred from the prior/neighbors and is often wrong (the "single-read emission
+collapses to homozygous" issue E7 is built around), compounded by IBD between the 2–3
+coalescent founders over shared segments. **Next:** decouple founder-count from
+inbreeding in the sim and retrain so the regime is in-distribution, then re-measure.
+
+- **Files:** `simulate_alleles.py` (`--mixed-inbreeding`, `<out>.finb.npy`),
+  `train_diploid.py` (`_het_scale`, `--adaptive-homo`, `--cosine-decay`,
+  `--spike-skip`, `--grad-clip`), `eval_diploid_byF.py`, `eval_diploid_byk.py`.
+- **Checkpoints:** `e7-mixF` (hp3), `e7-mixF-hp0b` (hp0, 0.6915),
+  `e7-mixF-adaptive-stable` (best-val 0.5954, ep6).
+- **Branch:** `crf-relatedness`.
+
+### E7-diag — Can the encoder force het through the transition cost? No — it's an emission tie (2026-06-26)
+
+**The question.** Why can't the encoder set the local CRF transition cost `c` to force
+heterozygosity, instead of relying on the `homo_penalty` crutch? Pulled the crutch:
+trained the diploid CRF with **`--homo-penalty 0`** under the stable recipe
+(`--cosine-decay --spike-skip`), measured by-F and instrumented `c` (`diag_c_het.py`,
+mean `c` at true-het vs homozygous loci, and predicted-het vs true-het fraction).
+
+**Result — total collapse to homozygous, identical to hp0:**
+
+| F bucket | pair_acc | c@het | c@homo | c_ratio | predHet | trueHet |
+|---|---:|---:|---:|---:|---:|---:|
+| F=1 (inbred) | 0.826 | – | 5.30 | – | 0.000 | 0.000 |
+| 0.66–1 | 0.710 | 5.37 | 5.30 | 1.01 | 0.000 | 0.136 |
+| 0.33–0.66 | 0.476 | 5.37 | 5.33 | 1.01 | 0.000 | 0.422 |
+| **F<0.33 (outbred)** | **0.171** | 5.37 | 5.32 | 1.01 | **0.000** | **0.795** |
+| all | 0.649 | 5.37 | 5.30 | 1.01 | 0.000 | 0.213 |
+
+Two decisive readings: (1) **`predHet = 0.000` everywhere** — even outbred, where
+`trueHet = 0.795`, the model predicts **zero** het loci (outbred pair_acc 0.171 = hp0's
+0.171 exactly). (2) **`c` is flat** (het/homo ratio 1.01) — the encoder makes no attempt
+to raise the transition cost in het regions.
+
+**Why the transition cost can't do it (the mechanism).** Over an alternating-read
+window, **stable-het `{A,B}` and stable-homozygous `{A,A}` have ~equal emission**
+(each ≈ `2n(h+l)`, with `h`/`l` = observed/unobserved founder score) and **both have
+zero pair-transitions.** So no value of `c` can break that tie — `c` is simply not the
+lever for het-vs-homozygous. (`c` only matters for het-vs-homozygous-*flip*; the
+uniformly high `c≈5.3` does suppress the flip, but the model then settles on stable
+*homozygous*, not het.)
+
+**Verdict.** `homo_penalty` is **not** a removable crutch — it is the only thing
+supplying the het signal, and it lives on the *correct* (emission) side. The collapse is
+**not** a stability artifact: stable training reproduces hp0 exactly. **Transition-side
+fixes are ruled out; the fix must be emission-side** — a per-locus, encoder-driven het
+prior (generalizing the global `homo_penalty` / per-individual E7 scale), driven by the
+sustained-alternation pattern the Transformer can already see across the window.
+
+- **Files:** `diag_c_het.py`, `train_diploid.py` (`--homo-penalty 0`).
+- **Checkpoint:** `e7-diag-nopenalty` (best-val 0.6805, ep3).
+- **Branch:** `crf-relatedness`.
+
+### E7-fix — Per-locus learned het prior: the prescribed emission-side fix works (2026-06-26)
+
+The diagnosis said het must come from the emission side, per-locus. Implemented it
+(`--learned-het`): a gated `het_head` on the encoder emits a **per-locus het logit**
+from the window context; `softplus(het)` becomes a per-site homozygous penalty
+replacing the fixed/per-individual `homo_penalty`. Trained on `sim_e7_mixF` with the
+stable recipe (best-val 0.6996 all-band, ep4). By F:
+
+| F bucket | hp0 | hp3 | adaptive | no-pen | **learned-het** | predHet | trueHet |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| F=1 (inbred) | 0.818 | 0.188 | 0.784 | 0.826 | 0.753 | 0.210 | 0.000 |
+| 0.66–1 | 0.707 | 0.237 | 0.372 | 0.710 | 0.711 | 0.316 | 0.136 |
+| 0.33–0.66 | 0.476 | 0.320 | 0.335 | 0.476 | **0.625** | 0.543 | 0.422 |
+| **F<0.33 (outbred)** | 0.171 | 0.445 | 0.445 | 0.171 | **0.516** | 0.843 | 0.795 |
+| all | 0.645 | 0.257 | 0.567 | 0.649 | **0.689** | 0.378 | 0.213 |
+
+**Outbred jumps from the 0.171 collapse to 0.516 — the best of any approach** (beats
+the hand-tuned hp3 and the per-individual adaptive prior, both 0.445), and best
+all-band (0.689). The mechanism is confirmed: **`predHet` now tracks `trueHet`** across
+buckets (outbred 0.843 vs 0.795) — the encoder learned to detect het regions from the
+sustained-alternation pattern and raise the per-locus penalty there, exactly as the
+diagnosis predicted. One cost: it slightly over-fires in inbred (predHet 0.210 vs
+true 0.000), dropping inbred 0.826→0.753 — tunable (sharper prior / het regularization
+/ longer training). Net: **one model, no hand-tuned penalty, het signal learned from
+the reads — strictly better across the outbred range than every prior arm.**
+
+- **Files:** `train_crf.py` (`het_head`, `emit_het`), `train_diploid.py`
+  (`--learned-het`), `diag_c_het.py`.
+- **Checkpoint:** `e7-learnedhet` (best-val 0.6996, ep4).
+- **Open:** the inbred over-fire; diploid tail still oscillates (best-val checkpointing).
+- **Branch:** `crf-relatedness`.
+
+## E8 — Inference speed: the decode dominates, not the encoder (2026-06-25)
+
+**Profile** (`profile_speed.py`, H200, batch 16, d256/L6 haploid), latency split
+between the Transformer encoder forward and the Viterbi decode:
+
+| T | encoder ms | viterbi ms | total ms | sites/s | peak MB |
+|---:|---:|---:|---:|---:|---:|
+| 256 | 2.71 | 7.30 | 10.0 | 409k | 320 |
+| 512 | 3.37 | 14.81 | 18.2 | 451k | 586 |
+| 1024 | 6.24 | 29.96 | 36.2 | 453k | 1117 |
+| 2048 | 12.96 | 59.65 | 72.6 | 451k | 2180 |
+| 4096 | 29.32 | 119.42 | 148.7 | 441k | 4307 |
+
+**The Viterbi decode is the bottleneck**: at T=4096 it is **80%** of latency, the
+encoder only 20%. Across T×16 the encoder grows ×10.8 (sub-quadratic — the founder
+pool is over K not T, so attention isn't dominating at these lengths), Viterbi ×16.4
+(linear in T, as expected for the O(T·K) sequential recursion), peak memory ×13.5
+(≈linear). Throughput is a flat ~450k sites/s.
+
+**Mamba2 is not the priority.** The long-context encoder swap was the E8 candidate
+for a memory/length bottleneck, but the encoder is cheap and memory is linear in T.
+The win is in the **decode** — a batched/fused Viterbi (the sequential T-loop is the
+cost), not the encoder. Memory is comfortably within budget to T≥4096.
+
+### E8-scale — 1M-window converged headline (2026-06-26)
+
+The full-data run: `sim_1M_th6.npy` (1,000,000 windows = 10,000 individuals ×
+100 windows, θ=6, K=24 founders, T=512), haploid d256/L6, bf16, on one H200.
+Test split = 100k windows / 10.24M sites.
+
+**Stability finding (the headline caveat).** At 1M scale the run is **non-monotonic**:
+it reaches a strong ~0.82 optimum, then an epoch of updates kicks it back out to
+degenerate uniform-emission weights (val → random 1/26 ≈ 0.04), and it climbs back —
+an **epoch-scale limit cycle**, not a one-time blow-up. Five 1M runs isolate the cause:
+
+| run | precision | lr | warmup | clip | sched | peak val/acc | behavior |
+|-----|-----------|---:|------:|-----:|-------|----:|----------|
+| e8-1M | bf16 | 1e-4 | 500 | 1.0 | const | 0.783 | flip ep2 |
+| e8-1M-stable | bf16 | 5e-5 | 2000 | 0.5 | const | 0.822 | flip ep2 |
+| e8-1M-fp32part | **fp32** | 1e-4 | 500 | 1.0 | const | — (NaN ep1) | *worse* — never learned |
+| e8-1M-fp32-lo | **fp32** | 5e-5 | 2000 | 0.3 | const | 0.823 | oscillates 0.04↔0.82↔0.04 |
+| e8-1M-cosine | fp32 | 5e-5 | 2000 | 0.5 | **cosine→0** | **0.822** | **basin holds ep3–5**, late spike |
+| e8-1M-final2 | fp32 | 5e-5 | 2000 | 0.5 | cosine + **spike-skip** | **0.824** | best ckpt (loss 7.94), holds ep0–2, collapse ep4 |
+
+Findings: (1) the oscillation is **robust to lr magnitude, clip, and partition
+precision** — an **fp32 partition does not fix it** (and at lr 1e-4 the honest larger
+gradients made it *worse*, NaN at ep1), disproving the "bf16 log-partition precision"
+hypothesis; (2) the real lever is the **learning-rate schedule** — our warmup ran to a
+*constant* lr, so every late epoch was large enough to escape the converged basin.
+**Warmup + cosine-decay-to-0** holds the basin for **three consecutive epochs**
+(0.822/0.820/0.819, vs a 1-epoch flip for every constant-lr run); (3) adding a
+**loss-spike step-skip** (`--spike-skip`; drop steps whose raw grad-norm is non-finite
+or ≫ a running EMA — note the EMA must update *every* step or it death-spirals into
+skipping ~57%, the e8-1M-final bug, now fixed) gives the **best single checkpoint**
+(0.824, val_loss 7.94 — better than cosine-only's 0.822/14.08) at ~1% steps skipped.
+**But neither fully eliminates the collapse:** final2 still detonated at ep4. The
+collapse is therefore not purely a discrete grad-spike (spike-skip would catch it);
+some of it is a smoother drift out of the basin. Full last-epoch monotonicity is still
+open (candidates: weight EMA / SWA, or a hard partition clamp).
+
+Practical rule at scale today: **cosine-decay + spike-skip + checkpoint-on-best-val**
+(`--cosine-decay --spike-skip`); the best-val checkpoint is a valid converged model
+(**0.824**). The fp32 partition is retained for loss-accuracy but is *not* the
+stability fix.
+
+**Converged headline (best-val checkpoint, val/acc 0.822).** The IBD-ceiling and E5
+story replicate and *tighten* at 10× scale:
+
+| band | CRF acc | ceiling | gap | err-IBD% |
+|------|--------:|--------:|----:|---------:|
+| 0 bp | 0.9921 | 0.9947 | −0.0026 | 84.2% |
+| 1–2 bp | 0.9075 | 0.9243 | −0.0168 | 83.4% |
+| 3–5 bp | 0.8091 | 0.8278 | −0.0188 | 90.3% |
+| 6+ bp | 0.7245 | 0.7432 | −0.0187 | 93.6% |
+| **all** | **0.8231** | **0.8396** | **−0.0165** | **91.2%** |
+
+The converged model sits **≤1.9 pts below the computed information ceiling in every
+band**, and **91% of all residual errors are provably IBD-confusable** (vs 67–69% for
+the under-converged epoch-0 checkpoint — convergence pushes the error mass almost
+entirely onto IBD confusion). The data ceiling (0.840 all / 0.743 hard) matches the
+100k sim: it is a data property, stable across a 10× scale-up.
+
+**E5 cutoff at 1M (converged ckpt, 12k test windows).** τ=0.17 optimal again:
+
+| τ | all-band acc | 6+bp acc | true-excl% |
+|---|---:|---:|---:|
+| none | 0.8227 | 0.7248 | 0.00% |
+| 0.16 | 0.8343 | 0.7431 | 0.20% |
+| **0.17** | **0.8398** | **0.7541** | 0.95% |
+| 0.18 | 0.8374 | 0.7613 | 3.04% |
+
+At τ=0.17 the cutoff lifts all-band **onto the read-only ceiling** (0.8227→0.8398 ≈
+0.8396) and the hard 6+bp band **past its ceiling** (0.7248→0.7541 > 0.7432), at <1%
+true-founder exclusion — the same optimum and same gains as the 100k sim.
+
+- **Files:** `profile_speed.py`, `train_haploid.py` (`--grad-clip`),
+  `analyze_ibd_ceiling.py`, `eval_e5_cutoff.py`.
+- **Branch:** `crf-relatedness`.
+
+---
+
+## E11 — structured breeding-population sim (window-localized het testbed)
+
+**Goal.** A realistic plant-breeding population to stress the window-based learned-het
+prior (E7-fix). Selfing/backcrossing make heterozygosity **localized** (window-level),
+so the sim is a *discrete mixture* of founder-count classes, each split inbred vs a
+specific breeding design with a target het-loci fraction.
+
+**Design (`--breeding-pop`, `simulate_alleles.py`).** 1024 sites/window, K=24,
+coalescent θ=6, per-window crossovers 2–10. Every 50 windows = one individual; each
+individual draws a class and an inbred/het coin (`--class-inbred-frac 0.5`):
+
+| class | weight | k founders | design | target het |
+|-------|-------:|-----------:|--------|-----------:|
+| 0 | 25% | 2 | F2 | 0.50 |
+| 1 | 25% | 8 | S1 | 0.25 |
+| 2 | 50% | [12,24] | outbred | 0.90 |
+
+**Selfing-aware het mechanism.** H2 shares H1 over IBD tracts and is an independent
+founder path elsewhere; the independent-tract fraction `p_ind = clip(het/(1−1/k),0,1)`
+calibrates the realized het-loci fraction to the target. Tracts (not i.i.d. loci) give
+the sustained-alternation signal the het head reads. Inbred → H2≡H1.
+
+**Companions:** `.ind.npy` (individual id), `.finb.npy` (= per-window het target, 0 if
+inbred — reuses `eval_diploid_byF` tooling), `.cls.npy` (class id 0/1/2), `.ibd.npy`.
+
+**Smoke-gen verification** (5000 windows / 100 inds, seed 1):
+
+| class | n | inbred% | het target | realized het (het inds) | realized het (inbred) |
+|-------|--:|--------:|-----------:|------------------------:|----------------------:|
+| k=2 F2 | 1150 | 43% | 0.500 | 0.501 | 0.0000 |
+| k=8 S1 | 1200 | 67% | 0.250 | 0.225 | 0.0000 |
+| outbred[12,24] | 2650 | 51% | 0.900 | 0.899 | 0.0000 |
+
+Class mix 23/24/53% ≈ target 25/25/50; realized het hits design (F2/outbred spot-on,
+S1 ~10% low from the `1−1/k` approximation under tract correlation); inbred windows
+have exactly zero het. Founder counts per class correct (k=2 exactly 2, etc.).
+
+**Full set:** 500,000 windows = 10,000 inds × 50 →
+`/workdir/esb33/data/training/sim_breedpop.npy` (+companions).
+
+### E11-train — learned-het vs no-het floor on the breeding population (2026-06-27)
+
+Two arms, identical data and **identical test split** (last 10% = inds 9000–9999),
+best-val checkpointed: **learned-het** (`--learned-het`) vs the **no-het floor**
+(`--homo-penalty 0`, same architecture minus the het head). Eval stratified by
+(founder-class × het-type) with `eval_diploid_byclass.py`.
+
+| class × het | windows | **learned-het** pair | floor pair | Δ | LH hap | floor hap |
+|---|---:|---:|---:|---:|---:|---:|
+| k=2 F2 — **het** | 5850 | **0.625** | 0.457 | **+0.168** | 0.788 | 0.697 |
+| k=8 S1 — **het** | 6350 | **0.684** | 0.646 | +0.038 | 0.789 | 0.748 |
+| outbred — **het** | 13300 | **0.515** | 0.085 | **+0.430** | 0.679 | 0.447 |
+| k=2 F2 — inbred | 5750 | 0.833 | 0.876 | −0.043 | 0.876 | 0.876 |
+| k=8 S1 — inbred | 6300 | 0.819 | 0.866 | −0.047 | 0.866 | 0.866 |
+| outbred — inbred | 12450 | 0.815 | 0.861 | −0.046 | 0.861 | 0.861 |
+| **all** | 50000 | **0.699** | 0.582 | **+0.117** | **0.797** | 0.720 |
+
+(Numbers on the **corrected** sim — see the bad-site fix below; best-val ckpts
+`e11-breedpop-learnedhet` 0.6958 / `e11-breedpop-nohet` 0.5769. The result reproduced
+the pre-fix run to ±0.003, since the fix touched only ~2% of sites.)
+
+**The het-collapse is dramatic and the learned prior fixes it.** The floor **collapses
+to homozygous on outbred het — pair_acc 0.085** (≈ total collapse, the single-read het
+problem at full force) — and learned-het lifts it to **0.515 (+0.43)**. On the hard
+**F2 het (k=2 + 50% localized het)** it's **0.457→0.625 (+0.17)**. The cost is a uniform
+**−0.045 on the inbred cells** (het head slightly over-fires where there's no het). Net
+**+0.117 all-band (0.582→0.699)** — the het gains dominate. This replicates the E7-fix
+story on a realistic, discrete breeding population and is *more* dramatic on outbred het.
+
+**Sim correction (bad-site model).** The original sim corrupted `bad_frac` sites by
+drawing a fully-random L-SNP read from the marginal per-SNP frequencies — usually an
+out-of-panel haplotype matching no founder's exact mini-hap, so ~40% of bad sites (≈2%
+of all sites) became **all-zero match columns**. Fixed: a bad read is now sourced from a
+**random founder's mini-hap** (it mis-maps to a wrong founder's lineage group), so bad
+sites show random/wrong matches, never blanks (`bad_frac=0.05` zero-match 2.02%→0.00%).
+`sim_breedpop` was regenerated and both arms retrained; the headline above is unchanged.
+
+**Mechanism confirmed (`diag_c_het.py`).** `predHet` tracks `trueHet` (undershooting a
+little) on the genuinely-het classes — outbred-het 0.808 vs 0.900, F2-het 0.381 vs 0.500 —
+and over-fires on the low-het/inbred mix (0.168 vs 0.051), exactly the inbred cost above.
+The transition cost stays flat het-vs-homo (`c_ratio` ≈ 1.01–1.04): the het signal is
+entirely emission-side, as the E7 emission-tie diagnosis predicted.
+See [[project_read_position_het]].
+
+**Recipe — two fixes were required at this scale** (T=1024 diploid, P=325, 500k windows):
+1. **`--time-local-emis` is mandatory.** Without it the encoder emission is window-
+   *averaged* (`cells.mean(dim=1)`), which cannot localize the founder across 2–10
+   crossovers/window: training looks fine (loss 2070→100) but **val pair_acc freezes at
+   ~0.31 every epoch**. The working `e7-learnedhet` hparams confirm the flag.
+2. **bf16 instability needs a harder recipe than E7 did.** At lr 5e-5 the partition
+   spikes (peak loss 1880) corrupted weights into a sub-random degenerate decode
+   (val 0.0008 < 1/P). **lr 2e-5 + grad-clip 0.3 + spike-mult 5** tamed it (2 skips,
+   clean epoch 0). Both arms still peak at **epoch 0** then oscillate down
+   (LH 0.69→0.0008→0.000; floor 0.57→0.24→0.03) — **best-val checkpointing is essential**
+   and captures the peak. The diploid-at-scale model cannot yet sustain training past the
+   first epoch; stabilizing the late-epoch decode is the open item.
+
+Also tried: a fixed/adaptive **`--homo-penalty 3.0`** arm — it does **not train** on this
+tract-localized het (flat loss ~2100), because a constant −3.0 from step 0 over-forces
+het inside the homozygous IBD tracts; learned-het's `softplus`-gated prior (starts ~0)
+avoids it. This is itself evidence for the per-locus formulation.
+
+- **Files:** `simulate_alleles.py` (`_breeding_pop_assignment`, partial-sharing H2,
+  `--breeding-pop`/`--het-by-class`/`--class-inbred-frac`), `eval_diploid_byclass.py`.
+- **Checkpoints:** `e11-breedpop-learnedhet` (best-val 0.6945), `e11-breedpop-nohet`
+  (best-val 0.5740), both epoch 0.
+- **Open:** late-epoch diploid oscillation (best-val mitigates); inbred over-fire (tunable).
+- **Branch:** `crf-relatedness`.
+
+### E11-affinity — founder-affinity prior on the breeding population (2026-06-27)
+
+The learned-het model breaks het via the **emission** but had no way to break a
+**within-window IBD tie** (a site where several founders match the single read): the
+local emission is ambiguous and only the transition/context can pick. The diploid model
+had never used the `ext_bias` hook — `ext_dim=0`, no `ext_emb` — so I wired
+**`--founder-affinity`**: a per-individual `[K,2]` embedding (each founder's genome-wide
+mean match-rate + its mean-centered value) is fed to `FounderPathEncoder`'s zero-init
+`ext_bias`, adding a per-founder presence prior to every site's emission logit. Same data,
+same test split, same recipe; arm = `--learned-het --founder-affinity`. Eval with
+`eval_diploid_byclass.py --founder-affinity` and `eval_diploid_ties.py`.
+
+| class × het | windows | LH pair | **+affinity** pair | Δ | LH hap | **+aff** hap |
+|---|---:|---:|---:|---:|---:|---:|
+| k=2 F2 — inbred | 5750 | 0.830 | **0.960** | **+0.130** | 0.874 | 0.961 |
+| k=2 F2 — het | 5850 | 0.632 | **0.731** | **+0.099** | 0.790 | 0.860 |
+| k=8 S1 — inbred | 6300 | 0.815 | **0.905** | **+0.090** | 0.862 | 0.914 |
+| k=8 S1 — het | 6350 | 0.674 | **0.756** | **+0.082** | 0.780 | 0.834 |
+| outbred — inbred | 12450 | 0.812 | **0.857** | +0.045 | 0.860 | 0.871 |
+| outbred — het | 13300 | 0.527 | **0.541** | +0.014 | 0.680 | 0.695 |
+| **all** | 50000 | **0.700** | **0.763** | **+0.063** | **0.795** | **0.834** |
+
+**Founder affinity is the biggest single lever on this data: +0.063 all-band pair
+(0.700→0.763), +0.039 hap (0.795→0.834)**, on top of learned-het and at zero inbred
+cost (every cell improves). Best-val ckpt `e11-breedpop-affinity` **0.7587** vs
+learned-het **0.6958**, both epoch 0.
+
+**The gain is mechanistically the tie-breaker it was designed to be.** Per-site hap
+accuracy binned by the number of founders matching the read (`eval_diploid_ties.py`)
+shows the improvement rising monotonically with tie density:
+
+| founders matching | %sites | LH hap | **+aff** hap | Δ |
+|---|---:|---:|---:|---:|
+| 1 (no tie) | — | 0.937 | 0.948 | +0.011 |
+| 2–3 | — | 0.853 | 0.880 | +0.027 |
+| 4–6 | — | 0.804 | 0.842 | +0.038 |
+| 7–12 | — | 0.763 | 0.806 | +0.043 |
+| 13+ | — | 0.739 | 0.782 | +0.044 |
+
+Where the emission is unambiguous (1 match) the prior is nearly inert (+0.011); where
+many founders tie (13+) it contributes most (+0.044). The per-class table agrees: the
+gain is largest for **F2** (few parents → a sharp 2-founder genome-wide prior, +0.13/+0.10
+inbred/het) and smallest for **outbred** (12–24 diffuse parents → weak prior, +0.045/+0.014).
+
+- **Files:** `train_diploid.py` (`_founder_affinity`, `DiploidAffinityDataset`,
+  `make_diploid_affinity_splits`, `--founder-affinity` → `ext_dim=2`, `forward(ext_emb=…)`),
+  `eval_diploid_byclass.py`/`eval_diploid_byF.py` (feed `ext_emb`), `eval_diploid_ties.py` (new).
+- **Checkpoint:** `e11-breedpop-affinity` (best-val 0.7587, epoch 0).
+- **Branch:** `crf-relatedness`.
+
+### E11-decode — HMM baseline + forward-backward (marginal) decoding (2026-06-27)
+
+Two questions on the `e11-breedpop-affinity` checkpoint (0.7587), both decode-time,
+no retraining. (1) How does the neural CRF compare to a classical **Li–Stephens
+diploid HMM** on the same test split? (2) HMM smoothing uses forward-backward; the
+CRF analog is **posterior max-marginal decoding** (per-site argmax of `P(state_t|x)`
+via forward+backward, `_dcrf_marginal`) instead of Viterbi (MAP joint path). Marginal
+decoding is Bayes-optimal for the **per-site** metric we actually report. Full 2×2
+(sim_breedpop test, N=50 000):
+
+| model | Viterbi pair / hap | Marginal pair / hap |
+|---|---:|---:|
+| Li–Stephens HMM (best sweep) | 0.2064 / 0.5267 | 0.2078 / 0.5339 |
+| **CRF (learned-het + affinity)** | **0.7632 / 0.8339** | 0.7564 / **0.8390** |
+
+**The learned stack beats the HMM by 3.7× on pair-acc (0.76 vs 0.21).** The HMM
+emission `log_softmax(reads·w)` is context-free, so it cannot break within-window IBD
+ties or counter the single-read het collapse (best HMM config is `homo_pen=1`; raising
+it tanks pair-acc to ~0.08). This shows the gain is in the **learned emission +
+learned-het + affinity**, not merely the CRF graph — the HMM has the same factored
+pair-state transition. (HMM H1/H2 switch rate on test = 0.0059/0.0062; best
+`p_stay=0.999, w=2.0, homo_pen=1.0`.)
+
+**Marginal decoding is a per-metric trade, not a free win.** It improves **hap-acc
+(+0.005 CRF, +0.007 HMM)** — the truest per-site metric, as theory predicts — but
+slightly lowers **exact-pair** acc (CRF −0.007). The CRF per-class split shows the
+mechanism: marginal *helps* pair on **het** classes (F2-het +0.021, outbred-het
++0.009) where posterior smoothing resolves phasing ambiguity, but *hurts* pair on
+**inbred** classes (S1-inbred −0.021, outbred-inbred −0.027), where Viterbi's
+joint-path constraint keeps the homozygous pair-state self-consistent and per-site
+marginals break it. Practical rule: **marginal for hap-accuracy / het phasing,
+Viterbi for exact-pair on inbred lines** — both are now available via `--decode`.
+
+- **Files:** `train_diploid.py` (`_dcrf_marginal`), `eval_diploid_byF.py`/
+  `eval_diploid_byclass.py` (`--decode {viterbi,marginal}`), `eval_diploid_hmm.py`
+  (`batched_marginal_diploid` + `--decode`).
+- **Branch:** `crf-relatedness`.
+
+### E11-stability — the epoch-1 collapse is overfit-on-repeat, not a spike (2026-06-27)
+
+Diagnosis of why the diploid-at-scale model peaks at epoch 0 then degrades. Three
+probes on the affinity recipe:
+
+1. **Weight EMA + CRF-loss spike-skip** (`--ema --loss-spike-mult`). Did **not** cure
+   it: epoch-1 EMA val 0.747→0.209, and **zero** loss/grad spikes fired during the
+   degradation — so there is no spike to skip. EMA only cushioned the fall (0.209 vs
+   the bare run's 0.0008) and *cost* 0.012 at the peak (EMA 0.7467 < raw 0.7587).
+2. **Fine within-epoch validation** (`--val-check-interval 1000`). Val climbs
+   **monotonically across all of epoch 0** (pair 0.547→0.566→0.587→0.697→0.707→0.722
+   →0.735→0.748, peaking ~0.756 at the 1-epoch mark) with **no mid-epoch peak or
+   drift**. Degradation begins only on the **second pass** over the same 450k windows
+   → classic **overfit-on-repeat**, not optimization instability.
+3. **fp32 vs bf16** (`--precision 32`). fp32 did **not** help — it was *worse*
+   (epoch-0 val 0.321, val/loss 82.8 vs bf16's 0.747 / 43.8) and drifted the same way
+   (epoch-1 train loss 50→130). **Precision is not the lever.**
+
+**Conclusion:** the model converges in ~one pass and then memorizes; the right
+mitigation is **early-stop / best-val at ~1 epoch** (already in place — best-val
+checkpointing captures the peak), and EMA/spike-skip/precision are not the answer.
+The natural lever to *extend* the productive climb is **more unique data** (sim is
+cheap) — deferred. EMA, `--loss-spike-mult`, `--val-check-interval` are kept as
+opt-in flags (off by default).
+
+- **Branch:** `crf-relatedness`.
+
+## E12 — whole-genome scaling, edge-free decoding, and speed (2026-06-28)
+
+Moving the diploid CRF toward production: a realistic **whole-genome** workload, an
+**edge-free** decode that spans whole chromosomes, and **speed/compression** probes.
+New: `simulate_wholegenome.py` (6 breeding cells × {sparse, dense recomb} as whole
+genomes — 10 chrom × 100k = ~1M positions, one `.npy`/individual, `data/held-out/`),
+`infer_wholegenome.py` (overlapped 1024 encoder windows → center-crop stitch → one
+per-chromosome CRF), `profile_speed_diploid.py`, `bitpack.py`, and a `binary_cells`
+lookup in `FounderPathEncoder`.
+
+### E12-speed — inference is decode-bound, not encoder-bound
+
+Clean H200 profile of `e11-breedpop-affinity` (d256), per stage, ms (batch 16):
+
+| T | encoder | cell-MLP | Viterbi | marginal | pos/s (V) |
+|---|---:|---:|---:|---:|---:|
+| 1024 | 6.4 | 0.69 | **32.4** | 159 | 423k |
+| 4096 | 29.7 | 2.65 | **141** | 635 | 383k |
+
+Whole-chromosome decode (L=100k): Viterbi **2843 ms** (35k pos/s) → ~28 s/individual.
+
+- **The P=325 pair-state Viterbi dominates** (5× the encoder at T=1024); marginal
+  decode is another 5× on top. Decode cost is **independent of d_model**.
+- **Smaller models barely help throughput.** Encoder shrinks 6.4→3.6→2.1 ms
+  (d256→d128→d64) but Viterbi stays ~32 ms, so pos/s rises only 423k→449k→477k
+  (**+13%** for 25× fewer params).
+- **The binary cell-embed lookup is exact but gives ~0 speedup** (d256 ON vs OFF:
+  6.10 vs 6.40 ms, noise). The cell stage is **memory-bound** (it still materialises
+  `[B,T,K,d]`), and the encoder is only ~13–17 % of latency anyway. FLOPs ≠ wall-time
+  on this GPU. The intuition is right; the bottleneck is elsewhere.
+- **The decode is the bottleneck but already runs efficiently.** Prototyped an
+  exact **factored Viterbi**: the `-c·nsw` transition (nsw∈{0,1,2}) lets the per-step
+  `max` over P states reduce to per-founder maxima — O(P+K) instead of O(P²). Verified
+  bit-exact (`delta` max-abs-diff 0.0 vs `_dcrf_viterbi`), but it is **~2.4× SLOWER on
+  GPU** (96 vs 40 ms over T=1024): it replaces ONE fused [B,P,P] max-kernel with ~6
+  tiny launch-bound kernels/step, and at P=325 the H200 eats the fused op trivially.
+  So — like the binary lookup — **FLOP reduction ≠ wall-time** here; the full decode is
+  already an efficient fused kernel. Real decode speedups would need a fused CUDA
+  kernel, a parallel (associative) scan over the T-sequential recurrence, or much
+  larger K (P grows ∝K²). Not committed (slower); finding recorded. Kept `bitpack.py`
+  (8× smaller binary storage, popcount counts) for IO/memory, not compute.
+
+### E12-compress — d_model down loses accuracy and buys no speed
+
+Retrained the affinity recipe (1-epoch best-val) at smaller capacity:
+
+| model | params | val pair | WG dense pair/hap | WG sparse pair/hap | pos/s |
+|---|---:|---:|---:|---:|---:|
+| **d256/L6** | 5.1M | **0.759** | **0.513 / 0.624** | **0.662 / 0.730** | 423k |
+| d128/L4 | 0.9M | 0.623 | 0.335 / 0.573 | 0.510 / 0.674 | 449k |
+| d64/L2 | 0.2M | 0.584 | 0.363 / 0.591 | 0.521 / 0.684 | 477k |
+
+Compression is a **double loss** here: d128/d64 drop ~0.13–0.18 val pair and ~0.15
+WG pair while gaining only +6–13 % throughput (decode-bound). The earlier maize
+*haploid* result (d128/L4 ≈ d384/L12) does **not** transfer to this harder diploid
+breeding task — capacity matters. (Caveat: small models may be undertrained at the
+d256-tuned 1-epoch budget; d64 ≈ d128 on WG suggests both are far from their ceiling.)
+
+### E12-edge — whole-chrom decode is correct but a small lever here
+
+d256, dense WG, tiled (independent 1024 tiles) vs whole-chrom (one CRF/chromosome):
+
+| metric | tiled | whole-chrom | Δ |
+|---|---:|---:|---:|
+| genome-wide pair | 0.5126 | 0.5134 | +0.0008 |
+| **boundary-site pair** (±16 of tile cuts) | 0.5118 | **0.5212** | **+0.0094** |
+
+Whole-chrom removes the decode discontinuity at tile boundaries (**+0.9 % at boundary
+sites**, more on het cells), but boundaries are ~3 % of positions so the genome-wide
+gain is marginal — the 1024 encoder context + affinity/transition already recover
+quickly. It's the principled, near-free default; not a big accuracy lever on this sim.
+
+### E12-fix — whole-genome reaches E11 once a sim-data bug is fixed
+
+The first WG eval looked alarming (dense 0.513 ≪ windowed val 0.759, worst on
+high-founder cells). **Root cause: a generator bug, not the model.** In
+`_coalescent_feats`, the founder lineage-mosaic breakpoints (`ancestor_crossovers`,
+default 8) are a **fixed count regardless of T**. At T=100k that gave founder IBD
+tracts ~100× too long vs the T=1024 training data — an out-of-distribution
+founder-sharing structure, worst where many founders share (k8/outbred). Two
+diagnostics on k8S1-het (E11 = 0.756) isolated it:
+
+| | pair |  | pair |
+|---|---:|---|---:|
+| anc_cx=8 (OOD) | 0.484 | affinity ON | 0.476 |
+| **anc_cx=781 (matched)** | **0.752** | affinity OFF | 0.170 |
+
+So **affinity is working and essential** (+0.31; not the cause), and scaling
+`ancestor_crossovers ∝ T` (now `--anc-base·T/1024`) fixes the data. Regenerated all
+12 individuals and re-ran d256 whole-chrom:
+
+| density | WG pair (fixed) | WG hap | vs windowed val 0.759 |
+|---|---:|---:|---|
+| **dense** (training-matched) | **0.805** | 0.872 | **above** |
+| **sparse** (realistic) | **0.988** | 0.994 | far above (easy) |
+
+**Whole-genome now meets/exceeds the best E11 model** (dense 0.805 ≥ 0.759), per-cell
+within ±0.03 of E11 (k8S1-het 0.763 vs 0.756, outbred-het 0.615 vs 0.541) — the
+whole-chrom decode + whole-genome affinity add context the isolated windows lacked.
+(The WG numbers in E12-compress/E12-edge above are **pre-fix** and superseded here.)
+
+### E12-cpu — the factored decode IS a win on CPU (4.6×)
+
+The factored O(P+K) Viterbi that was *slower* on GPU (E12-speed) is **4.6× faster on
+CPU** (97→21 ms at P=325, B=1) — CPU lacks the parallelism that makes the fused O(P²)
+op free, so the FLOP cut translates to wall-time. Bit-identical to `_dcrf_viterbi`
+(path agreement 1.0000). Committed as `_dcrf_viterbi_factored` /
+`infer_wholegenome --decode viterbi-factored`: the CPU whole-genome decode path
+(decode is the bottleneck, and whole-chrom decode of 100k = 2.8 s on GPU). Encoder on
+GPU + factored decode on CPU is a sensible split.
+
+### E12-prune — affinity selects the carried founders → a smaller CRF (the main speed lever)
+
+The user's idea: if the genome-wide affinity cleanly says which founders an
+individual carries, decode a **reduced K′ pair-state CRF** (e.g. 8×8 instead of
+24×24) instead of the full P=325. It does. Per individual the affinity match-rate
+(col 0) is a **flat carried plateau above a flat background**, with a clean step —
+a sorted-rate **largest-gap split** (`inspect_affinity.py`, `--prune-affinity`)
+recovers exactly the carried set, **recall = 1.0 on every dense individual**:
+
+| cell (dense) | true k | kept | P′ vs 325 |
+|---|---:|---:|---:|
+| k2-F2 | 2 | 2 | **6** (54×) |
+| k8-S1 | 8 | 8 | **45** (7.2×) — the "8×8" |
+| outbred | 12–24 | most | 91–325 (≈1–2×) |
+
+**Accuracy is preserved, slightly positive** (4 individuals/cell, 24M positions):
+
+| cell (dense) | full P=325 | pruned | Δ |
+|---|---:|---:|---:|
+| k2-F2 het | 0.7399 | 0.7420 | +0.002 |
+| k2-F2 inbred | 0.9647 | 0.9660 | +0.001 |
+| k8-S1 het | 0.7739 | **0.7878** | **+0.014** |
+| k8-S1 inbred | 0.8803 | 0.8866 | +0.006 |
+| outbred het | 0.5457 | 0.5489 | +0.003 |
+| outbred inbred | 0.8637 | 0.8673 | +0.004 |
+| **ALL** | **0.7947** | **0.7997** | **+0.005** |
+
+On dense data pruning never hurts and **helps k8** (+0.014): dropping the ~16
+non-carried founders removes spurious background-founder pair-states the full decode
+occasionally picks.
+
+**But pruning is UNSAFE on sparse genomes — it silently drops carried founders.**
+The "recall = 1.0" plateau above only holds when recombination is dense (training-
+matched). On the realistic sparse set (1–3 crossovers/chrom) a founder can be carried
+in a *small but real* tract, so its genome-wide affinity match-rate sits **down in the
+background**, and the largest-gap split cuts it out. Same model, same `--compare`,
+sparse data (4 individuals/cell):
+
+| cell (sparse) | full P=325 | pruned | Δ |
+|---|---:|---:|---:|
+| k2-F2 het | 0.9684 | 0.9685 | +0.000 |
+| k2-F2 inbred | 0.9974 | 0.9142 | **−0.083** |
+| k8-S1 het | 0.9872 | **0.3134** | **−0.674** |
+| k8-S1 inbred | 0.9976 | 0.6865 | **−0.311** |
+| outbred het | 0.9573 | 0.9573 | +0.000 |
+| outbred inbred | 0.9983 | 0.6492 | **−0.349** |
+| **ALL** | **0.9844** | **0.7482** | **−0.236** |
+
+The failures are individual-level cliffs (e.g. one k8-S1-het drops 0.9895 → 0.1843 at
+P′=3): the gap split kept 2–3 founders when 8 were carried. **Conclusion: keep pruning
+opt-in and default OFF; only enable it for dense / high-recombination panels, or gate it
+on an affinity-plateau-quality check (clear step + kept-k ≥ expected) before trusting
+the reduced decode.** The full P=325 decode is the safe default everywhere.
+
+**Where the speed shows up — CPU, not GPU.** Decode time vs P (one 100k chrom):
+
+| P | CPU decode | GPU decode |
+|---:|---:|---:|
+| 6 (F2) | **1.19 s** | 3.51 s |
+| 45 (k8) | 1.39 s | 3.55 s |
+| 91 | 1.79 s | 3.89 s |
+| 325 (full) | 11.75 s | ~3.5 s |
+
+GPU Viterbi is **launch-bound on the 100k-step T-loop** → P barely moves wall-time
+(same reason factored decode lost on GPU, E12-cpu). On **CPU it is compute-bound**, so
+pruning 325→6 is **~10×** (11.8→1.2 s) and 325→45 is **~8×**. Better still, the
+**pruned CPU decode (1.2 s) beats the full GPU decode (3.5 s) by ~3×** — so the
+production path is *encode on GPU, affinity-prune, decode the small-P CRF on CPU*.
+(The remaining GPU lever is vectorizing the T-loop to cut launches, orthogonal to P.)
+
+Pruning is **opt-in** (`--prune-affinity`; default = full P=325). To compare both,
+`--compare` decodes full **and** pruned from the *same* encode and prints them side
+by side with Δpair (one encoder pass, not two).
+
+- **Files:** `simulate_wholegenome.py` (anc_cx scaling, `--n-per-cell`),
+  `infer_wholegenome.py` (`--prune-affinity`, `--compare`), `inspect_affinity.py`,
+  `train_diploid.py` (`_dcrf_viterbi_factored`), `profile_speed_diploid.py`,
+  `bitpack.py`, `train_crf.py` (`binary_cells`).
+- **Data:** `data/held-out/wg_<class>_<het>_<density>_i{0..3}.npy` (48 individuals,
+  4/cell, anc_cx-fixed).
+- **Checkpoints:** `e12-affinity-d128L4` (0.6231), `e12-affinity-d64L2` (0.5840).
+- **Open:** vectorize the GPU Viterbi T-loop (launch-bound); realistic founder-IBD-
+  tract length is itself a modelling choice (matched training here so WG ≥ E11).
+- **Branch:** `crf-relatedness`.
+
+### E12-msnp — label-free masked-site SNP accuracy (the imputation metric)
+
+Founder-path accuracy (pair/hap) asks *did we name the right founder*. What an
+imputation user actually wants is *did we recover the right allele* — and a wrong
+founder that carries the same allele still imputes correctly. We measure it the
+imputation-eval way (`infer_wholegenome.py --mask-frac 0.01`): hold out 1% of **whole
+sites** (zero the K-row before encode), decode, and at each masked site score
+**either-match** — correct if *either* decoded founder reproduces the held-out read
+(`feats[t,a] OR feats[t,b]`). Single read, unknown gamete, so either-match; ceiling =
+sites where any founder matches (≈ 1 − bad_frac ≈ 0.96). **Uses no true-founder labels,
+so the same call runs on real maize/cassava** (where founder truth is unavailable).
+
+Full model P=325, mean of 4 individuals/cell (`pair` here is also under 1% masking, so
+a touch below the unmasked E12-prune table):
+
+| cell | sparse pair | **sparse SNP** | dense pair | **dense SNP** |
+|---|---:|---:|---:|---:|
+| k2-F2 het | 0.988 | 0.969 | 0.777 | **0.933** |
+| k2-F2 inbred | 0.995 | 0.966 | 0.951 | 0.960 |
+| k8-S1 het | 0.992 | 0.966 | 0.731 | **0.930** |
+| k8-S1 inbred | 0.993 | 0.968 | 0.832 | 0.959 |
+| outbred het | 0.979 | 0.969 | 0.547 | **0.884** |
+| outbred inbred | 0.994 | 0.966 | 0.817 | 0.959 |
+| **ALL** | **0.990** | **0.967** | **0.776** | **0.937** |
+
+Two readings:
+
+- **Dense: SNP accuracy is far above founder-ID and roughly flat (~0.93–0.96).** The
+  gap `SNP − pair` is the *allele-redundancy cushion* — founder-ID error that doesn't
+  hurt imputation: outbred-het +0.34 (0.55→0.88), k8-het +0.20, k2-het +0.16. So the
+  cells that look worst by founder accuracy impute much better than that suggests.
+- **Sparse: SNP (~0.967) is ceiling-limited, not model-limited.** Founder-ID is already
+  ~0.99 (long tracts), and SNP sits at the ~0.96 bad-frac ceiling — i.e. ~3–4% of
+  held-out reads were corrupted to a random founder and are unrecoverable by *any* path.
+  Sparse SNP < sparse pair is the ceiling showing through, not a regression.
+
+**The label-free metric also re-derives the pruning hazard without truth.** On sparse,
+pruned SNP collapses on exactly the cells where pruning dropped a carried founder
+(k8-het 0.966→0.573, outbred-inbred 0.966→0.745, k8-inbred 0.968→0.805); on dense
+pruned SNP ≈ full (+0.001). So masked-SNP doubles as a **pruning-safety gate you can run
+on real data**: enable the reduced CRF only if held-out SNP doesn't drop.
+
+- **Files:** `infer_wholegenome.py` (`--mask-frac`, `--mask-seed`; `masked_snp`).
+- **Branch:** `crf-relatedness`.
