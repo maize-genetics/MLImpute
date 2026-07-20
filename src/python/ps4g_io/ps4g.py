@@ -45,7 +45,11 @@ def load_ps4g_file(ps4g_file):
         pd.DataFrame: DataFrame containing the PS4G data.
     """
     logging.info(f"Loading PS4G file {ps4g_file}")
-    ps4g = pd.read_csv(ps4g_file, delimiter="\t", comment="#")
+    # Force gameteSet/refContig to string: pandas otherwise infers gameteSet as int64
+    # whenever every row happens to reference a single gamete (no comma), and
+    # refContig as int64 whenever contig names are purely numeric (e.g. "1", "2"),
+    # both of which are common, valid PS4G shapes.
+    ps4g = pd.read_csv(ps4g_file, delimiter="\t", comment="#", dtype={"gameteSet": str, "refContig": str})
     ps4g['gameteSet'] = ps4g['gameteSet'].apply(lambda x: list(map(int, x.split(','))))
     return ps4g
 
