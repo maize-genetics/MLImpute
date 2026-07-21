@@ -5,6 +5,8 @@ Diploid founder path imputation using neural CRF
 
 import os
 import math
+from pathlib import Path
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -529,6 +531,11 @@ class GRITSCRFModel(pl.LightningModule):
 
         self.log("val/crf_loss", crf_loss, prog_bar=True)
         self.log("val/total_loss", total_loss)
+        self.log("val_total_loss", total_loss)          # slash-free alias so the
+                                                          # ModelCheckpoint filename= token
+                                                          # below actually substitutes
+                                                          # (a "/" in the metric name is a
+                                                          # path separator to Lightning).
         self.log("val/path_acc", path_acc, prog_bar=True)
         self.log("val/mean_gate", g.mean())
 
@@ -558,6 +565,8 @@ class GRITSCRFModel(pl.LightningModule):
 def main():
     # Configuration
     config = {
+        # "workdir": "/path/to/your/workdir",  # UPDATE THIS — per CLAUDE.md convention,
+        "workdir": "/workdir/esb33",  # checkpoints are written to <workdir>/checkpoints/
         # "data_dir": "/path/to/your/data",  # UPDATE THIS
         "data_dir": "/workdir/smm477/ML-data/training",  # UPDATE THIS
         # "train_files": ["train_file1.npy", "train_file2.npy"],  # UPDATE THIS
@@ -641,10 +650,14 @@ def main():
     )
 
     # Callbacks
+    ckpt_dir = Path(config["workdir"]) / "checkpoints" / "legacy-diploid"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/total_loss",
+        dirpath=str(ckpt_dir),
+        monitor="val_total_loss",
         mode="min",
         save_top_k=3,
+        save_last=True,
         filename="grits-crf-{epoch:02d}-{val_total_loss:.3f}"
     )
 
