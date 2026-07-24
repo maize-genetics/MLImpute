@@ -25,11 +25,30 @@ fixed filename, so isn't depth-parameterized), combining two founders' reads,
 a generic outdir-parameterized window() wrapper, and overwriting the two
 label columns with the known constant (idxA, idxB) truth after windowing.
 
+Affinity checkpoint support (ported from tripsacum_diploid.py, same session):
+the original DIPLOID_CKPT (checkpoints/diploid-sim512-h3) is a plain model
+(founder_affinity=False) -- crf/eval.py's evaluate_diploid never threads
+ext_emb for the diploid branch, so naively scoring an affinity checkpoint
+through it silently ignores the affinity signal. evaluate_diploid_with_affinity()
+here is the fix: computes one genome-wide _founder_affinity vector from this
+run's own data (label-free) and broadcasts it as ext_emb to every window --
+the diploid equivalent of the "single real individual, no
+--windows-per-individual grouping" pattern crf/eval.py already documents for
+haploid mode. run_diploid_eval() auto-detects which behavior a checkpoint
+needs via model.founder_affinity. Unlike tripsacum_diploid.py, NAM data is
+natively K=24 (via the K25->K24 trim already done by window()), so there is
+no pad_to_24 step -- the affinity vector is computed directly from the
+windowed data's own 24 feature columns.
+
 Usage:
     /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py list
     /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py one <A> <B> <depth>
     /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py all
     /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py report
+    # affinity-model variants (same args, checkpoints/diploid-affinity-sim512-h3):
+    /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py one-affinity <A> <B> <depth>
+    /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py all-affinity
+    /home/zrm22/mambaforge/envs/phg-ml/bin/python grits_workdir/scripts/nam_diploid.py report-affinity
 """
 import re
 import subprocess
@@ -44,10 +63,16 @@ import nam_baseline as nb  # noqa: E402  (reuse constants/helpers; see module do
 
 DIPLOID_CKPT = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/"
                      "checkpoints/diploid-sim512-h3/last.ckpt")
+AFFINITY_CKPT = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/checkpoints/"
+                      "diploid-affinity-sim512-h3/d-epoch=04-val_pair_acc=0.6179.ckpt")
 
 SCRATCH = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/scratch/nam_diploid")
 RESULTS_TSV = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/results/nam_diploid.tsv")
 RESULTS_MD = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/results/nam_diploid.md")
+AFFINITY_RESULTS_TSV = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/results/"
+                             "nam_diploid_affinity.tsv")
+AFFINITY_RESULTS_MD = Path("/local/workdir/zrm22/HackathonJun2026/grits_workdir/results/"
+                            "nam_diploid_affinity.md")
 
 PY = sys.executable
 THREADS = nb.THREADS
@@ -183,24 +208,75 @@ def write_diploid_labels(k24_npy_path, idxA_k24, idxB_k24, out_path):
     return out_path
 
 
-def run_diploid_eval(data_path, tag, device):
+def evaluate_diploid_with_affinity(model, ds, device, batch_size, num_workers, ext_vec):
+    """Same metric computation as crf/eval.py::evaluate_diploid, but broadcasts one
+    genome-wide affinity vector (this run's own data, via _founder_affinity) to every
+    window -- crf/eval.py already documents and implements this exact "single real
+    individual, no --windows-per-individual grouping" pattern for the HAPLOID case
+    (its module docstring), but never wires ext_emb through for diploid mode at all
+    (confirmed: the diploid branch always calls model(X) with no ext_emb). This is the
+    diploid equivalent, ported from tripsacum_diploid.py (kept local rather than
+    editing the shared crf/ library)."""
+    import torch
+    from torch.utils.data import DataLoader
+    from python.crf.train_diploid import _dcrf_viterbi
+
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False,
+                         num_workers=num_workers, pin_memory=True)
+    pair_correct = hap_correct = total = 0
+    homo_pred = 0
+    ext_t = torch.tensor(ext_vec, dtype=torch.float32, device=device)  # [K,2]
+    for batch in loader:
+        X = batch["input_embeds"].to(device)
+        h1 = batch["h1"].to(device)
+        h2 = batch["h2"].to(device)
+        ext_batch = ext_t.unsqueeze(0).expand(X.shape[0], -1, -1)      # [B,K,2]
+        emis_p, _, c = model(X, None, ext_batch)
+        pred = _dcrf_viterbi(emis_p, c, model.nsw_pair, model.stay_bonus)
+        pair_true = model.pair_table[h1, h2]
+        pair_correct += (pred == pair_true).sum().item()
+        pred_lo, pred_hi = model.pi[pred], model.pj[pred]
+        t_lo = torch.minimum(h1, h2)
+        t_hi = torch.maximum(h1, h2)
+        hap_correct += ((pred_lo == t_lo).sum() + (pred_hi == t_hi).sum()).item()
+        homo_pred += (pred_lo == pred_hi).sum().item()
+        total += pair_true.numel()
+    return {"pair_acc": pair_correct / total, "hap_acc": hap_correct / (2 * total),
+            "homo_pred": homo_pred / total, "n": total}
+
+
+def run_diploid_eval(data_path, tag, device, ckpt_path=DIPLOID_CKPT):
     """In-process reuse of crf/train_diploid.py + crf/eval.py (mirrors how
     nam_baseline.eval_combo imports crf/train_haploid in-process rather than
     shelling out -- avoids eval.py's `from python.crf...` absolute imports
-    needing a subprocess PYTHONPATH/cwd dance)."""
+    needing a subprocess PYTHONPATH/cwd dance). Auto-detects an affinity-trained
+    checkpoint (model.founder_affinity) and computes/feeds its ext_emb accordingly
+    via evaluate_diploid_with_affinity; behaves exactly as before for the plain
+    model. NAM data is natively K=24 (no padding needed, unlike Tripsacum's
+    K18->K24 pad), so the affinity vector is computed directly from the windowed
+    data's own 24 feature columns."""
+    import numpy as np
     import torch
-    from python.crf.train_diploid import GRITSCRFDiploid, make_diploid_splits
+    from python.crf.train_diploid import GRITSCRFDiploid, make_diploid_splits, _founder_affinity
     from python.crf.eval import evaluate_diploid
 
-    model = GRITSCRFDiploid.load_from_checkpoint(str(DIPLOID_CKPT), map_location=device)
+    model = GRITSCRFDiploid.load_from_checkpoint(str(ckpt_path), map_location=device)
     model.eval().to(device)
     _, _, test_ds = make_diploid_splits(str(data_path), num_parents=24,
                                          val_frac=0.0, test_frac=1.0)
     if len(test_ds) == 0:
         return dict(n=0, pair_acc=float("nan"), hap_acc=float("nan"), homo_pred=float("nan"))
-    r = evaluate_diploid(model, test_ds, device, batch_size=128, num_workers=4)
-    print(f"  [{tag}] pair_acc={r['pair_acc']:.4f}  hap_acc={r['hap_acc']:.4f}  "
-          f"homo_pred={r['homo_pred']:.4f}  n={r['n']:,}")
+
+    needs_affinity = getattr(model, "founder_affinity", False)
+    if needs_affinity:
+        feats = np.asarray(np.load(data_path))[:, :, :24]
+        ext_vec = _founder_affinity(feats)  # [K,2], label-free -> safe at inference
+        r = evaluate_diploid_with_affinity(model, test_ds, device, batch_size=128,
+                                            num_workers=4, ext_vec=ext_vec)
+    else:
+        r = evaluate_diploid(model, test_ds, device, batch_size=128, num_workers=4)
+    print(f"  [{tag}] affinity={needs_affinity}  pair_acc={r['pair_acc']:.4f}  "
+          f"hap_acc={r['hap_acc']:.4f}  homo_pred={r['homo_pred']:.4f}  n={r['n']:,}")
     return r
 
 
@@ -209,22 +285,23 @@ RESULT_COLS = ["founderA", "founderB", "depth_per_hap", "n_placed", "n_unplaced"
                "pair_acc", "hap_acc", "homo_pred"]
 
 
-def write_header_if_needed():
-    RESULTS_TSV.parent.mkdir(parents=True, exist_ok=True)
-    if not RESULTS_TSV.exists():
-        RESULTS_TSV.write_text("\t".join(RESULT_COLS) + "\n")
+def write_header_if_needed(results_tsv=RESULTS_TSV):
+    results_tsv.parent.mkdir(parents=True, exist_ok=True)
+    if not results_tsv.exists():
+        results_tsv.write_text("\t".join(RESULT_COLS) + "\n")
 
 
-def already_recorded(a, b, depth):
-    if not RESULTS_TSV.exists():
+def already_recorded(a, b, depth, results_tsv=RESULTS_TSV):
+    if not results_tsv.exists():
         return False
     key = f"{a}\t{b}\t{depth}\t"
-    with open(RESULTS_TSV) as f:
+    with open(results_tsv) as f:
         return any(line.startswith(key) for line in f)
 
 
-def run_one(founders, a, b, depth, device, force=False):
-    if not force and already_recorded(a, b, depth):
+def run_one(founders, a, b, depth, device, force=False, ckpt_path=DIPLOID_CKPT,
+            results_tsv=RESULTS_TSV):
+    if not force and already_recorded(a, b, depth, results_tsv=results_tsv):
         print(f"[{a}x{b}@{depth}] already in results TSV, skipping entirely")
         return
 
@@ -279,20 +356,20 @@ def run_one(founders, a, b, depth, device, force=False):
             raise RuntimeError(f"{name}: expected 100% het by construction, got "
                                 f"{het_frac * 100:.2f}% -- label overwrite bug")
 
-        r = run_diploid_eval(diploid_npy, name, device)
+        r = run_diploid_eval(diploid_npy, name, device, ckpt_path=ckpt_path)
         row = dict(founderA=a, founderB=b, depth_per_hap=depth,
                     n_placed=n_placed, n_unplaced=n_unplaced,
                     self_cov_A_pct=self_cov_A, self_cov_B_pct=self_cov_B,
                     het_frac=het_frac, n_sites=r["n"], pair_acc=r["pair_acc"],
                     hap_acc=r["hap_acc"], homo_pred=r["homo_pred"])
 
-    write_header_if_needed()
-    if force and already_recorded(a, b, depth):
-        lines = RESULTS_TSV.read_text().splitlines(keepends=True)
+    write_header_if_needed(results_tsv=results_tsv)
+    if force and already_recorded(a, b, depth, results_tsv=results_tsv):
+        lines = results_tsv.read_text().splitlines(keepends=True)
         key = f"{a}\t{b}\t{depth}\t"
         keep = [l for l in lines if not l.startswith(key)]
-        RESULTS_TSV.write_text("".join(keep))
-    with open(RESULTS_TSV, "a") as f:
+        results_tsv.write_text("".join(keep))
+    with open(results_tsv, "a") as f:
         f.write("\t".join(str(row[c]) for c in RESULT_COLS) + "\n")
     print(f"[{name}] n_placed={n_placed}  self_cov_A={row['self_cov_A_pct']}  "
           f"self_cov_B={row['self_cov_B_pct']}  pair_acc={row['pair_acc']}  "
@@ -313,16 +390,28 @@ def _markdown_table(df, float_cols):
     return "\n".join([header, sep] + rows)
 
 
-def write_report():
+def write_report(results_tsv=RESULTS_TSV, results_md=RESULTS_MD, affinity=False):
     import pandas as pd
-    df = pd.read_csv(RESULTS_TSV, sep="\t")
+    df = pd.read_csv(results_tsv, sep="\t")
     df = df.sort_values(["founderA", "founderB", "depth_per_hap"]).reset_index(drop=True)
     float_cols = {"self_cov_A_pct", "self_cov_B_pct", "het_frac", "pair_acc",
                   "hap_acc", "homo_pred"}
     table_md = _markdown_table(df, float_cols)
 
+    model_desc = ("the **affinity-conditioned** (`founder_affinity=True`, "
+                  "`checkpoints/diploid-affinity-sim512-h3`) diploid GRITS-CRF, fed a "
+                  "genome-wide `_founder_affinity` vector computed from this run's own "
+                  "data (label-free) as `ext_emb` -- crf/eval.py's plain `evaluate_diploid` "
+                  "never threads `ext_emb` for diploid mode, so this uses a local "
+                  "`evaluate_diploid_with_affinity` (see `run_diploid_eval`/"
+                  "`evaluate_diploid_with_affinity` in this file)"
+                  if affinity else
+                  "the plain (non-affinity; `founder_affinity=False`) diploid GRITS-CRF "
+                  "(`checkpoints/diploid-sim512-h3/last.ckpt`, `crf/eval.py::evaluate_diploid`)")
+
     lines = [
-        "# Synthetic-diploid baseline (combined real founder reads)\n",
+        f"# Synthetic-diploid baseline (combined real founder reads, "
+        f"{'affinity' if affinity else 'plain'} diploid CRF)\n",
         "Each row combines two founders' real WGS read files (`WGSReads/`) -- a "
         "`head`-based subsample of `depth_per_hap` reads from each, concatenated -- "
         "run through the same `ropebwt3 refmap` whole-read placement recipe as "
@@ -331,20 +420,22 @@ def write_report():
         "combined wholesale (no recombination), truth is exactly `(founderA, "
         "founderB)` at every site -- the label columns are overwritten with this "
         "known-by-construction pair, and `het_frac` is asserted to be 100%.\n\n"
-        "Scored with `checkpoints/diploid-sim512-h3/last.ckpt` (`GRITSCRFDiploid`, "
-        "`crf/eval.py::evaluate_diploid`), the same checkpoint used for the existing "
-        "`diploid-sim-on-ropebwt-oh43-k24` row in `results/eval.tsv` (a *homozygous* "
-        "single-founder real-read run, pair_acc=0.0409, homo_pred=0.0409 -- the "
-        "model's worst case). These rows are the first genuinely heterozygous "
-        "real-read diploid test.\n\n"
+        f"Scored with {model_desc}. These rows reuse the identical cached reads/refmap/"
+        "windowed matrices as `results/nam_diploid.md` (the original plain-model run) -- "
+        "only the final scoring step differs, so any difference in `pair_acc` between "
+        "the two reports is attributable to the affinity conditioning alone.\n\n"
         f"{table_md}\n\n"
         "## Reference points\n\n"
-        "- `diploid-sim512-h3` (held-out simulated test split): pair_acc=0.6186\n"
-        "- `diploid-sim-on-ropebwt-oh43-k24` (homozygous real Oh43): "
-        "pair_acc=0.0409, homo_pred=0.0409\n",
+        "- `diploid-sim512-h3` (held-out simulated test split, plain): pair_acc=0.6186\n"
+        "- `diploid-affinity-sim512-h3` (held-out simulated test split, affinity): "
+        "pair_acc=0.6179\n"
+        "- `diploid-sim-on-ropebwt-oh43-k24` (homozygous real Oh43, plain): "
+        "pair_acc=0.0409, homo_pred=0.0409\n"
+        "- See `results/nam_diploid.md` for the plain-model numbers on these same "
+        "pairs/depths.\n",
     ]
-    RESULTS_MD.write_text("\n".join(lines) + "\n")
-    print(f"Wrote {RESULTS_MD}")
+    results_md.write_text("\n".join(lines) + "\n")
+    print(f"Wrote {results_md}")
     print(df.to_string(index=False))
 
 
@@ -368,28 +459,36 @@ def main():
         write_report()
         return
 
-    if mode == "one":
+    if mode == "report-affinity":
+        write_report(AFFINITY_RESULTS_TSV, AFFINITY_RESULTS_MD, affinity=True)
+        return
+
+    if mode in ("one", "one-affinity"):
         if len(sys.argv) < 5:
-            raise SystemExit("usage: nam_diploid.py one <FounderA> <FounderB> <depth>")
+            raise SystemExit(f"usage: nam_diploid.py {mode} <FounderA> <FounderB> <depth>")
         a, b, depth = sys.argv[2], sys.argv[3], int(sys.argv[4])
         for name in (a, b):
             if name not in founders:
                 raise SystemExit(f"{name!r} not found; run `list` to see options")
         import torch
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        write_header_if_needed()
-        run_one(founders, a, b, depth, device, force=True)
-    elif mode == "all":
+        ckpt = AFFINITY_CKPT if mode == "one-affinity" else DIPLOID_CKPT
+        tsv = AFFINITY_RESULTS_TSV if mode == "one-affinity" else RESULTS_TSV
+        write_header_if_needed(results_tsv=tsv)
+        run_one(founders, a, b, depth, device, force=True, ckpt_path=ckpt, results_tsv=tsv)
+    elif mode in ("all", "all-affinity"):
         import torch
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        write_header_if_needed()
+        ckpt = AFFINITY_CKPT if mode == "all-affinity" else DIPLOID_CKPT
+        tsv = AFFINITY_RESULTS_TSV if mode == "all-affinity" else RESULTS_TSV
+        write_header_if_needed(results_tsv=tsv)
         for a, b in PAIRS:
             for depth in DEPTHS:
-                run_one(founders, a, b, depth, device)
+                run_one(founders, a, b, depth, device, ckpt_path=ckpt, results_tsv=tsv)
     else:
         raise SystemExit(f"unknown mode {mode!r}")
 
-    print(f"\nDone. Results in {RESULTS_TSV}")
+    print(f"\nDone. Results in {AFFINITY_RESULTS_TSV if 'affinity' in mode else RESULTS_TSV}")
 
 
 if __name__ == "__main__":
