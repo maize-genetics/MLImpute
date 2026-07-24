@@ -125,8 +125,11 @@ def assembly_path(sample):
     return p
 
 
-def combo_name(a, b, depth):
-    return f"{a}x{b}_{depth // 1000}k"
+def combo_name(founders, depth):
+    """founders: list of sample names (2 for the pair tests, N for the nway recombination
+    tests). "x".join(...) reproduces today's "AxB" naming exactly for a 2-element list, so
+    existing pair-run directories stay addressable under the same names."""
+    return f"{'x'.join(founders)}_{depth // 1000}k"
 
 
 def simulate_reads(sample, depth, outdir):
@@ -152,18 +155,19 @@ def simulate_reads(sample, depth, outdir):
     return r1
 
 
-def combine_reads(a, b, depth, outdir):
-    """Simulate each haplotype's reads and concatenate -> one FASTQ ("individual") with
-    A's and B's reads interleaved at the file level (no recombination -- truth is exactly
-    (A, B) everywhere)."""
+def combine_reads(founders, depth, outdir):
+    """Simulate each founder's reads and concatenate -> one FASTQ ("individual") with every
+    founder's reads interleaved at the file level (no recombination -- truth is exactly the
+    constant N-way founder set everywhere; the recombination scripts mask this down to a
+    per-site-varying pair/N-way ancestry afterward). `founders`: list of 2 (pair tests) or
+    more (nway tests) sample names."""
     outdir.mkdir(parents=True, exist_ok=True)
     combined = outdir / "combined.fastq"
     if combined.exists():
         return combined
-    r1_a = simulate_reads(a, depth, outdir)
-    r1_b = simulate_reads(b, depth, outdir)
+    r1_paths = [simulate_reads(f, depth, outdir) for f in founders]
     with open(combined, "wb") as out_f:
-        for r1 in (r1_a, r1_b):
+        for r1 in r1_paths:
             with open(r1, "rb") as in_f:
                 out_f.write(in_f.read())
     return combined
@@ -378,11 +382,11 @@ def run_one(a, b, depth, device, force=False, ckpt_path=DIPLOID_CKPT, results_ts
         print(f"[{a}x{b}@{depth}] already in results TSV, skipping entirely")
         return
 
-    name = combo_name(a, b, depth)
+    name = combo_name([a, b], depth)
     outdir = SCRATCH / name
     print(f"\n=== {name} ===")
 
-    combined = combine_reads(a, b, depth, outdir)
+    combined = combine_reads([a, b], depth, outdir)
     raw_npy = run_refmap_combined(combined, outdir)
 
     n_placed = n_unplaced = 0
