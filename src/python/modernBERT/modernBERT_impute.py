@@ -6,20 +6,20 @@ import math
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from python.bed_io.bed import output_predictions
-from python.hmm.viterbi import build_pair_states, viterbi_decode
-from python.ps4g_io.torch_loaders import WindowIndexDatasetFromMatrix
-from python.modernBERT.modernBERT_model import BERTImputeConfig, BERTImpute
+from bed_io.bed import output_predictions
+from hmm.viterbi import build_pair_states, viterbi_decode
+from ps4g_io.torch_loaders import WindowIndexDatasetFromMatrix
+from modernBERT.modernBERT_model import BERTImputeConfig, BERTImpute
 
 
-def run_modernBERT_imputation(args, data, weights):
+def run_modernBERT_imputation(args, data, weights, ckpt, w_size):
     """
     Placeholder function for running the modernBERT imputation model.
     Replace this with the actual implementation.
     """
     logging.info("Running modernBERT imputation model...")
 
-    window_size = 512
+    window_size = w_size
     num_classes = 25
     batch_size = 64
 
@@ -38,7 +38,7 @@ def run_modernBERT_imputation(args, data, weights):
         learning_rate_decay=learning_rate_decay,
         torch_compile=torch_compile == "yes",
     )
-    model_checkpoint = "src/modernbert.pth"
+    model_checkpoint = ckpt
     model.load_state_dict(torch.load(model_checkpoint))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -61,11 +61,11 @@ def run_modernBERT_imputation(args, data, weights):
 
     model.eval()
 
-    if not args.diploid and not args.HMM:  # haploid ML only
+    if not args.diploid and not args.hmm:  # haploid ML only
         final_predictions = haploid_modernBERT_only(device, model, test_loader)
-    elif args.diploid and not args.HMM:  # diploid ML only
+    elif args.diploid and not args.hmm:  # diploid ML only
         final_predictions = diploid_modernBERT_only(device, model, test_loader)
-    elif args.diploid and args.HMM:  # diploid ML + HMM
+    elif args.diploid and args.hmm:  # diploid ML + HMM
         final_predictions = diploid_modernBERT_hmm(device, model, num_classes, test_loader, test_matrix,
                                                    window_size, weights)
     else:  # haploid ML + HMM
@@ -227,12 +227,15 @@ def main():
     parser.add_argument("--input-path", type=str, default=None)
     parser.add_argument("--output-bed", type=str, default="imputed_path.bed")
     parser.add_argument("--global-weights", type=str, default=None)
-    parser.add_argument("--HMM", type=bool, default=False)
+    parser.add_argument("--hmm", type=bool, default=False)
     parser.add_argument("--diploid", type=bool, default=False)
     parser.add_argument("--ps4g-file", type=str, default=None)
+    parser.add_argument("--model-ckpt", type=str, default=None)
+    parser.add_argument("--window-size", type=int, default=512)
     args = parser.parse_args()
 
-    run_modernBERT_imputation(args)
+    data, weights = None, None  # placeholder: load data before calling
+    run_modernBERT_imputation(args, data, weights, args.model_ckpt, args.window_size)
 
 
 if __name__ == '__main__':

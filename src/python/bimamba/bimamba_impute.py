@@ -8,11 +8,11 @@ import math
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from python.bimamba.bimamba_model import BiMambaSmooth
-from python.hmm.viterbi import build_pair_states, viterbi_decode
-from python.ps4g_io.torch_loaders import WindowIndexDatasetFromMatrix
+from bimamba.bimamba_model import BiMambaSmooth
+from hmm.viterbi import build_pair_states, viterbi_decode
+from ps4g_io.torch_loaders import WindowIndexDatasetFromMatrix
 
-def run_bimamba_imputation(args, data, weights):
+def run_bimamba_imputation(args, data, weights, ckpt):
     # check to see if the required arguments are provided
     window_size = 512
     num_classes = 25
@@ -26,7 +26,7 @@ def run_bimamba_imputation(args, data, weights):
 
     model = BiMambaSmooth(input_dim=num_features, d_model=d_model, num_classes=num_classes, n_layer=num_layers,
                           lambda_smooth=lambda_smooth)
-    model_checkpoint = "src/bimamba_model.pth"
+    model_checkpoint = ckpt
     model.load_state_dict(torch.load(model_checkpoint))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

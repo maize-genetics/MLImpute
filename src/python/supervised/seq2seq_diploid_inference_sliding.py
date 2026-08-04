@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, Dataset
 import os
 from tqdm import tqdm
 import numpy as np
-from src.python.supervised.seq2seq_diploid import Seq2SeqDiploid, EncoderDiploid, DecoderDiploid
+from supervised.seq2seq_diploid import Seq2SeqDiploid, EncoderDiploid, DecoderDiploid
 import math
 
 # Dataset class

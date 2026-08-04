@@ -4,7 +4,7 @@ import numpy as np
 import random
 import pandas as pd
 import argparse
-from src.python.cross.chrom_lengths import chrom_lengths, chrom_lengths_dicts
+from cross.chrom_lengths import chrom_lengths, chrom_lengths_dicts
 
 # ----------------------------
 # Data structures

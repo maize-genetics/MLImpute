@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 from ps4g_io.ps4g import convert_ps4g
 import torch
-from modernBERT.modernBERT_impute import run_modernBERT_imputation
+#from modernBERT.modernBERT_impute import run_modernBERT_imputation
+from seq2seq_diploid_joint_bert_no_collapse import runSeq2SeqDiploidJoint
 from bed_io.bed import output_predictions
 from knn.knn import run_knn
 
@@ -41,18 +42,33 @@ def run_model(args, data, weights):
             raise EnvironmentError("CUDA is not available. BiMamba requires a GPU to run.")
         else:
             from bimamba.bimamba_impute import run_bimamba_imputation
-            return run_bimamba_imputation(args, data, weights)
-    elif model_name == "modernbert":
-        return run_modernBERT_imputation(args, data, weights)
+            return run_bimamba_imputation(args, data, weights, args.model_ckpt)
+    #elif model_name == "modernbert":
+    #    return run_modernBERT_imputation(args, data, weights, args.model_ckpt, args.window_size)
+    elif model_name == "seq2seq_diploid":
+        return runSeq2SeqDiploidJoint(args, data, weights)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
+
+# python /workdir/irk9/software/grits/src/python/impute.py -i /workdir/irk9/data/phg-maize/target_vcf/2x/grits/matches.ps4g -o /workdir/irk9/data/phg-maize/target_vcf/2x/grits/ -m seq2seq_diploid -ckpt /local/workdir/zrm22/HackathonJun2026/NonCollapsedDatasets/seq2seqOutput/best_model.pt 
+
+# python /workdir/irk9/software/grits/src/python/impute.py -i /workdir/irk9/data/phg-maize/test2/2x/grits/matches.ps4g -o /workdir/irk9/data/phg-maize/test2/2x/grits -m seq2seq_diploid -ckpt /local/workdir/zrm22/HackathonJun2026/NonCollapsedDatasets/seq2seqOutput/best_model.pt
+
+# python /workdir/irk9/software/grits/src/python/impute.py -i /workdir/irk9/data/phg-cassava/test2/2x/grits/matches.ps4g -o /workdir/irk9/data/phg-cassava/test2/2x/grits -m seq2seq_diploid -ckpt /local/workdir/zrm22/HackathonJun2026/NonCollapsedDatasets/seq2seqOutput/best_model.pt
+
+# python /workdir/irk9/software/grits/src/python/impute.py -i /workdir/irk9/data/phg-cassava/target_vcf/2x/grits/VEN25_matches.ps4g -o /workdir/irk9/data/phg-cassava/target_vcf/2x/grits/VEN25_out.vcf -m seq2seq_diploid -ckpt /local/workdir/zrm22/HackathonJun2026/NonCollapsedDatasets/seq2seqOutput/best_model.pt
+
+# python /workdir/irk9/software/grits/src/python/impute.py -i /workdir/irk9/data/phg-maize/test2/5.07x/grits/matches.ps4g -o /workdir/irk9/data/phg-maize/test2/5.07x/grits/out.bed -m seq2seq_diploid -ckpt /local/workdir/zrm22/HackathonJun2026/NonCollapsedDatasets/seq2seqOutput/best_model.pt
+
+# python /workdir/irk9/software/grits/src/python/impute.py -i /workdir/irk9/data/phg-cassava/test2/5.07x/grits/matches.ps4g -o /workdir/irk9/data/phg-cassava/test2/5.07x/grits/out.bed -m seq2seq_diploid -ckpt /local/workdir/zrm22/HackathonJun2026/NonCollapsedDatasets/seq2seqOutput/best_model.pt
 
 
 def main():
     parser = argparse.ArgumentParser(description="Haplotype Imputation Tool")
     parser.add_argument("--input", "-i", type=Path, required=True, help="Path to input file")
     parser.add_argument("--output", "-o", type=Path, required=True, help="Path to output BED file")
-    parser.add_argument("--model", "-m", choices=["knn", "mamba", "modernbert"], required=True, help="Imputation model")
+    parser.add_argument("--model", "-m", choices=["knn", "mamba", "modernbert", "seq2seq_diploid"], required=True, help="Imputation model")
+    parser.add_argument("--model-ckpt", "-ckpt", default=None, help="Imputation model ckpt (required for mamba and modernbert)")
     parser.add_argument("--weight", "-w", choices=["global", "unweighted"], default="global", help="Weighting strategy for PS4G data")
     parser.add_argument("--collapse", "-c", action="store_true", help="Collapse gamete sets into a single row per position")
 

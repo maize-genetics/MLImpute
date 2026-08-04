@@ -1,0 +1,48 @@
+Now I have a solid picture of everything. Let me answer your design question and then write the todo list.
+
+Separate scripts vs one script with steps for impute tools:
+
+Keep them separate (impute5.sh, minimac.sh, beagle.sh, run_grits.sh). They have completely different binaries, flags, and I/O formats — cramming them into one step-based script would make each section awkward and the --help confusing. The unified interface already exists downstream in run_accuracy.sh. What each script should gain is a --species maize|cassava flag and a --map-dir flag so the 4 settings (maize/cassava × map/nomap) are handled inside each script without needing separate copies.
+
+Here's the full todo list:
+
+fq_to_vcf.sh
+ Merge fq_to_vcf_full.sh and fq_to_vcf_partial.sh into one fq_to_vcf.sh
+ Add optional --list sample1,sample2,... flag — when present, only process those samples (partial mode); when absent, process all .fastq.gz in dir (full mode)
+ Add usage/help block and required-arg validation (currently missing from partial version)
+clean.sh
+ Create clean.sh from the clean sections of clean_chunk_xcftools_impute.sh
+ Keep the --step flag: clean, validate_cleaning, convert_bcf, make_xcf, make_chunks, all
+ Add file-exists check to each substep inside clean_vcfs() — skip rename_chr, fixploidy, phased, cleaned if output already exists
+ Make --rename-chr optional (cassava needs it, maize does not)
+impute5.sh
+ Extract the impute5 section from clean_chunk_xcftools_impute.sh into its own impute5.sh
+ Add --haploid flag that appends --haploid to the impute5 call
+ Add --map-dir DIR optional flag — when provided, pass map to impute5
+ Add file-exists check: skip chunk if *.imputed.bcf already exists
+minimac.sh
+ Merge minimac4.sh, minimac4_cassava.sh, minimac4_map.sh, minimac4_cassava_map.sh into one minimac.sh
+ Add --species maize|cassava flag to handle chromosome naming differences
+ Add --map-dir DIR optional flag — when provided, pass --mapFile to minimac4
+ Keep the file-exists checks already in minimac4.sh (BCF conversion, indexing)
+ Add file-exists check on per-chromosome output VCF before running minimac4
+beagle.sh
+ Merge beagle.sh, beagle2.sh, beagle3.sh, beagle4.sh, beagle_cassava.sh, beagle_map.sh, beagle_map_cassava.sh — keep best version as base
+ Add --species maize|cassava flag
+ Add --map-dir DIR optional flag
+ Add file-exists checks per chromosome output
+run_grits.sh
+ Add --log FILE optional flag (default OUT_DIR/grits_pipeline.log)
+ Redirect all step output to log file (currently only prints to stdout)
+Directories
+ Create extras/ directory, move unused scripts there (already have # NOT USED or similar comments at top)
+ Create old_map_scripts/ directory, move old genetic map scripts there with a short README explaining the map files were wrong
+testing_suite_bella
+ Add final fq_to_vcf.sh to testing_suite_bella/
+ Add final clean.sh to testing_suite_bella/
+ Add final impute5.sh to testing_suite_bella/
+ Add final minimac.sh to testing_suite_bella/
+ Add final beagle.sh to testing_suite_bella/
+ Add final run_grits.sh to testing_suite_bella/
+ Verify run_accuracy.sh and accuracy.py are already present/linked in testing_suite_bella/
+Want me to save this list somewhere in the project, or start on any of these items now?

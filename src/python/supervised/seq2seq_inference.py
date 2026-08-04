@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, Dataset
 import os
 from tqdm import tqdm
 import numpy as np
-from src.python.supervised.seq2seq import Seq2Seq, Encoder, Decoder
+from supervised.seq2seq import Seq2Seq, Encoder, Decoder
 import math
 
 def inference(model, iterator, force_predictions=False):

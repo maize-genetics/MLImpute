@@ -15,7 +15,7 @@ import argparse
 import os
 from torch.utils.data import DataLoader, Dataset
 from transformers import ModernBertModel, ModernBertConfig
-from src.python.supervised.seq2seq_diploid_joint_bert import (
+from supervised.seq2seq_diploid_joint_bert import (
     path_acc_diploid, decode_joint_predictions, EncoderDiploid,
     DecoderDiploidJoint, Seq2SeqDiploidJoint, JointPairCrossEntropyLoss,
     SmoothPredictDiploidJoint, train, evaluate, parse_args)

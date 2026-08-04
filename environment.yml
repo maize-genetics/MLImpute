@@ -11,6 +11,5 @@ dependencies:
   - transformers  # if using ModernBERT
   - pip
   - pip:
-      - mamba-ssm  # if using a pip-only Mamba2 variant
       - pytest
       - pytest-cov

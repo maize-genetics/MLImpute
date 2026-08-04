@@ -1,4 +1,4 @@
-from src.python.supervised.train_supervised import BertTagger, LabeledDataset
+from supervised.train_supervised import BertTagger, LabeledDataset
 import argparse
 import torch
 from torch.utils.data import DataLoader

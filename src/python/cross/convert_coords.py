@@ -2,7 +2,7 @@ import pandas as pd
 import subprocess
 import os
 import argparse
-from src.python.cross.chrom_lengths import chrom_lengths_dicts
+from cross.chrom_lengths import chrom_lengths_dicts
 
 """
 create a bed file to track fasta sequence to assembly

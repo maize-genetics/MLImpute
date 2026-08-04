@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from src.python.ps4g_io.ps4g import decode_position, build_index_lookup
+from ps4g_io.ps4g import decode_position, build_index_lookup
 
 
 def output_bed_file_deprecated(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions=True):
@@ -97,6 +97,87 @@ def output_collapse_bed(bed_df, output_bed):
     ranges_df.columns = ["chrom", "start", "end", "parent1", "parent2"]
     # Save to BED file
     ranges_df.to_csv(output_bed, sep="\t", index=False)
+    
+    
+    
+    
+def output_bed_file_updated(output_bed, chroms, final_predictions, index_array, positions, bin_size=256):
+    
+    bed_df = pd.DataFrame({
+        "chrom": chroms[:len(final_predictions)],
+        "bin": positions[:len(final_predictions)],
+        "parent1": np.array(index_array)[final_predictions[:, 0]],
+        "parent2": np.array(index_array)[final_predictions[:, 1]],
+    })
+    
+    group_change = (
+            (bed_df["parent1"] != bed_df["parent1"].shift()) |
+            (bed_df["parent2"] != bed_df["parent2"].shift()) |
+            (bed_df["chrom"] != bed_df["chrom"].shift())
+    )
+    group_id = group_change.cumsum()
+    
+    ranges_df = bed_df.groupby(group_id).agg({
+        "chrom": "first",
+        "bin": "min",
+        "parent1": "first",
+        "parent2": "first"
+    }).reset_index(drop=True)
+    
+    ranges_df["start"] = ranges_df["bin"]
+    ranges_df["end"] = ranges_df.groupby("chrom")["start"].shift(-1)
+    # last region of each chromosome has no "next" start -> extend it by one bin
+    ranges_df["end"] = ranges_df["end"].fillna(ranges_df["start"] + bin_size).astype(int)
+
+    # drop zero-length regions: two consecutive groups can share a start when
+    # adjacent markers fall in the same bin, giving start == end (invalid BED)
+    ranges_df = ranges_df[ranges_df["end"] > ranges_df["start"]]
+
+    ranges_df = ranges_df[["chrom", "start", "end", "parent1", "parent2"]]
+
+    #if first row in chrom, then start = 0 bc I think chrom start at 1
+    
+    ranges_df.to_csv(output_bed, sep="\t", index=False)
+    
+def output_bed_file_updated_middle(output_bed, chroms, final_predictions, index_array, positions, bin_size=256):
+    
+    bed_df = pd.DataFrame({
+        "chrom": chroms[:len(final_predictions)],
+        "bin": positions[:len(final_predictions)],
+        "parent1": np.array(index_array)[final_predictions[:, 0]],
+        "parent2": np.array(index_array)[final_predictions[:, 1]],
+    })
+    
+    group_change = (
+            (bed_df["parent1"] != bed_df["parent1"].shift()) |
+            (bed_df["parent2"] != bed_df["parent2"].shift()) |
+            (bed_df["chrom"] != bed_df["chrom"].shift())
+    )
+    group_id = group_change.cumsum()
+    
+    ranges_df = bed_df.groupby(group_id).agg({
+        "chrom": "first",
+        "bin": "min",
+        "parent1": "first",
+        "parent2": "first"
+    }).reset_index(drop=True)
+    
+    ranges_df["start"] = ranges_df["bin"]
+    ranges_df["end"] = ranges_df.groupby("chrom")["start"].shift(-1)
+    ranges_df["end"] = ((ranges_df["end"] - ranges_df["start"]) / 2) + ranges_df["start"]
+    # last region of each chromosome has no "next" start -> extend it by one bin
+    ranges_df["end"] = ranges_df["end"].fillna(ranges_df["start"] + bin_size).astype(int)
+
+    # drop zero-length regions: two consecutive groups can share a start when
+    # adjacent markers fall in the same bin, giving start == end (invalid BED)
+    ranges_df = ranges_df[ranges_df["end"] > ranges_df["start"]]
+
+    ranges_df = ranges_df[["chrom", "start", "end", "parent1", "parent2"]]
+
+    #if first row in chrom, then start = 0 bc I think chrom start at 1
+    
+    ranges_df.to_csv(output_bed, sep="\t", index=False)
+    
 
 
 def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_regions = True, bin_size=256):
@@ -108,11 +189,13 @@ def output_predictions(ps4g_file, output_bed, final_predictions, collapse_bed_re
 
     writes predictions to bed file
     '''
+    
     chroms = pd.read_csv(ps4g_file, sep="\t", comment="#")['refContig']
     positions = pd.read_csv(ps4g_file, sep="\t", comment="#")['refPosBinned'] * bin_size
     index_array = build_index_lookup(ps4g_file)
     index_array.append(None) # add extra index to represent "unlabelled" prediction
-    output_bed_file(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions)
+    #output_bed_file(output_bed, chroms, final_predictions, index_array, positions, collapse_bed_regions)
+    output_bed_file_updated(output_bed, chroms, final_predictions, index_array, positions)
 
 
 def load_saved_predictions(sample_name, contigs, file_dir):

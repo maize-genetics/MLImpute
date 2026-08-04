@@ -4,8 +4,8 @@ from tqdm import tqdm
 import argparse
 import os
 import logging
-from src.python.cross.chrom_lengths import chrom_lengths
-from src.python.ps4g_io.ps4g import load_ps4g_file, extract_metadata
+from cross.chrom_lengths import chrom_lengths
+from ps4g_io.ps4g import load_ps4g_file, extract_metadata
 
 
 def create_chromosome_matrix_inference(ps4g, gamete_to_idx):

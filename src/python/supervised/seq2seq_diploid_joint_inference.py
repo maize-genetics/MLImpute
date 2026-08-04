@@ -7,7 +7,7 @@ import numpy as np
 import math
 
 # import your NEW joint model
-from src.python.supervised.seq2seq_diploid_joint_bert import (
+from supervised.seq2seq_diploid_joint_bert import (
     Seq2SeqDiploidJoint,
     EncoderDiploid,
     DecoderDiploidJoint
