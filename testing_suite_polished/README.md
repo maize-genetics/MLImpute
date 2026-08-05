@@ -122,13 +122,14 @@ All of my inital tests to get the models working are in here
 
 ## Files
 
-### /testing_suite_bella/important_files has all the same files too
+### /workdir/irk9/data/phg-maize/bellas_scripts/testing_suite_bella/important_files has all the same files too
 
 Below is all the original paths in case I missed a file somewhere you can check the adjacent dir
 
 ### Coordinate Fastas
 
 Maize: /workdir/irk9/data/phg-maize/trial/B73.fa
+
 Cassava: /workdir/smm477/phg-cassava/ref/Mesculenta_671_v8.0.fa
 
 
@@ -140,16 +141,24 @@ Test 1 and 2:
 Maize
 
 Impute: /workdir/irk9/data/phg-maize/test/ref_panel/maize_pangenome_snps_cleaned.vcf.gz
+
 Minimac: /workdir/irk9/data/phg-maize/truth-vcfs/maize_pangenome_snps.msav 
+
 Beagle: /workdir/irk9/data/phg-maize/test_beagle/ref_panel/vcf_per_chr
+
 Grits:  /workdir/irk9/data/phg-maize/test/ref_panel/maize_pangenome_snps_cleaned.vcf.gz
+
 
 Cassava
 
 Impute: /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome_diploid_cleaned.vcf.gz
+
 Minimac: /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav 
+
 Beagle: /workdir/irk9/data/phg-cassava/truth-vcfs/beagle_ref/ref_split
+
 Grits: /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.vcf.gz
+
 
 
 Test 3:
@@ -158,16 +167,25 @@ Test 3:
 Maize
 
 Impute: /workdir/irk9/data/phg-maize/test3/ref_panel/maize_pangenome_snps_cleaned_phased_AN_AC_nomissing.vcf.gz
+
 Minimac: /workdir/irk9/data/phg-maize/test3/ref_panel/maize_test3_ref.msav
+
 Beagle: /workdir/irk9/data/phg-maize/test3/ref_panel/beagle_ref
+
+
 Grits: /workdir/irk9/data/phg-maize/test3/ref_panel/maize_sim_merged_biallelic_chr.gvcf
+
 
 Cassava
 
 Impute: /workdir/irk9/data/phg-cassava/test3/ref_panel/cassava_sim_merged_biallelic_diploid_header_AN_AC_nomissing_rename_chr.vcf.gz
+
 Minimac: /workdir/irk9/data/phg-cassava/test3/ref_panel/cassava_test3_ref.msav
+
 Beagle: /workdir/irk9/data/phg-cassava/test3/ref_panel/beagle_ref
+
 Grits: /workdir/ahb232/bella_seq_sim/cassava/merged_vcfs/cassava_sim_merged_biallelic.gvcf
+
 
 
 ### Splines
@@ -369,13 +387,18 @@ I kept the map scripts, but they are not polished.
 
 
 Pre-GWAS-Post Key Concept review: https://cloufield.github.io/GWASTutorial/Imputation/ 
+
 GWAS: https://www.youtube.com/watch?v=sOP8WacfBM8
+
 Linkage Disequilibrium: https://www.youtube.com/watch?v=C3MYoasLSHQ
+
 Genomic Selection: https://acsess.onlinelibrary.wiley.com/doi/10.1002/tpg2.70053 
+
 Mapping Short Read Fastq to Reference Fasta: https://bio-bwa.sourceforge.net/ 
+
 Sorghum PHG: https://acsess.onlinelibrary.wiley.com/doi/10.1002/tpg2.20009
+
 Evolutionary Rescue of Sorghum: https://www.science.org/doi/10.1126/sciadv.abj4633#core-R24-1 
+
 Chain File: https://genome.ucsc.edu/goldenpath/help/chain.html 
-
-
 
