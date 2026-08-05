@@ -5,58 +5,45 @@ set -uo pipefail
 ############################################
 # Minimac4 imputation pipeline
 # Assumes:
-#   - target files are *.vcf.gz
-#   - reference file is ref.vcf.gz or another .vcf.gz file
+#   - target files are *.vcf.gz (cleaned VCFs from clean.sh)
+#   - reference file is a pre-built .msav file
 #   - minimac4 and bcftools are available in PATH
 ############################################
 
 usage() {
     cat <<EOF
 Usage:
-  $0 --target-dir TARGET_DIR --out-dir OUT_DIR --ref-vcf REF_VCF
+  $0 --target-dir TARGET_DIR --out-dir OUT_DIR --ref-msav REF_MSAV
 
 Required arguments:
-  --target-dir   Directory containing species_target.vcf.gz files
+  --target-dir   Directory containing *.vcf.gz target files (output of clean.sh)
   --out-dir      Directory where output files will be written
-  --ref-msav      Reference VCF file, e.g. ref.vcf.gz
+  --ref-msav     Pre-built reference MSAV file, e.g. ref.msav
 
 Optional:
-  --log-file     Path to log file. Default: OUT_DIR/minimac4_pipeline.log
+  --map FILE     Genetic map file; when provided, passes -m to minimac4
+  --threads INT  Number of threads (default: 5)
   --help         Show this help message
 
 Example:
   $0 \\
-    --target-dir /path/to/targets \\
+    --target-dir /path/to/cleaned_vcfs \\
     --out-dir /path/to/imputed_outputs \\
-    --ref-vcf /path/to/ref.vcf.gz
+    --ref-msav /path/to/ref.msav
 EOF
 }
 
 export PATH=/workdir/irk9/software/minimac4/bin:$PATH
 
-# ./minimac4.sh --target-dir /workdir/irk9/data/phg-maize/target_vcf/0.01x --ref-msav /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav --out-dir /workdir/irk9/data/phg-maize/target_vcf/0.01x/minimac --threads 5 
-
-# export PATH=/workdir/irk9/software/minimac4/bin:$PATH
-# ./minimac4_cassava.sh --target-dir /workdir/irk9/data/phg-cassava/test2/2x/impute/cleaned_vcfs --ref-msav /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav --out-dir /workdir/irk9/data/phg-cassava/test2/2x/minimac --threads 5
-
-# ./minimac4_cassava.sh --target-dir /workdir/irk9/data/phg-cassava/test2/0.01x/impute/cleaned_vcfs --ref-msav /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav --out-dir /workdir/irk9/data/phg-cassava/test2/0.01x/minimac_redo --threads 5
-
-
-# ./minimac4.sh --target-dir /workdir/irk9/data/phg-cassava/target_vcf/2x/impute/cleaned_vcfs --ref-msav /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav --out-dir /workdir/irk9/data/phg-cassava/target_vcf/2x/minimac_redo --threads 5
-
-
-# ./minimac4_cassava.sh --target-dir /workdir/irk9/data/phg-cassava/test2/5.07x/impute/cleaned_vcfs --ref-msav /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav --out-dir /workdir/irk9/data/phg-cassava/test2/5.07x/minimac --threads 5
-
-
-# ./minimac4_cassava.sh --target-dir /workdir/irk9/data/phg-cassava/test2_redo/26.35x/impute/cleaned_vcfs --ref-msav /workdir/irk9/data/phg-cassava/truth-vcfs/cassava_pangenome.msav --out-dir /workdir/irk9/data/phg-cassava/test2_redo/26.35x/minimac --threads 20
-
-# ./minimac4_cassava.sh --target-dir /workdir/irk9/data/phg-cassava/test3/2x/impute/cleaned_vcfs  --ref-msav /workdir/irk9/data/phg-cassava/test3/ref_panel/cassava_test3_ref.msav --out-dir /workdir/irk9/data/phg-cassava/test3/2x/minimac --threads 10
 
 TARGET_DIR=""
 OUT_DIR=""
 REF_MSAV=""
 LOG_FILE=""
 THREADS=5
+MAP=""
+
+# ./minimac.sh --target-dir /workdir/irk9/data/phg-maize/bellas_scripts/testing_suite_bella/testing_suite_test/target --out-dir /workdir/irk9/data/phg-maize/bellas_scripts/testing_suite_bella/testing_suite_test/minimac --ref_msav /workdir/irk9/data/phg-maize/truth-vcfs/maize_pangenome_snps.msav 
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -72,12 +59,12 @@ while [[ $# -gt 0 ]]; do
             REF_MSAV="$2"
             shift 2
             ;;
-        --log-file)
-            LOG_FILE="$2"
-            shift 2
-            ;;
         --threads)
             THREADS="$2"
+            shift 2
+            ;;
+        --map)
+            MAP="$2"
             shift 2
             ;;
         --help)
@@ -100,9 +87,11 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-if [[ -z "$LOG_FILE" ]]; then
-    LOG_FILE="$OUT_DIR/minimac4_pipeline.log"
-fi
+LOG_FILE="$OUT_DIR/log"
+
+mkdir -p "$LOG_FILE"
+
+LOG_FILE="$LOG_FILE/minimac4_pipeline.log"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
@@ -129,7 +118,7 @@ if [[ ! -d "$TARGET_DIR" ]]; then
 fi
 
 if [[ ! -f "$REF_MSAV" ]]; then
-    log "ERROR: Reference VCF does not exist: $REF_MSAV"
+    log "ERROR: Reference MSAV does not exist: $REF_MSAV"
     exit 1
 fi
 
@@ -149,10 +138,10 @@ fi
 ############################################
 
 shopt -s nullglob
-TARGET_FILES=("$TARGET_DIR"/*rename_chr.vcf.gz)
+TARGET_FILES=("$TARGET_DIR"/*.vcf.gz)
 
 if [[ ${#TARGET_FILES[@]} -eq 0 ]]; then
-    log "ERROR: No rename_chr.vcf.gz target files found in $TARGET_DIR"
+    log "ERROR: No .vcf.gz target files found in $TARGET_DIR"
     exit 1
 fi
 
@@ -221,14 +210,31 @@ for TARGET_VCF in "${TARGET_FILES[@]}"; do
 
         log "Running minimac4 for target $TARGET_BASE chromosome $CHR"
         log "Output VCF: $OUT_VCF"
-
-        run_cmd minimac4 \
-            "$REF_MSAV" \
-            "$TARGET_BCF" \
-            --threads "$THREADS" \
-            -f GT \
-            -o "$OUT_VCF" \
-            --region "$CHR"
+        
+        if [[ -n "$MAP" ]]; then
+            if [[ ! -f "$MAP" ]]; then
+                log "ERROR: Map file does not exist: $MAP"
+                exit 1
+            fi
+            log "Using map file: $MAP"
+            run_cmd minimac4 \
+                "$REF_MSAV" \
+                "$TARGET_BCF" \
+                --threads "$THREADS" \
+                -f GT \
+                -m "$MAP" \
+                -o "$OUT_VCF" \
+                --region "$CHR"
+        else
+            log "No map file provided; running without map"
+            run_cmd minimac4 \
+                "$REF_MSAV" \
+                "$TARGET_BCF" \
+                --threads "$THREADS" \
+                -f GT \
+                -o "$OUT_VCF" \
+                --region "$CHR"
+        fi
 
     done < "$CHR_LIST"
 
