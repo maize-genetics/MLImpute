@@ -240,7 +240,23 @@ pub fn build_chromosome_matrix(
         (0, 0)
     };
 
-    let gamete_names: Vec<String> = gametes.iter().map(|g| g.gamete.clone()).collect();
+    // Name gametes by bare sample name, except when two gametes in this
+    // panel share a sample name (e.g. "B73:0" and "B73:1") — then fall back
+    // to "sample:idx" for just those so rows stay distinguishable.
+    let mut sample_name_counts: FxHashMap<&str, usize> = FxHashMap::default();
+    for g in &gametes {
+        *sample_name_counts.entry(g.sample_name.as_str()).or_insert(0) += 1;
+    }
+    let gamete_names: Vec<String> = gametes
+        .iter()
+        .map(|g| {
+            if sample_name_counts.get(g.sample_name.as_str()).copied().unwrap_or(0) > 1 {
+                format!("{}:{}", g.sample_name, g.gamete_idx)
+            } else {
+                g.sample_name.clone()
+            }
+        })
+        .collect();
 
     Ok(ChromosomeMatrixResult {
         success: true,
@@ -301,9 +317,28 @@ pub fn encode_matrix_binary(
 // Internal helpers
 // ============================================================================
 
+/// Parse a gamete header field into (sample_name, gamete_idx).
+///
+/// Per the PS4G spec, the field is either `<sampleName>` (index implicitly
+/// 0) or `<sampleName>:<gameteIdx>`. Only a trailing `:<digits>` suffix is
+/// treated as an index; a sample name that itself contains `:` but has no
+/// pure-digit suffix is kept whole.
+#[inline]
+fn parse_sample_gamete(field: &str) -> (String, u32) {
+    if let Some((name, suffix)) = field.rsplit_once(':') {
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+            if let Ok(idx) = suffix.parse::<u32>() {
+                return (name.to_string(), idx);
+            }
+        }
+    }
+    (field.to_string(), 0)
+}
+
 #[inline]
 pub(crate) fn parse_header_line(line: &str, metadata: &mut PS4GMetadata) {
-    if line.starts_with("##PS4G") {
+    if line.trim_start_matches('#') == "PS4G" {
+        // Magic line, e.g. "#PS4G" (v2.0 form) or "##PS4G" (legacy form).
         return;
     } else if let Some(version) = line.strip_prefix("#version=") {
         metadata.version = Some(version.to_string());
@@ -313,21 +348,27 @@ pub(crate) fn parse_header_line(line: &str, metadata: &mut PS4GMetadata) {
         if let Ok(count) = count_str.trim().parse::<u64>() {
             metadata.total_unique_counts = Some(count);
         }
-    } else if line.starts_with("#gamete\t") {
-        return;
-    } else if line.starts_with('#') && line.contains(':') && line.contains('\t') {
+    } else if line.starts_with('#') && line.contains('\t') {
+        // A gamete record has exactly 3 tab-separated fields whose 2nd and
+        // 3rd fields are integers (index, count). This shape check — rather
+        // than requiring a ':' in the name — is what lets both PS4G-spec
+        // forms ("B73" and "B73:0") parse, and it already rejects the
+        // "#gamete\tgameteIndex\tcount" column header since "gameteIndex"
+        // and "count" aren't integers.
         let content = line.trim_start_matches('#');
         let parts: Vec<&str> = content.split('\t').collect();
         if parts.len() >= 3 {
             let gamete_full = parts[0];
-            let gamete_name = gamete_full.split(':').next().unwrap_or(gamete_full);
 
             if let (Ok(idx), Ok(count)) = (parts[1].parse::<u32>(), parts[2].parse::<u64>()) {
+                let (sample_name, gamete_idx) = parse_sample_gamete(gamete_full);
                 let total = metadata.total_unique_counts.unwrap_or(1);
                 let weight = count as f64 / total as f64;
 
                 metadata.gametes.push(GameteInfo {
-                    gamete: gamete_name.to_string(),
+                    gamete: sample_name.clone(),
+                    sample_name,
+                    gamete_idx,
                     gamete_index: idx,
                     read_count: count,
                     weight,
@@ -388,5 +429,89 @@ fn get_or_create_chromosome_index(
         position_ranges.push((u64::MAX, 0));
         chromosome_position_data.push(FxHashMap::default());
         idx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh_metadata() -> PS4GMetadata {
+        PS4GMetadata {
+            version: None,
+            command: None,
+            total_unique_counts: None,
+            gametes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn parses_bare_gamete_name() {
+        let mut metadata = fresh_metadata();
+        parse_header_line("#TotalUniqueCounts: 100", &mut metadata);
+        parse_header_line("#B73\t0\t60", &mut metadata);
+        assert_eq!(metadata.gametes.len(), 1);
+        let g = &metadata.gametes[0];
+        assert_eq!(g.gamete, "B73");
+        assert_eq!(g.sample_name, "B73");
+        assert_eq!(g.gamete_idx, 0);
+        assert_eq!(g.gamete_index, 0);
+        assert_eq!(g.read_count, 60);
+        assert!((g.weight - 0.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parses_colon_suffixed_gamete_name() {
+        let mut metadata = fresh_metadata();
+        parse_header_line("#TotalUniqueCounts: 100", &mut metadata);
+        parse_header_line("#B73:1\t2\t40", &mut metadata);
+        assert_eq!(metadata.gametes.len(), 1);
+        let g = &metadata.gametes[0];
+        assert_eq!(g.gamete, "B73");
+        assert_eq!(g.sample_name, "B73");
+        assert_eq!(g.gamete_idx, 1);
+        assert_eq!(g.gamete_index, 2);
+    }
+
+    #[test]
+    fn skips_column_header_line() {
+        let mut metadata = fresh_metadata();
+        parse_header_line("#gamete\tgameteIndex\tcount", &mut metadata);
+        assert!(metadata.gametes.is_empty());
+    }
+
+    #[test]
+    fn command_line_with_colon_is_not_a_gamete_record() {
+        let mut metadata = fresh_metadata();
+        parse_header_line(
+            "#Command: ropebwt3 refmap --ref-prefix=B73 --max-occ=-1",
+            &mut metadata,
+        );
+        assert!(metadata.gametes.is_empty());
+        assert_eq!(
+            metadata.command.as_deref(),
+            Some("ropebwt3 refmap --ref-prefix=B73 --max-occ=-1")
+        );
+    }
+
+    #[test]
+    fn magic_and_version_lines_are_not_gamete_records() {
+        let mut metadata = fresh_metadata();
+        parse_header_line("#PS4G", &mut metadata);
+        parse_header_line("##PS4G", &mut metadata);
+        parse_header_line("#version=2.0", &mut metadata);
+        assert!(metadata.gametes.is_empty());
+        assert_eq!(metadata.version.as_deref(), Some("2.0"));
+    }
+
+    #[test]
+    fn total_unique_counts_before_gametes_drives_weight() {
+        let mut metadata = fresh_metadata();
+        parse_header_line("#TotalUniqueCounts: 1000", &mut metadata);
+        parse_header_line("#B73\t0\t250", &mut metadata);
+        parse_header_line("#B97\t1\t750", &mut metadata);
+        assert_eq!(metadata.gametes.len(), 2);
+        assert!((metadata.gametes[0].weight - 0.25).abs() < 1e-9);
+        assert!((metadata.gametes[1].weight - 0.75).abs() < 1e-9);
     }
 }

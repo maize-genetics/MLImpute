@@ -7,12 +7,19 @@ from python.ps4g_io.ps4g import (
     convert_ps4g,
     create_multihot_matrix,
     collapse_ps4g,
-    build_index_lookup
+    build_index_lookup,
+    parse_gamete_header_line,
+    parse_sample_gamete,
+    SampleGamete,
 )
 
 @pytest.fixture
 def sample_ps4g_file():
     return "data/sample_test.ps4g"
+
+@pytest.fixture
+def sample_ps4g_file_no_suffix():
+    return "data/sample_test_no_suffix.ps4g"
 
 def test_load_ps4g_file(sample_ps4g_file):
     df = load_ps4g_file(sample_ps4g_file)
@@ -226,5 +233,74 @@ def test_multihot_matrix_different_chromosomes():
     assert 'chr1_1000' in unique_positions
     assert 'chr2_1000' in unique_positions
     assert 'chr1_2000' in unique_positions
+
+
+# ────────────────────────────────────────────────
+#   Bare gamete names (no ":idx" suffix, PS4G v2.0)
+# ────────────────────────────────────────────────
+
+def test_extract_metadata_no_suffix(sample_ps4g_file_no_suffix):
+    """Bare "#B73" gamete lines (no ':idx' suffix) must parse identically
+    to the ':0'-suffixed form."""
+    metadata, gamete_data = extract_metadata(sample_ps4g_file_no_suffix)
+    assert len(gamete_data) == 3
+    assert metadata["version"] == "2.0"
+
+
+def test_build_index_lookup_no_suffix(sample_ps4g_file_no_suffix):
+    index_array = build_index_lookup(sample_ps4g_file_no_suffix)
+    assert index_array == ['B73', 'CML247', 'W22']
+
+
+def test_build_index_lookup_distinguish_gametes(sample_ps4g_file):
+    """distinguish_gametes=True keeps the ':idx' suffix in the label."""
+    index_array = build_index_lookup(sample_ps4g_file, distinguish_gametes=True)
+    assert index_array == ['B73:0', 'CML247:0', 'W22:0']
+
+
+def test_convert_ps4g_same_shape_for_both_forms(sample_ps4g_file, sample_ps4g_file_no_suffix):
+    """The suffixed and bare-name fixtures carry the same data, so both
+    must produce matrices of the same shape."""
+    with_suffix, _ = convert_ps4g(sample_ps4g_file, weight_strat="unweighted", collapse=False)
+    no_suffix, _ = convert_ps4g(sample_ps4g_file_no_suffix, weight_strat="unweighted", collapse=False)
+    assert with_suffix.shape == no_suffix.shape
+
+
+def test_build_index_lookup_raises_on_no_gametes(tmp_path):
+    """A file with no gamete metadata lines should raise a clear error,
+    not crash inside max() on an empty sequence."""
+    ps4g_file = tmp_path / "empty.ps4g"
+    ps4g_file.write_text("#PS4G\n#version=2.0\ngameteSet\trefContig\trefPosBinned\tcount\n")
+    with pytest.raises(ValueError):
+        build_index_lookup(str(ps4g_file))
+
+
+# ────────────────────────────────────────────────
+#           parse_gamete_header_line
+# ────────────────────────────────────────────────
+
+def test_parse_sample_gamete_bare():
+    assert parse_sample_gamete("B73") == SampleGamete("B73", 0)
+
+
+def test_parse_sample_gamete_suffixed():
+    assert parse_sample_gamete("B73:1") == SampleGamete("B73", 1)
+
+
+@pytest.mark.parametrize("line", [
+    "#gamete\tgameteIndex\tcount",
+    "#Command: ropebwt3 refmap --ref-prefix=B73 --max-occ=-1",
+    "#version=2.0",
+    "#PS4G",
+])
+def test_parse_gamete_header_line_rejects_non_gamete_lines(line):
+    assert parse_gamete_header_line(line) is None
+
+
+def test_parse_gamete_header_line_accepts_both_forms():
+    bare = parse_gamete_header_line("#B73\t0\t784970")
+    suffixed = parse_gamete_header_line("#B73:0\t0\t784970")
+    assert bare == (SampleGamete("B73", 0), 0, 784970)
+    assert suffixed == (SampleGamete("B73", 0), 0, 784970)
 
 

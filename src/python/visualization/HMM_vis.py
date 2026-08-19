@@ -3,6 +3,8 @@ import argparse
 import numpy as np
 import os
 
+from python.ps4g_io.ps4g import parse_gamete_records
+
 def main():
     parser = argparse.ArgumentParser(description="takes a ps4g file and the sample_parents.txt output from PHG HMM and converts it into a numerical numpy array to be used in downstream visualization analysis")
     parser.add_argument("--input-bed", type=str, required=True, help="Input bed file")
@@ -29,20 +31,7 @@ def main():
     ps4g = pd.read_csv(args.ps4g, sep="\t", comment="#")
     sample = os.path.basename(args.ps4g).split(".")[0]
 
-    with open(args.ps4g, 'r') as file:
-        comments = [line for line in file if line.startswith('#')]
-    gamete_data = []
-    for line in comments:
-        line = line.strip()
-        if line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-            })
+    gamete_data = parse_gamete_records(args.ps4g)
 
     name_to_index = {entry["gamete"]: entry["gamete_index"] for entry in gamete_data}
     print(name_to_index)

@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 from bimamba_model import BiMambaSmooth
 from bimamba_train import WindowIndexDataset
 from python.modernBERT.modernBERT_model import BERTImputeConfig, BERTImpute
+from python.ps4g_io.ps4g import build_index_lookup
 
 
 def decode_position(encoded_pos):
@@ -307,26 +308,7 @@ def main():
     decoded = np.vstack(np.vectorize(decode_position)(spline_pos)).T
     chroms, positions = zip(*decoded)
 
-    with open(args.ps4g_file, 'r') as file:
-        comments = [line for line in file if line.startswith('#')]
-
-    gamete_data = []
-
-    for line in comments:
-        line = line.strip()
-        if line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-            })
-
-    index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
-    max_index = max(index_to_name.keys())  # ensure all indices fit
-    index_array = [index_to_name[i] for i in range(max_index + 1)]
+    index_array = build_index_lookup(args.ps4g_file)
 
     bed_df = pd.DataFrame({
         # TODO: convert chr_idx to chr

@@ -354,11 +354,13 @@ Plain-text, **tab-separated values (TSV)** file.
 Below is a minimal example of a PS4G input file used for testing:
 
 ```
+#PS4G
+#version=2.0
 #TotalUniqueCounts: 4
 #gamete	gameteIndex	count
-#B73:0	0	4
-#CML247:0	1	2
-#W22:0	2	1
+#B73	0	4
+#CML247	1	2
+#W22	2	1
 gameteSet	refContig	refPosBinned	count
 0	chr1	512000	1
 0,1	chr1	512256	1
@@ -369,6 +371,12 @@ gameteSet	refContig	refPosBinned	count
 #### Metadata Lines (`#` prefix)
 
 Metadata defines the parental gamete set and read-depth weights.
+
+The `gamete` field itself may be written either as a bare sample name
+(`B73`) or with an explicit haplotype/gamete index suffix (`B73:0`); a
+bare name implies index `0`. Both forms are valid per the PS4G spec and
+are accepted identically by the loader (`ps4g_io/ps4g.py`) and the
+desktop/web viewer (`parser-core/src/ps4g.rs`).
 
 Each metadata entry contains:
 

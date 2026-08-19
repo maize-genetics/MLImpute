@@ -3,7 +3,12 @@
 // ============================================================================
 
 export interface GameteInfo {
+  /** Display label: bare sample name, unless it collides within the panel. */
   gamete: string;
+  /** Sample name only, with any ":idx" suffix stripped (e.g. "B73"). */
+  sample_name: string;
+  /** Haplotype/gamete index parsed from a ":idx" suffix (0 if absent). */
+  gamete_idx: number;
   gamete_index: number;
   read_count: number;
   weight: number;

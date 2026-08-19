@@ -1,6 +1,94 @@
+import os
+from typing import NamedTuple, Optional
+
 import pandas as pd
 import numpy as np
 import logging
+
+
+class SampleGamete(NamedTuple):
+    """A single gamete: a sample name plus its haplotype/gamete index.
+
+    Per the PS4G spec, a gamete header field is either `<sampleName>`
+    (index implicitly 0) or `<sampleName>:<gameteIdx>`.
+    """
+    sample_name: str
+    gamete_idx: int
+
+    def label(self, distinguish: bool = False) -> str:
+        """Return the display label for this gamete.
+
+        distinguish=False (default) returns the bare sample name, matching
+        historical behavior and BED/labels.bed naming. distinguish=True
+        returns "sample:idx" so multiple gametes of the same sample (e.g.
+        B73:0 and B73:1) don't collide.
+        """
+        if distinguish:
+            return f"{self.sample_name}:{self.gamete_idx}"
+        return self.sample_name
+
+
+def parse_sample_gamete(field: str) -> SampleGamete:
+    """Parse a gamete header field into a SampleGamete.
+
+    Accepts both PS4G-spec forms: "B73" (index defaults to 0) and
+    "B73:0" (explicit index). Only a trailing ":<digits>" is treated as an
+    index suffix; a sample name that itself contains ':' but isn't followed
+    by a pure-digit suffix is kept whole.
+    """
+    if ":" in field:
+        name, _, suffix = field.rpartition(":")
+        if suffix.isdigit():
+            return SampleGamete(name, int(suffix))
+    return SampleGamete(field, 0)
+
+
+def parse_gamete_header_line(line: str) -> Optional[tuple]:
+    """Parse a PS4G gamete metadata line, e.g. "#B73\t0\t784970" or
+    "#B73:0\t0\t784970".
+
+    Returns (SampleGamete, gamete_index, read_count), or None if `line` is
+    not a gamete record (e.g. "#gamete\tgameteIndex\tcount", "#version=2.0",
+    "#Command: ...", "#PS4G"). Detection is based on shape rather than the
+    presence of ':', since the PS4G spec allows gamete names with no ':'
+    suffix.
+    """
+    if not line.startswith("#") or "\t" not in line:
+        return None
+    fields = line[1:].split("\t")
+    if len(fields) < 3:
+        return None
+    gamete_full, idx_str, count_str = fields[0], fields[1], fields[2]
+    try:
+        idx = int(idx_str)
+        count = int(count_str)
+    except ValueError:
+        return None
+    return parse_sample_gamete(gamete_full), idx, count
+
+
+def parse_gamete_records(ps4g_file, distinguish_gametes: bool = False):
+    """Read the comment block of a PS4G file and return one dict per gamete
+    metadata line: {"gamete", "gamete_index", "read_count", "sample_gamete"}.
+
+    `distinguish_gametes` controls whether "gamete" is the bare sample name
+    (False, default) or "sample:idx" (True) — see SampleGamete.label.
+    """
+    with open(ps4g_file, 'r') as file:
+        comments = (line.strip() for line in file if line.startswith('#'))
+        gamete_data = []
+        for line in comments:
+            parsed = parse_gamete_header_line(line)
+            if parsed is None:
+                continue
+            sample_gamete, idx, count = parsed
+            gamete_data.append({
+                "gamete": sample_gamete.label(distinguish_gametes),
+                "gamete_index": idx,
+                "read_count": count,
+                "sample_gamete": sample_gamete,
+            })
+    return gamete_data
 
 
 def convert_ps4g(ps4g_file, weight_strat, collapse):
@@ -49,48 +137,46 @@ def load_ps4g_file(ps4g_file):
     ps4g['gameteSet'] = ps4g['gameteSet'].apply(lambda x: list(map(int, x.split(','))))
     return ps4g
 
-def extract_metadata(ps4g_file):
+def extract_metadata(ps4g_file, distinguish_gametes: bool = False):
     """
     Extract metadata from the PS4G file.
 
     Args:
         ps4g_file (str): Path to the PS4G file.
+        distinguish_gametes (bool): If True, gamete names include the ":idx"
+            suffix (e.g. "B73:0" vs "B73:1"); if False (default), gametes
+            are named by sample only, matching historical behavior.
 
     Returns:
-        dict: A dictionary containing metadata such as sample name, filename, command, and total reads.
+        dict: A dictionary containing metadata such as sample name, version, filename, command, and total reads.
         list: A list of dictionaries containing gamete data with gamete name, index, read count, and weight.
     """
     logging.info(f"Extracting metadata from PS4G file {ps4g_file}")
     metadata = {
-        "sample_name": None,
+        "sample_name": os.path.basename(ps4g_file),
+        "version": None,
         "filename1": None,
         "command": None,
         "total_reads": None
     }
-    gamete_data = []
 
     with open(ps4g_file, 'r') as file:
         comments = [line.strip() for line in file if line.startswith('#')]
 
     for line in comments:
-        metadata["sample_name"] = ps4g_file.split('_')[0]
         if line.startswith("##filename1="):
             metadata["filename1"] = line.split("=")[1]
+        elif line.startswith("#version="):
+            metadata["version"] = line.split("=", 1)[1]
         elif line.startswith("#Command:"):
             metadata["command"] = line.replace("#Command: ", "")
         elif line.startswith("#TotalUniqueCounts:"):
             metadata["total_reads"] = int(line.split(":")[1])
-        elif line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-                "read_count": int(count),
-                "weight": int(count)/metadata["total_reads"]
-            })
+
+    gamete_data = parse_gamete_records(ps4g_file, distinguish_gametes)
+    total_reads = metadata["total_reads"]
+    for entry in gamete_data:
+        entry["weight"] = entry["read_count"] / total_reads if total_reads else 0.0
 
     return metadata, gamete_data
 
@@ -179,21 +265,20 @@ def collapse_ps4g(num_classes, ps4g, unique_positions):
         X_multihot[i, indices] = 1  # vectorized assignment
     return X_multihot, collapsed_df
 
-def build_index_lookup(ps4g_file):
-    with open(ps4g_file, 'r') as file:
-        comments = [line for line in file if line.startswith('#')]
-    gamete_data = []
-    for line in comments:
-        line = line.strip()
-        if line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-            })
+def build_index_lookup(ps4g_file, distinguish_gametes: bool = False):
+    """
+    Build an array mapping gamete_index -> gamete name from a PS4G file's
+    metadata lines.
+
+    Args:
+        ps4g_file (str): Path to the PS4G file.
+        distinguish_gametes (bool): If True, names include the ":idx" suffix
+            (e.g. "B73:0" vs "B73:1"); if False (default), gametes are named
+            by sample only.
+    """
+    gamete_data = parse_gamete_records(ps4g_file, distinguish_gametes)
+    if not gamete_data:
+        raise ValueError(f"No gamete metadata lines found in PS4G file: {ps4g_file}")
     index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
     max_index = max(index_to_name.keys())  # ensure all indices fit
     index_array = [index_to_name[i] for i in range(max_index + 1)]
