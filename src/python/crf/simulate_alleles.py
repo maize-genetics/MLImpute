@@ -133,16 +133,43 @@ def _individual_assignment(rng, windows, G, K, kmin, kmax):
     return ind, np.repeat(k_ind, G), np.repeat(sub_ind, G, axis=0)
 
 
-def _breeding_pop_assignment(rng, windows, G, K, classes, inbred_frac):
+def _breeding_pop_assignment(rng, windows, G, K, classes, inbred_frac,
+                              constant_pair_frac=0.0, constant_inbred_frac=0.5):
     """E11 breeding-population grouping. Each individual draws a founder-count
     CLASS (discrete mixture) and is inbred (F=1) or het with a class-specific
     TARGET het-loci fraction. `classes` = list of (weight, kmin, kmax, het_target).
     Returns per-window: ind [W], win_k [W], sub [W,K] (founder ids, -1 pad),
-    het_t [W] (target het fraction; 0 if inbred), cls [W] (class index)."""
+    het_t [W] (target het fraction; 0 if inbred), cls [W] (class index),
+    is_const [W] (bool), const_h1 [W], const_h2 [W] (founder ids, meaningful
+    only where is_const).
+
+    Tier2 (crf-relatedness): `constant_pair_frac` of individuals bypass the
+    class/het-target mechanism entirely and instead get a FIXED founder
+    identity, constant across every T site of every G window -- 0
+    breakpoints, het EXACTLY 0 or 1, not a target. Neither the class mixture
+    above nor --mixed-inbreeding can reach k=1 (hard-guarded >=2 elsewhere)
+    or a true het=1 k=2 individual (the realized het ceiling for an
+    independent-tract k=2 individual is structurally 1-1/k=0.5, confirmed
+    empirically -- see docs/RESULTS.md's E11 smoke-gen table) -- these are
+    the two real-world regimes (true inbred line, true F1 hybrid) neither
+    mechanism can produce. `constant_inbred_frac` of these individuals are
+    single-founder homozygous (k=1, het=0); the rest are two-founder
+    constant pairs (k=2, het=1). Class id 3 marks a constant individual in
+    the returned `cls` array (the 3 breeding classes are 0/1/2)."""
     n_ind = windows // G
     if n_ind * G != windows:
         raise ValueError(f"--windows {windows} not divisible by "
                          f"--windows-per-individual {G}")
+
+    is_const_ind = rng.random(n_ind) < constant_pair_frac
+    const_inbred_ind = rng.random(n_ind) < constant_inbred_frac
+    const_h1_ind = rng.integers(0, K, n_ind)
+    const_h2_ind = const_h1_ind.copy()
+    het_rows = np.flatnonzero(is_const_ind & ~const_inbred_ind)
+    if het_rows.size:
+        step = rng.integers(1, K, het_rows.size)      # 1..K-1 -> never repeats h1
+        const_h2_ind[het_rows] = (const_h1_ind[het_rows] + step) % K
+
     w = np.array([c[0] for c in classes], dtype=float)
     w = w / w.sum()
     cls_ind = rng.choice(len(classes), size=n_ind, p=w)
@@ -151,14 +178,24 @@ def _breeding_pop_assignment(rng, windows, G, K, classes, inbred_frac):
     het_ind = np.zeros(n_ind, dtype=np.float32)
     sub_ind = np.full((n_ind, K), -1, dtype=np.int64)
     for i in range(n_ind):
+        if is_const_ind[i]:
+            k = 1 if const_inbred_ind[i] else 2
+            k_ind[i] = k
+            sub_ind[i, 0] = const_h1_ind[i]
+            if k == 2:
+                sub_ind[i, 1] = const_h2_ind[i]
+            het_ind[i] = 0.0 if const_inbred_ind[i] else 1.0
+            continue
         _, kmin, kmax, het = classes[cls_ind[i]]
         k = int(kmin) if kmin == kmax else int(rng.integers(kmin, kmax + 1))
         k_ind[i] = k
         sub_ind[i, :k] = rng.permutation(K)[:k]
         het_ind[i] = 0.0 if inbred[i] else float(het)
+    cls_out = np.where(is_const_ind, 3, cls_ind)
     rep = lambda a: np.repeat(a, G, axis=0)
     return (rep(np.arange(n_ind)), rep(k_ind), rep(sub_ind),
-            rep(het_ind), rep(cls_ind.astype(np.int64)))
+            rep(het_ind), rep(cls_out.astype(np.int64)),
+            rep(is_const_ind), rep(const_h1_ind), rep(const_h2_ind))
 
 
 def _build_paths_subset(rng, sub, win_k, T, n_cross, rate=None):
@@ -321,7 +358,8 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
              error_block=1.0, gamete_balance=0.5, sharing_theta=None,
              windows_per_individual=0, min_founders=2, max_founders=24,
              emit_snp_panel=False, inbreeding_per_window=None,
-             breeding_classes=None, class_inbred_frac=0.5, chunk=1000):
+             breeding_classes=None, class_inbred_frac=0.5,
+             constant_pair_frac=0.0, constant_inbred_frac=0.5, chunk=1000):
     K = founders
     T = sites
     coalescent = sharing_model == "coalescent"
@@ -335,11 +373,12 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
     # E5/E11: assign every G windows to one individual drawing from a founder subset.
     grouped = windows_per_individual > 0
     breeding = breeding_classes is not None
-    het_tw = cls_w = None
+    het_tw = cls_w = is_const = const_h1 = const_h2 = None
     if breeding:
-        ind, win_k, sub, het_tw, cls_w = _breeding_pop_assignment(
+        (ind, win_k, sub, het_tw, cls_w,
+         is_const, const_h1, const_h2) = _breeding_pop_assignment(
             rng, windows, windows_per_individual, K, breeding_classes,
-            class_inbred_frac)
+            class_inbred_frac, constant_pair_frac, constant_inbred_frac)
     elif grouped:
         if min_founders < 2:
             raise ValueError("--min-founders must be >= 2")
@@ -360,6 +399,14 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
 
         n_cross = rng.integers(min_cross, max_cross + 1, n)
         sl = slice(start, start + n)
+        if is_const is not None:
+            # Tier2: constant individuals get 0 explicit crossovers here --
+            # also what avoids a real crash, since _build_paths would raise
+            # (rng.integers(1,K,nv) with K=1) if a k=1 constant-inbred row
+            # requested >=1 crossover. Their h1/h2 are overridden below
+            # regardless, once the breeding het-tract logic (which also
+            # needs a crash-safe n_cross for its own K=1 rows) has run.
+            n_cross = np.where(is_const[sl], 0, n_cross)
         if grouped or breeding:
             h1 = _build_paths_subset(rng, sub[sl], win_k[sl], T, n_cross, rmap)
         else:
@@ -374,6 +421,8 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
             k_w = np.maximum(win_k[sl], 2)
             p_ind = np.clip(het_t / (1.0 - 1.0 / k_w), 0.0, 1.0)        # [n]
             nc2 = rng.integers(min_cross, max_cross + 1, n)
+            if is_const is not None:
+                nc2 = np.where(is_const[sl], 0, nc2)          # same K=1 crash guard as n_cross
             h2_ind = _build_paths_subset(rng, sub[sl], win_k[sl], T, nc2, rmap)
             n_share = rng.integers(min_cross, max_cross + 1, n)
             seg = _segment_index(rng, n, T, n_share, rmap)             # [n,T] tracts
@@ -381,6 +430,20 @@ def simulate(rng, windows, sites, founders, min_cross, max_cross,
             seg_indep = rng.random((n, max_seg)) < p_ind[:, None]      # per-tract coin
             independent = np.take_along_axis(seg_indep, seg, axis=1)   # [n,T]
             h2 = np.where(independent, h2_ind, h1)
+
+            if is_const is not None:
+                # Tier2: force the FIXED founder identity for constant
+                # individuals, constant across every site of this window.
+                # Not redundant with the n_cross=0 clamp above: that alone
+                # only makes each window internally constant, not constant
+                # ACROSS an individual's G windows (each window's starting
+                # founder is still an independent draw in _build_paths), and
+                # for k=2 doesn't guarantee both designated founders are the
+                # ones that appear at all (h1/h2 could coincidentally match).
+                m = is_const[sl]
+                if m.any():
+                    h1[m] = const_h1[sl][m][:, None]
+                    h2[m] = const_h2[sl][m][:, None]
         else:
             # Second haplotype: identical with prob F (inbred), else independent.
             # E7: a per-window F (constant within an individual) mixes inbreeding.
@@ -512,6 +575,18 @@ def parse_args():
                         "classes (k=2, k=8, k in [12,24]).")
     p.add_argument("--class-inbred-frac", type=float, default=0.5,
                    help="E11: fraction of individuals in each class that are fully inbred.")
+    p.add_argument("--constant-pair-frac", type=float, default=0.0,
+                   help="crf-relatedness Tier2: fraction of --breeding-pop individuals "
+                        "given a FIXED founder identity constant across every site of "
+                        "every window (0 breakpoints, het exactly 0 or 1) -- the true "
+                        "inbred-line and true-F1-hybrid regimes the class mixture and "
+                        "--mixed-inbreeding cannot reach (k=1 is hard-guarded elsewhere; "
+                        "the realized het ceiling for an independent-tract k=2 "
+                        "individual is 1-1/k=0.5, never 1.0). Requires --breeding-pop.")
+    p.add_argument("--constant-inbred-frac", type=float, default=0.5,
+                   help="crf-relatedness Tier2: of the --constant-pair-frac individuals, "
+                        "fraction that are single-founder homozygous (k=1, het=0) "
+                        "rather than a constant two-founder pair (k=2, het=1).")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -548,6 +623,8 @@ def main():
             (0.25, 8, 8, het_by_class[1]),
             (0.50, 12, 24, het_by_class[2]),
         ]
+    if args.constant_pair_frac > 0 and not args.breeding_pop:
+        raise SystemExit("--constant-pair-frac requires --breeding-pop")
 
     data, ibd, ind, panel, het_tgt, cls = simulate(
         rng, args.windows, args.sites, args.founders,
@@ -560,7 +637,9 @@ def main():
         args.windows_per_individual, args.min_founders, args.max_founders,
         args.emit_snp_panel, inbreeding_per_window=finb,
         breeding_classes=breeding_classes,
-        class_inbred_frac=args.class_inbred_frac)
+        class_inbred_frac=args.class_inbred_frac,
+        constant_pair_frac=args.constant_pair_frac,
+        constant_inbred_frac=args.constant_inbred_frac)
 
     # E11: per-window het target plays the role of F (.finb) for eval-by-F tooling.
     if het_tgt is not None and finb is None:
@@ -593,9 +672,13 @@ def main():
     if cls is not None:
         cls_path = out_dir / (Path(args.out).stem + ".cls.npy")
         np.save(cls_path, cls.astype(np.int8))
-        frac = np.bincount(cls, minlength=3) / len(cls)
+        # class id 3 = Tier2 "constant" individuals (out-of-band, not one of
+        # the 3 breeding classes) -- minlength=4 so bincount doesn't choke
+        # on it even when --constant-pair-frac=0 (frac[3] is just 0 then).
+        frac = np.bincount(cls, minlength=4) / len(cls)
         print(f"  class id (.cls)     → {cls_path}  "
-              f"mix k2/k8/outbred = {frac[0]*100:.0f}/{frac[1]*100:.0f}/{frac[2]*100:.0f}%")
+              f"mix k2/k8/outbred/constant = "
+              f"{frac[0]*100:.0f}/{frac[1]*100:.0f}/{frac[2]*100:.0f}/{frac[3]*100:.0f}%")
 
     # Verification summary
     K = args.founders
