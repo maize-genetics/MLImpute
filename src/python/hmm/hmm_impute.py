@@ -5,6 +5,7 @@ import math
 import argparse
 import torch.nn.functional as F
 from python.hmm.viterbi import build_pair_states, viterbi_decode
+from python.ps4g_io.ps4g import build_index_lookup
 
 
 def run_hmm_imputation(args):
@@ -40,26 +41,7 @@ def run_hmm_imputation(args):
     positions = ps4g_df['refPosBinned'].values
 
     # Extract gamete index to name mapping from PS4G file header
-    with open(args.ps4g_file, 'r') as file:
-        comments = [line for line in file if line.startswith('#')]
-
-    gamete_data = []
-
-    for line in comments:
-        line = line.strip()
-        if line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-            })
-
-    index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
-    max_index = max(index_to_name.keys())  # ensure all indices fit
-    index_array = [index_to_name[i] for i in range(max_index + 1)]
+    index_array = build_index_lookup(args.ps4g_file)
 
     bed_df = pd.DataFrame({
         "chrom": chroms[:len(final_predictions)],

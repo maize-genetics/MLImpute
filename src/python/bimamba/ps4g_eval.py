@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 from python.bimamba.bimamba_model import BiMambaSmooth
+from python.ps4g_io.ps4g import build_index_lookup
 from torch.utils.data import DataLoader, Dataset
 import numba
 
@@ -167,23 +168,7 @@ avg_loss, snp_accuracy, predictions = evaluate_model(model, test_loader, test_ma
 ps4g_file = "../axial/ps4g_files/gvcfPS4GFiles_old/Zm-CML69-REFERENCE-NAM-1.0_fullASM_pos_matches2NM_ps4g.txt"
 ps4g = pd.read_csv(ps4g_file, delimiter="\t", comment="#")
 
-with open(ps4g_file, 'r') as file:
-    comments = [line for line in file if line.startswith('#')]
-
 ps4g['gameteSet'] = ps4g['gameteSet'].apply(lambda x: list(map(int, x.split(','))))
-gamete_data = []
-
-for line in comments:
-    line = line.strip()
-    if line.startswith("#") and ":" in line and "\t" in line:
-        # Example line: "#B73:0\t1\t10730006"
-        line = line[1:]  # Remove leading "#"
-        gamete_full, idx, count = line.split("\t")
-        gamete_name = gamete_full.split(":")[0]
-        gamete_data.append({
-            "gamete": gamete_name,
-            "gamete_index": int(idx),
-        })
 
 # collapse positions using refContig and refPosBinned
 ps4g['position_id'] = ps4g['refContig'].astype(str) + '_' + ps4g['refPosBinned'].astype(str)
@@ -195,9 +180,7 @@ collapsed_df = ps4g.groupby('position_id').agg({
 }).reset_index()
 
 ps4g_preds = ps4g[:len(predictions)]
-index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
-max_index = max(index_to_name.keys())  # ensure all indices fit
-index_array = [index_to_name[i] for i in range(max_index + 1)]
+index_array = build_index_lookup(ps4g_file)
 predicted_parents = np.array(index_array)[predictions.cpu().numpy()]
 
 ps4g_preds['parents'] = predicted_parents

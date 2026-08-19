@@ -8,7 +8,15 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameteInfo {
+    /// Display label for this gamete. Bare sample name by default (e.g.
+    /// "B73"); see `build_chromosome_matrix` for when a ":idx" suffix is
+    /// added to disambiguate a collision.
     pub gamete: String,
+    /// Sample name only, with any ":idx" suffix stripped (e.g. "B73").
+    pub sample_name: String,
+    /// Haplotype/gamete index parsed from a ":idx" suffix, or 0 when the
+    /// header field had no suffix (per the PS4G spec, both forms are valid).
+    pub gamete_idx: u32,
     pub gamete_index: u32,
     pub read_count: u64,
     pub weight: f64,
