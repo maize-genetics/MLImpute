@@ -35,7 +35,21 @@ pub fn parse_ps4g(
     let mut position_ranges: Vec<(u64, u64)> = Vec::new();
     let mut chromosome_position_data: Vec<FxHashMap<u64, FxHashMap<u32, u32>>> = Vec::new();
 
+    // `in_header` tracks the leading run of `#`-prefixed (and blank) lines,
+    // which is the only place metadata and gamete records are recognized.
+    // `in_gamete_section` additionally tracks whether we're between the
+    // `#gamete` tag line and the end of that header block — gamete records
+    // are only ever parsed there, never by line shape alone (see
+    // `parse_gamete_record`).
     let mut in_header = true;
+    let mut in_gamete_section = false;
+    // If the header block ends with no gamete records recognized (no
+    // `#gamete` tag was ever seen), fall back to synthesizing one gamete per
+    // distinct index that actually appears in the data section's
+    // `gameteSet` column, named by that index. `need_fallback_gametes` is
+    // decided once, right when the header block ends.
+    let mut need_fallback_gametes = false;
+    let mut fallback_tally: FxHashMap<u32, u64> = FxHashMap::default();
     let mut bytes_processed: u64 = 0;
     let mut line_buf = String::with_capacity(256);
 
@@ -57,13 +71,34 @@ pub fn parse_ps4g(
         }
 
         if line.starts_with('#') {
-            parse_header_line(line, &mut metadata);
+            if in_header {
+                if is_gamete_section_tag(line) {
+                    in_gamete_section = true;
+                } else if !parse_metadata_line(line, &mut metadata) && in_gamete_section {
+                    // Inside the gamete section, every non-metadata `#` line
+                    // is expected to be a record. A malformed one is skipped
+                    // (not fatal, section stays open) rather than treated as
+                    // "not a gamete record" the way the old shape sniff did.
+                    if let Some(g) = parse_gamete_record(line, metadata.total_unique_counts) {
+                        metadata.gametes.push(g);
+                    }
+                }
+            }
+            // `#` lines outside the header block are inert trailing
+            // comments — never scanned for metadata or gamete records.
             continue;
         }
 
-        if in_header && line.starts_with("gameteSet") {
+        if in_header {
+            // First non-'#' line ends the header block (and with it, the
+            // gamete section, if one was ever opened).
             in_header = false;
-            continue;
+            in_gamete_section = false;
+            need_fallback_gametes = metadata.gametes.is_empty();
+
+            if line.starts_with("gameteSet") {
+                continue;
+            }
         }
 
         if let Some(row) = parse_data_row(line) {
@@ -75,6 +110,12 @@ pub fn parse_ps4g(
                 &mut position_ranges,
                 &mut chromosome_position_data,
             );
+
+            if need_fallback_gametes {
+                for gamete_idx in &row.gamete_set {
+                    *fallback_tally.entry(*gamete_idx).or_insert(0) += row.count as u64;
+                }
+            }
 
             unique_positions.insert((chr_idx, row.ref_pos_binned));
             chromosome_counts[chr_idx as usize] += 1;
@@ -141,6 +182,28 @@ pub fn parse_ps4g(
         chromosome_counts_fx.iter().map(|(k, v)| (k.clone(), *v)).collect();
     let position_range_map: HashMap<String, (u64, u64)> =
         position_range_fx.iter().map(|(k, v)| (k.clone(), *v)).collect();
+
+    // No `#gamete` section was found in the header — synthesize one gamete
+    // per distinct index seen in the data section's `gameteSet` column,
+    // named by that index, rather than falling back to shape-sniffing `#`
+    // lines (the thing this section-gated design replaces).
+    if need_fallback_gametes && !fallback_tally.is_empty() {
+        let total = metadata.total_unique_counts.unwrap_or(1);
+        let mut indices: Vec<u32> = fallback_tally.keys().copied().collect();
+        indices.sort_unstable();
+        for idx in indices {
+            let name = idx.to_string();
+            let read_count = fallback_tally[&idx];
+            metadata.gametes.push(GameteInfo {
+                gamete: name.clone(),
+                sample_name: name,
+                gamete_idx: 0,
+                gamete_index: idx,
+                read_count,
+                weight: read_count as f64 / total as f64,
+            });
+        }
+    }
 
     let summary = PS4GSummary {
         total_rows,
@@ -335,47 +398,81 @@ fn parse_sample_gamete(field: &str) -> (String, u32) {
     (field.to_string(), 0)
 }
 
+/// True if `line` is the `#gamete\tgameteIndex\tcount` tag line that opens
+/// the gamete section (see `parse_ps4g`). Only the first tab field is
+/// checked — the column names after it are informational — so this matches
+/// regardless of exact header spelling, and matching is case-insensitive
+/// and tolerant of extra leading `#`s (mirroring the `#PS4G`/`##PS4G` magic
+/// line).
 #[inline]
-pub(crate) fn parse_header_line(line: &str, metadata: &mut PS4GMetadata) {
+pub(crate) fn is_gamete_section_tag(line: &str) -> bool {
+    line.trim_start_matches('#')
+        .split('\t')
+        .next()
+        .map(|field| field.trim().eq_ignore_ascii_case("gamete"))
+        .unwrap_or(false)
+}
+
+/// Consume a keyed metadata line (`#PS4G`, `#version=`, `#Command:`,
+/// `#TotalUniqueCounts:`). Returns `true` if `line` was one of these, so the
+/// caller knows not to also try `parse_gamete_record` on it — these keys
+/// take precedence even inside the gamete section (a producer-declared
+/// `#TotalUniqueCounts:` line interleaved among gamete records shouldn't be
+/// mistaken for a malformed record).
+#[inline]
+pub(crate) fn parse_metadata_line(line: &str, metadata: &mut PS4GMetadata) -> bool {
     if line.trim_start_matches('#') == "PS4G" {
         // Magic line, e.g. "#PS4G" (v2.0 form) or "##PS4G" (legacy form).
-        return;
+        true
     } else if let Some(version) = line.strip_prefix("#version=") {
         metadata.version = Some(version.to_string());
+        true
     } else if let Some(command) = line.strip_prefix("#Command:") {
         metadata.command = Some(command.trim().to_string());
+        true
     } else if let Some(count_str) = line.strip_prefix("#TotalUniqueCounts:") {
         if let Ok(count) = count_str.trim().parse::<u64>() {
             metadata.total_unique_counts = Some(count);
         }
-    } else if line.starts_with('#') && line.contains('\t') {
-        // A gamete record has exactly 3 tab-separated fields whose 2nd and
-        // 3rd fields are integers (index, count). This shape check — rather
-        // than requiring a ':' in the name — is what lets both PS4G-spec
-        // forms ("B73" and "B73:0") parse, and it already rejects the
-        // "#gamete\tgameteIndex\tcount" column header since "gameteIndex"
-        // and "count" aren't integers.
-        let content = line.trim_start_matches('#');
-        let parts: Vec<&str> = content.split('\t').collect();
-        if parts.len() >= 3 {
-            let gamete_full = parts[0];
-
-            if let (Ok(idx), Ok(count)) = (parts[1].parse::<u32>(), parts[2].parse::<u64>()) {
-                let (sample_name, gamete_idx) = parse_sample_gamete(gamete_full);
-                let total = metadata.total_unique_counts.unwrap_or(1);
-                let weight = count as f64 / total as f64;
-
-                metadata.gametes.push(GameteInfo {
-                    gamete: sample_name.clone(),
-                    sample_name,
-                    gamete_idx,
-                    gamete_index: idx,
-                    read_count: count,
-                    weight,
-                });
-            }
-        }
+        true
+    } else {
+        false
     }
+}
+
+/// Parse a line already known — by its position under the `#gamete` tag —
+/// to be a gamete record, e.g. `"#B73\t0\t784970"` or `"#B73:0\t0\t784970"`.
+/// Returns `None` if the line is malformed (not a shape sniff: the caller
+/// has already established this line *should* be a record).
+///
+/// `total_unique_counts` is the file's declared `#TotalUniqueCounts:`
+/// value, if seen before this line — weight is normalized against it
+/// (falling back to 1 if unknown), matching the file's own row-count
+/// column, e.g. `read_count / total_unique_counts`.
+#[inline]
+pub(crate) fn parse_gamete_record(
+    line: &str,
+    total_unique_counts: Option<u64>,
+) -> Option<GameteInfo> {
+    let content = line.trim_start_matches('#');
+    let parts: Vec<&str> = content.split('\t').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let gamete_full = parts[0];
+    let idx = parts[1].parse::<u32>().ok()?;
+    let count = parts[2].parse::<u64>().ok()?;
+    let (sample_name, gamete_idx) = parse_sample_gamete(gamete_full);
+    let total = total_unique_counts.unwrap_or(1);
+
+    Some(GameteInfo {
+        gamete: sample_name.clone(),
+        sample_name,
+        gamete_idx,
+        gamete_index: idx,
+        read_count: count,
+        weight: count as f64 / total as f64,
+    })
 }
 
 struct ParsedDataRow<'a> {
@@ -435,6 +532,7 @@ fn get_or_create_chromosome_index(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     fn fresh_metadata() -> PS4GMetadata {
         PS4GMetadata {
@@ -447,11 +545,7 @@ mod tests {
 
     #[test]
     fn parses_bare_gamete_name() {
-        let mut metadata = fresh_metadata();
-        parse_header_line("#TotalUniqueCounts: 100", &mut metadata);
-        parse_header_line("#B73\t0\t60", &mut metadata);
-        assert_eq!(metadata.gametes.len(), 1);
-        let g = &metadata.gametes[0];
+        let g = parse_gamete_record("#B73\t0\t60", Some(100)).unwrap();
         assert_eq!(g.gamete, "B73");
         assert_eq!(g.sample_name, "B73");
         assert_eq!(g.gamete_idx, 0);
@@ -462,11 +556,7 @@ mod tests {
 
     #[test]
     fn parses_colon_suffixed_gamete_name() {
-        let mut metadata = fresh_metadata();
-        parse_header_line("#TotalUniqueCounts: 100", &mut metadata);
-        parse_header_line("#B73:1\t2\t40", &mut metadata);
-        assert_eq!(metadata.gametes.len(), 1);
-        let g = &metadata.gametes[0];
+        let g = parse_gamete_record("#B73:1\t2\t40", Some(100)).unwrap();
         assert_eq!(g.gamete, "B73");
         assert_eq!(g.sample_name, "B73");
         assert_eq!(g.gamete_idx, 1);
@@ -474,20 +564,30 @@ mod tests {
     }
 
     #[test]
-    fn skips_column_header_line() {
-        let mut metadata = fresh_metadata();
-        parse_header_line("#gamete\tgameteIndex\tcount", &mut metadata);
-        assert!(metadata.gametes.is_empty());
+    fn parse_gamete_record_rejects_malformed_lines() {
+        assert!(parse_gamete_record("#B73\t0", None).is_none()); // too few fields
+        assert!(parse_gamete_record("#B73\tx\t4", None).is_none()); // non-integer index
+        assert!(parse_gamete_record("#B73\t0\tx", None).is_none()); // non-integer count
     }
 
     #[test]
-    fn command_line_with_colon_is_not_a_gamete_record() {
+    fn gamete_tag_recognized_in_all_forms() {
+        assert!(is_gamete_section_tag("#gamete\tgameteIndex\tcount"));
+        assert!(is_gamete_section_tag("#gamete"));
+        assert!(is_gamete_section_tag("##gamete\tgameteIndex\tcount"));
+        assert!(is_gamete_section_tag("#GAMETE\tgameteIndex\tcount"));
+        assert!(!is_gamete_section_tag("#B73\t0\t4"));
+        assert!(!is_gamete_section_tag("#Command: ropebwt3 refmap"));
+        assert!(!is_gamete_section_tag("#version=2.0"));
+    }
+
+    #[test]
+    fn command_line_with_colon_is_recognized_as_metadata() {
         let mut metadata = fresh_metadata();
-        parse_header_line(
+        assert!(parse_metadata_line(
             "#Command: ropebwt3 refmap --ref-prefix=B73 --max-occ=-1",
             &mut metadata,
-        );
-        assert!(metadata.gametes.is_empty());
+        ));
         assert_eq!(
             metadata.command.as_deref(),
             Some("ropebwt3 refmap --ref-prefix=B73 --max-occ=-1")
@@ -495,23 +595,149 @@ mod tests {
     }
 
     #[test]
-    fn magic_and_version_lines_are_not_gamete_records() {
+    fn magic_and_version_lines_are_metadata_not_gamete_records() {
         let mut metadata = fresh_metadata();
-        parse_header_line("#PS4G", &mut metadata);
-        parse_header_line("##PS4G", &mut metadata);
-        parse_header_line("#version=2.0", &mut metadata);
+        assert!(parse_metadata_line("#PS4G", &mut metadata));
+        assert!(parse_metadata_line("##PS4G", &mut metadata));
+        assert!(parse_metadata_line("#version=2.0", &mut metadata));
         assert!(metadata.gametes.is_empty());
         assert_eq!(metadata.version.as_deref(), Some("2.0"));
     }
 
     #[test]
-    fn total_unique_counts_before_gametes_drives_weight() {
-        let mut metadata = fresh_metadata();
-        parse_header_line("#TotalUniqueCounts: 1000", &mut metadata);
-        parse_header_line("#B73\t0\t250", &mut metadata);
-        parse_header_line("#B97\t1\t750", &mut metadata);
-        assert_eq!(metadata.gametes.len(), 2);
-        assert!((metadata.gametes[0].weight - 0.25).abs() < 1e-9);
-        assert!((metadata.gametes[1].weight - 0.75).abs() < 1e-9);
+    fn total_unique_counts_drives_weight() {
+        let g1 = parse_gamete_record("#B73\t0\t250", Some(1000)).unwrap();
+        let g2 = parse_gamete_record("#B97\t1\t750", Some(1000)).unwrap();
+        assert!((g1.weight - 0.25).abs() < 1e-9);
+        assert!((g2.weight - 0.75).abs() < 1e-9);
+    }
+
+    fn sample_ps4g_bytes() -> &'static [u8] {
+        b"#TotalUniqueCounts: 4\n\
+          #gamete\tgameteIndex\tcount\n\
+          #B73:0\t0\t4\n\
+          #CML247:0\t1\t2\n\
+          #W22:0\t2\t1\n\
+          gameteSet\trefContig\trefPosBinned\tcount\n\
+          0\tchr1\t1000\t1\n\
+          0,1\tchr1\t1000\t1\n\
+          0\tchr1\t2000\t1\n\
+          0,1,2\tchr1\t2000\t1\n"
+    }
+
+    #[test]
+    fn records_before_gamete_tag_are_ignored() {
+        // A gamete-shaped line appearing before the #gamete tag opens the
+        // section is not a record -- position, not shape, is what matters.
+        let bytes = b"#B73:0\t0\t4\n\
+                       #gamete\tgameteIndex\tcount\n\
+                       #CML247:0\t1\t2\n\
+                       #W22:0\t2\t1\n\
+                       gameteSet\trefContig\trefPosBinned\tcount\n\
+                       0\tchr1\t1000\t1\n\
+                       0,1\tchr1\t1000\t1\n\
+                       0\tchr1\t2000\t1\n\
+                       0,1,2\tchr1\t2000\t1\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&bytes[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.gamete_count, 2);
+        assert!(result
+            .metadata
+            .gametes
+            .iter()
+            .all(|g| g.sample_name != "B73"));
+    }
+
+    #[test]
+    fn three_column_comment_outside_section_is_not_a_gamete() {
+        // The reviewer's regression case: a #-line with the old gamete
+        // shape (3 tab fields, integer cols 2-3) that is NOT a gamete
+        // record, placed both before the tag and after the data section.
+        let bytes = b"#binSize\t256\t1\n\
+                       #gamete\tgameteIndex\tcount\n\
+                       #B73:0\t0\t4\n\
+                       #CML247:0\t1\t2\n\
+                       #W22:0\t2\t1\n\
+                       gameteSet\trefContig\trefPosBinned\tcount\n\
+                       0\tchr1\t1000\t1\n\
+                       0,1\tchr1\t1000\t1\n\
+                       0\tchr1\t2000\t1\n\
+                       0,1,2\tchr1\t2000\t1\n\
+                       #binSize\t256\t1\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&bytes[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.gamete_count, 3);
+    }
+
+    #[test]
+    fn comment_after_data_section_is_ignored() {
+        // '#' lines are only recognized inside the leading header block --
+        // once data rows start, trailing '#' lines (metadata or gamete
+        // shaped) are inert comments.
+        let bytes = b"#gamete\tgameteIndex\tcount\n\
+                       #B73:0\t0\t4\n\
+                       gameteSet\trefContig\trefPosBinned\tcount\n\
+                       0\tchr1\t1000\t4\n\
+                       #B99\t9\t9\n\
+                       #version=9.9\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&bytes[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.gamete_count, 1);
+        assert_eq!(result.metadata.version, None);
+    }
+
+    #[test]
+    fn file_without_gamete_tag_synthesizes_ids_from_data() {
+        // No #gamete tag anywhere -- rather than falling back to shape
+        // sniffing, gametes are synthesized from the indices actually used
+        // in the data section's gameteSet column, named by that index.
+        let bytes = b"#TotalUniqueCounts: 4\n\
+                       gameteSet\trefContig\trefPosBinned\tcount\n\
+                       0\tchr1\t1000\t1\n\
+                       0,1\tchr1\t1000\t1\n\
+                       0\tchr1\t2000\t1\n\
+                       0,1,2\tchr1\t2000\t1\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&bytes[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.gamete_count, 3);
+        let mut names: Vec<&str> = result
+            .metadata
+            .gametes
+            .iter()
+            .map(|g| g.sample_name.as_str())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["0", "1", "2"]);
+
+        let by_index: FxHashMap<u32, u64> = result
+            .metadata
+            .gametes
+            .iter()
+            .map(|g| (g.gamete_index, g.read_count))
+            .collect();
+        assert_eq!(by_index[&0], 4); // hits all 4 rows
+        assert_eq!(by_index[&1], 2); // hits rows 2, 4
+        assert_eq!(by_index[&2], 1); // hits row 4
+    }
+
+    #[test]
+    fn malformed_record_inside_section_is_skipped() {
+        let bytes = b"#gamete\tgameteIndex\tcount\n\
+                       #B73:0\t0\t4\n\
+                       #bad\tnot-a-number\t2\n\
+                       #W22:0\t2\t1\n\
+                       gameteSet\trefContig\trefPosBinned\tcount\n\
+                       0\tchr1\t1000\t1\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&bytes[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.gamete_count, 2);
+    }
+
+    #[test]
+    fn full_file_parses_three_gametes() {
+        let (result, _cached) =
+            parse_ps4g(Cursor::new(sample_ps4g_bytes()), None, |_| {}).unwrap();
+        assert_eq!(result.summary.gamete_count, 3);
+        assert_eq!(result.summary.total_rows, 4);
     }
 }

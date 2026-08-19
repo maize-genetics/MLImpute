@@ -44,14 +44,15 @@ def parse_sample_gamete(field: str) -> SampleGamete:
 
 
 def parse_gamete_header_line(line: str) -> Optional[tuple]:
-    """Parse a PS4G gamete metadata line, e.g. "#B73\t0\t784970" or
-    "#B73:0\t0\t784970".
+    """Parse a line already known — by its position under the "#gamete" tag
+    — to be a gamete record, e.g. "#B73\t0\t784970" or "#B73:0\t0\t784970".
 
     Returns (SampleGamete, gamete_index, read_count), or None if `line` is
-    not a gamete record (e.g. "#gamete\tgameteIndex\tcount", "#version=2.0",
-    "#Command: ...", "#PS4G"). Detection is based on shape rather than the
-    presence of ':', since the PS4G spec allows gamete names with no ':'
-    suffix.
+    malformed (not a shape sniff: the caller has already established this
+    line *should* be a record — see `read_ps4g_header`). Also rejects
+    non-gamete header lines it might be called on directly (e.g.
+    "#gamete\tgameteIndex\tcount", "#version=2.0", "#Command: ...",
+    "#PS4G") as defense in depth.
     """
     if not line.startswith("#") or "\t" not in line:
         return None
@@ -67,19 +68,125 @@ def parse_gamete_header_line(line: str) -> Optional[tuple]:
     return parse_sample_gamete(gamete_full), idx, count
 
 
-def parse_gamete_records(ps4g_file, distinguish_gametes: bool = False):
-    """Read the comment block of a PS4G file and return one dict per gamete
-    metadata line: {"gamete", "gamete_index", "read_count", "sample_gamete"}.
-
-    `distinguish_gametes` controls whether "gamete" is the bare sample name
-    (False, default) or "sample:idx" (True) — see SampleGamete.label.
+def _is_gamete_section_tag(line: str) -> bool:
+    """True if `line` is the "#gamete\tgameteIndex\tcount" tag that opens
+    the gamete section (see `read_ps4g_header`). Only the first tab field is
+    checked — the column names after it are informational — so this matches
+    regardless of exact header spelling. Case-insensitive and tolerant of
+    extra leading '#'s (mirroring the "#PS4G"/"##PS4G" magic line).
     """
-    with open(ps4g_file, 'r') as file:
-        comments = (line.strip() for line in file if line.startswith('#'))
-        gamete_data = []
-        for line in comments:
+    return line.lstrip("#").split("\t", 1)[0].strip().lower() == "gamete"
+
+
+def _parse_metadata_key(line: str, metadata: dict) -> bool:
+    """Consume a keyed header line (##filename1=, #version=, #Command:,
+    #TotalUniqueCounts:) into `metadata`. Returns True if `line` was one of
+    these, so the caller knows not to also try treating it as a gamete
+    record — these keys take precedence even inside the gamete section (a
+    producer-declared #TotalUniqueCounts: line interleaved among gamete
+    records shouldn't be mistaken for a malformed one).
+    """
+    if line.startswith("##filename1="):
+        metadata["filename1"] = line.split("=", 1)[1]
+    elif line.startswith("#version="):
+        metadata["version"] = line.split("=", 1)[1]
+    elif line.startswith("#Command:"):
+        metadata["command"] = line.replace("#Command: ", "")
+    elif line.startswith("#TotalUniqueCounts:"):
+        metadata["total_reads"] = int(line.split(":", 1)[1])
+    else:
+        return False
+    return True
+
+
+def _synthesize_gametes_from_data(ps4g_file):
+    """Fallback for a file with no "#gamete" section: derive one gamete per
+    distinct index seen in the data section's gameteSet column, named by
+    that index — rather than falling back to shape-sniffing '#' header
+    lines, which is the thing this section-gated design replaces.
+    """
+    tally = {}
+    with open(ps4g_file, "r") as file:
+        for raw_line in file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("gameteSet"):
+                continue
+            fields = line.split("\t")
+            if len(fields) < 4:
+                continue
+            gamete_set_str, count_str = fields[0], fields[3]
+            try:
+                count = int(count_str)
+            except ValueError:
+                continue
+            for idx_str in gamete_set_str.split(","):
+                idx_str = idx_str.strip()
+                if not idx_str:
+                    continue
+                try:
+                    idx = int(idx_str)
+                except ValueError:
+                    continue
+                tally[idx] = tally.get(idx, 0) + count
+
+    return [
+        {
+            "gamete": str(idx),
+            "gamete_index": idx,
+            "read_count": tally[idx],
+            "sample_gamete": SampleGamete(str(idx), 0),
+        }
+        for idx in sorted(tally)
+    ]
+
+
+def read_ps4g_header(ps4g_file, distinguish_gametes: bool = False):
+    """Read a PS4G file's leading header block in a single pass.
+
+    Gamete records are recognized by position — only "#"-prefixed lines
+    between the "#gamete" tag and the end of the header block — never by
+    their column shape, so a stray "#"-prefixed comment with the same
+    3-column shape (before the tag, or anywhere after the header ends) is
+    never mistaken for one. If no "#gamete" tag is found, gametes are
+    synthesized from the indices actually used in the data section's
+    gameteSet column (see `_synthesize_gametes_from_data`), named by index.
+
+    Returns (metadata, gamete_data) — the same shapes `extract_metadata` and
+    `parse_gamete_records` returned previously.
+    """
+    metadata = {
+        "sample_name": os.path.basename(ps4g_file),
+        "version": None,
+        "filename1": None,
+        "command": None,
+        "total_reads": None,
+    }
+    gamete_data = []
+    in_gamete_section = False
+
+    with open(ps4g_file, "r") as file:
+        for raw_line in file:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if not line.startswith("#"):
+                break  # first non-'#' line ends the header block
+
+            if _is_gamete_section_tag(line):
+                in_gamete_section = True
+                continue
+            if _parse_metadata_key(line, metadata):
+                continue
+            if not in_gamete_section:
+                continue
+
             parsed = parse_gamete_header_line(line)
             if parsed is None:
+                # Malformed record inside the section: skipped, not fatal,
+                # section stays open so later well-formed records still parse.
+                logging.warning(
+                    "Skipping malformed gamete record in %s: %r", ps4g_file, line
+                )
                 continue
             sample_gamete, idx, count = parsed
             gamete_data.append({
@@ -88,7 +195,26 @@ def parse_gamete_records(ps4g_file, distinguish_gametes: bool = False):
                 "read_count": count,
                 "sample_gamete": sample_gamete,
             })
-    return gamete_data
+
+    if not gamete_data:
+        gamete_data = _synthesize_gametes_from_data(ps4g_file)
+
+    total_reads = metadata["total_reads"]
+    for entry in gamete_data:
+        entry["weight"] = entry["read_count"] / total_reads if total_reads else 0.0
+
+    return metadata, gamete_data
+
+
+def parse_gamete_records(ps4g_file, distinguish_gametes: bool = False):
+    """Return one dict per gamete in a PS4G file's gamete section:
+    {"gamete", "gamete_index", "read_count", "weight", "sample_gamete"}.
+
+    `distinguish_gametes` controls whether "gamete" is the bare sample name
+    (False, default) or "sample:idx" (True) — see SampleGamete.label. See
+    `read_ps4g_header` for how gamete records are recognized.
+    """
+    return read_ps4g_header(ps4g_file, distinguish_gametes)[1]
 
 
 def convert_ps4g(ps4g_file, weight_strat, collapse):
@@ -152,33 +278,7 @@ def extract_metadata(ps4g_file, distinguish_gametes: bool = False):
         list: A list of dictionaries containing gamete data with gamete name, index, read count, and weight.
     """
     logging.info(f"Extracting metadata from PS4G file {ps4g_file}")
-    metadata = {
-        "sample_name": os.path.basename(ps4g_file),
-        "version": None,
-        "filename1": None,
-        "command": None,
-        "total_reads": None
-    }
-
-    with open(ps4g_file, 'r') as file:
-        comments = [line.strip() for line in file if line.startswith('#')]
-
-    for line in comments:
-        if line.startswith("##filename1="):
-            metadata["filename1"] = line.split("=")[1]
-        elif line.startswith("#version="):
-            metadata["version"] = line.split("=", 1)[1]
-        elif line.startswith("#Command:"):
-            metadata["command"] = line.replace("#Command: ", "")
-        elif line.startswith("#TotalUniqueCounts:"):
-            metadata["total_reads"] = int(line.split(":")[1])
-
-    gamete_data = parse_gamete_records(ps4g_file, distinguish_gametes)
-    total_reads = metadata["total_reads"]
-    for entry in gamete_data:
-        entry["weight"] = entry["read_count"] / total_reads if total_reads else 0.0
-
-    return metadata, gamete_data
+    return read_ps4g_header(ps4g_file, distinguish_gametes)
 
 def create_multihot_matrix(ps4g, gamete_data, weight_strat, collapse):
     """

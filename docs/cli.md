@@ -347,8 +347,16 @@ Plain-text, **tab-separated values (TSV)** file.
 
 #### Structure Overview
 
-* Lines beginning with `#` represent **metadata**.
-* Non-comment lines represent **locus data**.
+* Lines beginning with `#` represent **metadata**, and appear only in a
+  leading block at the top of the file.
+* Within that leading block, the `#gamete\tgameteIndex\tcount` tag line
+  opens a **gamete section**: every `#`-prefixed line after it (other than
+  a keyed metadata line like `#TotalUniqueCounts:`) is a gamete record,
+  until the block ends.
+* The un-prefixed `gameteSet\trefContig\trefPosBinned\tcount` column
+  header ends the leading block, and everything after it is **locus data**.
+  `#`-prefixed lines appearing after this point are not read as metadata or
+  gamete records — they're inert trailing comments.
 
 #### Example PS4G File
 Below is a minimal example of a PS4G input file used for testing:
@@ -371,6 +379,15 @@ gameteSet	refContig	refPosBinned	count
 #### Metadata Lines (`#` prefix)
 
 Metadata defines the parental gamete set and read-depth weights.
+
+Gamete records are recognized **by position, not by column shape**: a
+line is a gamete record only if it appears between the `#gamete` tag and
+the end of the leading `#`-line block. The tag is matched on its first
+tab field only (case-insensitively), so the column names after it
+(`gameteIndex`, `count`) are purely informational. A file with no
+`#gamete` tag declares no gamete records from its header — the loader and
+viewer instead derive one gamete per distinct index found in the data
+section's `gameteSet` column, named by that index (see below).
 
 The `gamete` field itself may be written either as a bare sample name
 (`B73`) or with an explicit haplotype/gamete index suffix (`B73:0`); a
