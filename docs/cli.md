@@ -405,17 +405,30 @@ Each metadata entry contains:
 
 From the example above:
 
-| Gamete | Index | Read Count | Weight (normalized) |
-|--------|-------|------------|---------------------|
-| B73    | 0     | 4          | 0.571               |
-| CML247 | 1     | 2          | 0.286               |
-| W22    | 2     | 1          | 0.143               |
+| Gamete | Index | Read Count | Weight (% of Reads) | % of Hits |
+|--------|-------|------------|----------------------|-----------|
+| B73    | 0     | 4          | 1.000                | 0.571     |
+| CML247 | 1     | 2          | 0.500                | 0.286     |
+| W22    | 2     | 1          | 0.250                | 0.143     |
 
 A **global weight** is derived as:
 
 ```python
 weight = read_count / total_reads
 ```
+
+`total_reads` is the sum of the `count` column over all data rows (4 in
+the example above) — **not** the sum of the per-gamete `read_count`
+values (4 + 2 + 1 = 7, the "% of Hits" column). A read whose `gameteSet`
+names several gametes is credited to each of them, so that sum counts
+reads more than once; weights normalized against it (`% of Hits`) always
+sum to 1, while `weight`/`% of Reads` need not.
+
+The desktop/web viewer (`parser-core/src/ps4g.rs`) recomputes `total_reads`
+from the data section rather than trusting the `#TotalUniqueCounts` header,
+since that value is producer-declared and not always a read count — the
+CRF window exporter (`crf/export_windows.py`), for instance, writes the sum
+of all (site, founder) hits there instead.
 
 Weights can be ignored when using `--weight unweighted`.
 

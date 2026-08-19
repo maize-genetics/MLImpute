@@ -41,6 +41,10 @@ pub struct PS4GMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PS4GSummary {
     pub total_rows: usize,
+    /// Sum of the data-section `count` column across the whole file — the
+    /// true read total. Distinct from summing per-gamete `read_count`,
+    /// which double-counts reads whose `gameteSet` names several gametes.
+    pub total_read_count: u64,
     pub unique_positions: usize,
     pub chromosomes: Vec<String>,
     pub chromosome_counts: HashMap<String, usize>,
