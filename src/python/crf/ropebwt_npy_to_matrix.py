@@ -30,6 +30,30 @@ rows with any nonzero read support for that founder — until the panel reaches 
 Any true label that pointed at a dropped founder becomes unknown (state `K`), same as an
 unlabeled bin; those instances are genuinely unrepresentable in the smaller panel.
 
+Optional: `--max-hit-frac` drops rows whose read-group is close to uninformative. A row here is
+one (contig, bin, gameteSet) group (see point 2 above) — its nonzero-column count IS the exact
+founder fan-out of the reads that produced it (ropebwt3-phg writes one npy row per gameteSet by
+design, specifically so this co-occurrence/fan-out information isn't collapsed away). A read
+matching most of the founder panel doesn't discriminate between them; `--max-occ` (the refmap
+flag) does NOT filter this -- it caps total pangenome occurrence count, not founder diversity, so
+a read hitting all K founders once each survives it untouched. `--max-hit-frac 0.5` drops any row
+whose fan-out exceeds half of the SOURCE panel size (computed before `--target-num-parents`, so
+the threshold means the same thing regardless of what a caller later trims down to). Row-dropping
+shifts every downstream window boundary (windowing below is row-count-based, not position-based),
+so `<out>.bins.tsv` is written alongside `--out` with the same schema as `--bins`, reflecting only
+the surviving rows -- callers that independently re-derive window/contig layout from a bins.tsv
+(e.g. heldout_assembly_eval.load_contig_layout) must use this file, not the original `--bins`,
+whenever `--max-hit-frac` is set, or genomic coordinates will desync from the actual windows here.
+
+Optional: `--retain-counts` keeps raw read counts (the historical default) instead of binarizing
+to 0/1 presence. Binarizing is now the DEFAULT: every checkpoint this converter feeds
+(`diploid-affinity-sim512-h3` and friends) was trained exclusively on binary 0/1 features
+(`simulate_alleles.py` builds strictly binary match matrices) -- feeding raw counts (real data
+sees values up to 15-70) is a genuine train/eval mismatch, not a cosmetic choice: the encoder's
+`cell(log1p(X))` path and the recombination-cost `depth = log1p(X.sum(-1))` feature both treat X
+as a continuous magnitude, and `_founder_affinity`/`_het_scale` (train_diploid.py) both assume
+bounded 0/1 input and silently misbehave on counts (an unbounded mean / an inflated Jaccard).
+
 Usage:
     python src/python/crf/ropebwt_npy_to_matrix.py \
         --npy ropebwt_refMap/bench_ps4g_npy/results_fixed/full_1M.npy \
@@ -69,6 +93,15 @@ def parse_args():
                         "founder(s) genome-wide (fewest rows with any nonzero read support) "
                         "until the panel reaches this size. Labels pointing at a dropped "
                         "founder become unknown. Default: off, panel size unchanged.")
+    p.add_argument("--max-hit-frac", type=float, default=None,
+                   help="Drop rows (read-groups) whose gameteSet fan-out exceeds this fraction "
+                        "of the SOURCE panel size K (e.g. 0.5 = drop rows hitting >12/25 "
+                        "founders) -- near-uninformative reads that match too much of the panel "
+                        "to be diagnostic. Default: off, no fan-out filtering.")
+    p.add_argument("--retain-counts", action="store_true",
+                   help="Keep raw read counts instead of binarizing to 0/1 presence. Default: "
+                        "off -- features are binarized, matching every checkpoint's binary "
+                        "training data (see module docstring).")
     p.add_argument("--out", required=True, help="Output .npy path.")
     return p.parse_args()
 
@@ -108,6 +141,28 @@ def main():
     gB = arr[:, K + 1].astype(np.int64)
     gA[gA < 0] = K                                             # -1 -> real "unknown" state
     gB[gB < 0] = K
+
+    if args.max_hit_frac is not None:
+        fanout = (feats != 0).sum(axis=1)                      # [n_rows] == this row's |gameteSet|
+        max_founders = max(1, int(args.max_hit_frac * K))      # K here is still the SOURCE panel size
+        keep = fanout <= max_founders
+        n_drop = int((~keep).sum())
+        print(f"--max-hit-frac {args.max_hit_frac}: dropping {n_drop:,}/{len(keep):,} rows "
+              f"({n_drop / len(keep) * 100:.1f}%) with fan-out > {max_founders} founders "
+              f"(of source K={K})")
+        feats = feats[keep]
+        gA = gA[keep]
+        gB = gB[keep]
+        bins_df = bins_df[keep].reset_index(drop=True)
+        bins_df["row"] = np.arange(len(bins_df))               # re-sequence to match filtered rows
+
+        bins_out_path = Path(str(args.out) + ".bins.tsv")
+        bins_out_path.parent.mkdir(parents=True, exist_ok=True)
+        bins_df.to_csv(bins_out_path, sep="\t", index=False)
+        print(f"  wrote filtered bins sidecar -> {bins_out_path} ({len(bins_df):,} rows)")
+
+    if not args.retain_counts:
+        feats = (feats != 0).astype(np.int8)
 
     if args.target_num_parents is not None:
         target = args.target_num_parents
