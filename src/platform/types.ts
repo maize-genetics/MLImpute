@@ -11,6 +11,7 @@ export interface GameteInfo {
   gamete_idx: number;
   gamete_index: number;
   read_count: number;
+  /** read_count / summary.total_read_count (the true read total). */
   weight: number;
 }
 
@@ -30,6 +31,8 @@ export interface PS4GMetadata {
 
 export interface PS4GSummary {
   total_rows: number;
+  /** Sum of the data-section `count` column — the true read total. */
+  total_read_count: number;
   unique_positions: number;
   chromosomes: string[];
   chromosome_counts: Record<string, number>;

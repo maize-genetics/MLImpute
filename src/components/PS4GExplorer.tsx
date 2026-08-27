@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import Icon from '@mdi/react';
 import { mdiRefresh, mdiClose, mdiCheck, mdiFileTable, mdiChartTimeline, mdiLayersOutline } from '@mdi/js';
 import HeatmapViewer from './HeatmapViewer';
@@ -10,7 +10,7 @@ interface PS4GExplorerProps {
   onDataLoaded?: (result: PS4GParseResult) => void;
 }
 
-type GameteSortKey = 'index' | 'gamete' | 'read_count' | 'proportion';
+type GameteSortKey = 'index' | 'gamete' | 'read_count' | 'pct_reads' | 'pct_hits';
 type SortDirection = 'asc' | 'desc';
 
 const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
@@ -25,6 +25,17 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
   const [overlayModalOpen, setOverlayModalOpen] = useState<boolean>(false);
   const fileHandleRef = useRef<FileHandle | null>(null);
   const fileInputRef = useRef<FileInput | null>(null);
+
+  const { totalReads, totalHits } = useMemo(() => {
+    if (!parseResult) return { totalReads: 0, totalHits: 0 };
+    return {
+      totalReads: parseResult.summary.total_read_count,
+      // Header-declared per-gamete counts. A read whose gameteSet names
+      // several gametes is credited to each of them, so this is a hit
+      // total, not a read total, and generally exceeds totalReads.
+      totalHits: parseResult.metadata.gametes.reduce((sum, g) => sum + g.read_count, 0),
+    };
+  }, [parseResult]);
 
   const selectFile = async () => {
     try {
@@ -218,10 +229,18 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
                     <div className="stat-value">{parseResult.summary.gamete_count}</div>
                     <div className="stat-label">Gametes</div>
                   </div>
-                  {parseResult.metadata.total_unique_counts && (
-                    <div className="stat-card">
+                  <div className="stat-card" title="Sum of the count column across all data rows. Each read is counted once, even when it matches several gametes.">
+                    <div className="stat-value">{formatNumber(totalReads)}</div>
+                    <div className="stat-label">Total Reads</div>
+                  </div>
+                  <div className="stat-card" title="Sum of the per-gamete read counts declared in the file header. A read matching several gametes is counted once per gamete, so this can exceed Total Reads.">
+                    <div className="stat-value">{formatNumber(totalHits)}</div>
+                    <div className="stat-label">Total Hits</div>
+                  </div>
+                  {parseResult.metadata.total_unique_counts != null && (
+                    <div className="stat-card" title="Value declared by the file's own #TotalUniqueCounts header; may differ from Total Reads if the producer computed it differently.">
                       <div className="stat-value">{formatNumber(parseResult.metadata.total_unique_counts)}</div>
-                      <div className="stat-label">Total Unique Counts</div>
+                      <div className="stat-label">TotalUniqueCounts (header)</div>
                     </div>
                   )}
                 </div>
@@ -270,10 +289,17 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
 
             {activeTab === 'gametes' && (
               <div className="gametes-panel">
+                <div className="gametes-caption">
+                  <strong>% of Reads</strong> = read count / {formatNumber(totalReads)} total reads
+                  (the sum of the data <code>count</code> column). A read matching several
+                  gametes is credited to each, so this column need not sum to 100%.{' '}
+                  <strong>% of Hits</strong> = read count / {formatNumber(totalHits)} total gamete
+                  hits, and always sums to 100%.
+                </div>
                 <table className="gametes-table">
                   <thead>
                     <tr>
-                      <th 
+                      <th
                         className={`sortable ${gameteSortKey === 'index' ? 'sorted' : ''}`}
                         onClick={() => {
                           if (gameteSortKey === 'index') {
@@ -312,25 +338,37 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
                       >
                         Read Count {gameteSortKey === 'read_count' && (gameteSortDir === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th 
-                        className={`sortable ${gameteSortKey === 'proportion' ? 'sorted' : ''}`}
+                      <th
+                        className={`sortable ${gameteSortKey === 'pct_reads' ? 'sorted' : ''}`}
                         onClick={() => {
-                          if (gameteSortKey === 'proportion') {
+                          if (gameteSortKey === 'pct_reads') {
                             setGameteSortDir(gameteSortDir === 'asc' ? 'desc' : 'asc');
                           } else {
-                            setGameteSortKey('proportion');
+                            setGameteSortKey('pct_reads');
                             setGameteSortDir('desc');
                           }
                         }}
                       >
-                        Proportion {gameteSortKey === 'proportion' && (gameteSortDir === 'asc' ? '↑' : '↓')}
+                        % of Reads {gameteSortKey === 'pct_reads' && (gameteSortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className={`sortable ${gameteSortKey === 'pct_hits' ? 'sorted' : ''}`}
+                        onClick={() => {
+                          if (gameteSortKey === 'pct_hits') {
+                            setGameteSortDir(gameteSortDir === 'asc' ? 'desc' : 'asc');
+                          } else {
+                            setGameteSortKey('pct_hits');
+                            setGameteSortDir('desc');
+                          }
+                        }}
+                      >
+                        % of Hits {gameteSortKey === 'pct_hits' && (gameteSortDir === 'asc' ? '↑' : '↓')}
                       </th>
                       <th>Distribution</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(() => {
-                      const totalReadCount = parseResult.metadata.gametes.reduce((sum, g) => sum + g.read_count, 0);
                       const sortedGametes = [...parseResult.metadata.gametes].sort((a, b) => {
                         let comparison = 0;
                         switch (gameteSortKey) {
@@ -341,23 +379,33 @@ const PS4GExplorer: React.FC<PS4GExplorerProps> = ({ onDataLoaded }) => {
                             comparison = a.gamete.localeCompare(b.gamete);
                             break;
                           case 'read_count':
-                          case 'proportion':
+                          case 'pct_reads':
+                          case 'pct_hits':
+                            // % of Reads and % of Hits each share a single
+                            // denominator across all rows, so ordering by
+                            // either is identical to ordering by read_count.
                             comparison = a.read_count - b.read_count;
                             break;
                         }
                         return gameteSortDir === 'asc' ? comparison : -comparison;
                       });
-                      
+
                       return sortedGametes.map(gamete => {
-                          const proportion = totalReadCount > 0 ? gamete.read_count / totalReadCount : 0;
-                          const barWidth = proportion * 100;
-                          
+                          const pctReads = totalReads > 0 ? gamete.read_count / totalReads : 0;
+                          const pctHits = totalHits > 0 ? gamete.read_count / totalHits : 0;
+                          // The Distribution bar tracks % of Hits: it's the
+                          // metric that always sums to 100%, so bars partition
+                          // the row width honestly. % of Reads can exceed
+                          // 100% for an individual gamete, which wouldn't.
+                          const barWidth = Math.min(pctHits * 100, 100);
+
                           return (
                             <tr key={gamete.gamete_index}>
                               <td className="index-cell">{gamete.gamete_index}</td>
                               <td className="gamete-name">{gamete.gamete}</td>
                               <td className="count-cell">{formatNumber(gamete.read_count)}</td>
-                              <td className="weight-cell">{(proportion * 100).toFixed(2)}%</td>
+                              <td className="weight-cell">{(pctReads * 100).toFixed(2)}%</td>
+                              <td className="weight-cell">{(pctHits * 100).toFixed(2)}%</td>
                               <td className="bar-cell">
                                 <div className="proportion-bar-container">
                                   <div className="proportion-bar" style={{ width: `${barWidth}%` }}></div>

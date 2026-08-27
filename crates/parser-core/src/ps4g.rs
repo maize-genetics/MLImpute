@@ -26,6 +26,7 @@ pub fn parse_ps4g(
 
     let mut data_preview: Vec<PS4GDataRow> = Vec::with_capacity(PREVIEW_ROW_LIMIT);
     let mut total_rows: usize = 0;
+    let mut total_read_count: u64 = 0;
 
     let mut chromosome_to_index: FxHashMap<String, u16> = FxHashMap::default();
     let mut index_to_chromosome: Vec<String> = Vec::new();
@@ -79,7 +80,7 @@ pub fn parse_ps4g(
                     // is expected to be a record. A malformed one is skipped
                     // (not fatal, section stays open) rather than treated as
                     // "not a gamete record" the way the old shape sniff did.
-                    if let Some(g) = parse_gamete_record(line, metadata.total_unique_counts) {
+                    if let Some(g) = parse_gamete_record(line) {
                         metadata.gametes.push(g);
                     }
                 }
@@ -110,6 +111,8 @@ pub fn parse_ps4g(
                 &mut position_ranges,
                 &mut chromosome_position_data,
             );
+
+            total_read_count += row.count as u64;
 
             if need_fallback_gametes {
                 for gamete_idx in &row.gamete_set {
@@ -188,25 +191,36 @@ pub fn parse_ps4g(
     // named by that index, rather than falling back to shape-sniffing `#`
     // lines (the thing this section-gated design replaces).
     if need_fallback_gametes && !fallback_tally.is_empty() {
-        let total = metadata.total_unique_counts.unwrap_or(1);
         let mut indices: Vec<u32> = fallback_tally.keys().copied().collect();
         indices.sort_unstable();
         for idx in indices {
             let name = idx.to_string();
-            let read_count = fallback_tally[&idx];
             metadata.gametes.push(GameteInfo {
                 gamete: name.clone(),
                 sample_name: name,
                 gamete_idx: 0,
                 gamete_index: idx,
-                read_count,
-                weight: read_count as f64 / total as f64,
+                read_count: fallback_tally[&idx],
+                weight: 0.0,
             });
+        }
+    }
+
+    // Weights are normalized against the true read total, which is only
+    // known after the whole data section has been read. Computing this
+    // here (rather than while scanning the header) removes any dependency
+    // on "#TotalUniqueCounts:" appearing before the gamete records, and
+    // uses the recomputed total rather than a producer-declared header
+    // value that may disagree with it.
+    if total_read_count > 0 {
+        for g in &mut metadata.gametes {
+            g.weight = g.read_count as f64 / total_read_count as f64;
         }
     }
 
     let summary = PS4GSummary {
         total_rows,
+        total_read_count,
         unique_positions: unique_positions.len(),
         chromosomes: chromosomes.clone(),
         chromosome_counts: chromosome_counts_map,
@@ -444,16 +458,8 @@ pub(crate) fn parse_metadata_line(line: &str, metadata: &mut PS4GMetadata) -> bo
 /// to be a gamete record, e.g. `"#B73\t0\t784970"` or `"#B73:0\t0\t784970"`.
 /// Returns `None` if the line is malformed (not a shape sniff: the caller
 /// has already established this line *should* be a record).
-///
-/// `total_unique_counts` is the file's declared `#TotalUniqueCounts:`
-/// value, if seen before this line — weight is normalized against it
-/// (falling back to 1 if unknown), matching the file's own row-count
-/// column, e.g. `read_count / total_unique_counts`.
 #[inline]
-pub(crate) fn parse_gamete_record(
-    line: &str,
-    total_unique_counts: Option<u64>,
-) -> Option<GameteInfo> {
+pub(crate) fn parse_gamete_record(line: &str) -> Option<GameteInfo> {
     let content = line.trim_start_matches('#');
     let parts: Vec<&str> = content.split('\t').collect();
     if parts.len() < 3 {
@@ -463,7 +469,6 @@ pub(crate) fn parse_gamete_record(
     let idx = parts[1].parse::<u32>().ok()?;
     let count = parts[2].parse::<u64>().ok()?;
     let (sample_name, gamete_idx) = parse_sample_gamete(gamete_full);
-    let total = total_unique_counts.unwrap_or(1);
 
     Some(GameteInfo {
         gamete: sample_name.clone(),
@@ -471,7 +476,9 @@ pub(crate) fn parse_gamete_record(
         gamete_idx,
         gamete_index: idx,
         read_count: count,
-        weight: count as f64 / total as f64,
+        // Filled in by parse_ps4g once the data section's true read total
+        // is known; see the post-loop weight pass there.
+        weight: 0.0,
     })
 }
 
@@ -545,18 +552,17 @@ mod tests {
 
     #[test]
     fn parses_bare_gamete_name() {
-        let g = parse_gamete_record("#B73\t0\t60", Some(100)).unwrap();
+        let g = parse_gamete_record("#B73\t0\t60").unwrap();
         assert_eq!(g.gamete, "B73");
         assert_eq!(g.sample_name, "B73");
         assert_eq!(g.gamete_idx, 0);
         assert_eq!(g.gamete_index, 0);
         assert_eq!(g.read_count, 60);
-        assert!((g.weight - 0.6).abs() < 1e-9);
     }
 
     #[test]
     fn parses_colon_suffixed_gamete_name() {
-        let g = parse_gamete_record("#B73:1\t2\t40", Some(100)).unwrap();
+        let g = parse_gamete_record("#B73:1\t2\t40").unwrap();
         assert_eq!(g.gamete, "B73");
         assert_eq!(g.sample_name, "B73");
         assert_eq!(g.gamete_idx, 1);
@@ -565,9 +571,9 @@ mod tests {
 
     #[test]
     fn parse_gamete_record_rejects_malformed_lines() {
-        assert!(parse_gamete_record("#B73\t0", None).is_none()); // too few fields
-        assert!(parse_gamete_record("#B73\tx\t4", None).is_none()); // non-integer index
-        assert!(parse_gamete_record("#B73\t0\tx", None).is_none()); // non-integer count
+        assert!(parse_gamete_record("#B73\t0").is_none()); // too few fields
+        assert!(parse_gamete_record("#B73\tx\t4").is_none()); // non-integer index
+        assert!(parse_gamete_record("#B73\t0\tx").is_none()); // non-integer count
     }
 
     #[test]
@@ -605,11 +611,12 @@ mod tests {
     }
 
     #[test]
-    fn total_unique_counts_drives_weight() {
-        let g1 = parse_gamete_record("#B73\t0\t250", Some(1000)).unwrap();
-        let g2 = parse_gamete_record("#B97\t1\t750", Some(1000)).unwrap();
-        assert!((g1.weight - 0.25).abs() < 1e-9);
-        assert!((g2.weight - 0.75).abs() < 1e-9);
+    fn gamete_record_parsing_does_not_set_weight() {
+        // Weight is computed post-parse in parse_ps4g, once the data
+        // section's true read total is known. See the parse_ps4g tests
+        // below for the real weight computation.
+        let g = parse_gamete_record("#B73\t0\t250").unwrap();
+        assert_eq!(g.weight, 0.0);
     }
 
     fn sample_ps4g_bytes() -> &'static [u8] {
@@ -623,6 +630,114 @@ mod tests {
           0,1\tchr1\t1000\t1\n\
           0\tchr1\t2000\t1\n\
           0,1,2\tchr1\t2000\t1\n"
+    }
+
+    #[test]
+    fn total_read_count_sums_data_column_not_gamete_counts() {
+        let (result, _cached) =
+            parse_ps4g(Cursor::new(sample_ps4g_bytes()), None, |_| {}).unwrap();
+
+        // 4 data rows, count 1 each -> the true read total.
+        assert_eq!(result.summary.total_read_count, 4);
+        assert_eq!(result.summary.total_rows, 4);
+
+        // Per-gamete counts sum to 7 (B73 hits every row, CML247 two rows,
+        // W22 one row) -- strictly more than the true read total, because
+        // rows with a multi-gamete gameteSet credit every gamete in it.
+        let summed_gamete_counts: u64 =
+            result.metadata.gametes.iter().map(|g| g.read_count).sum();
+        assert_eq!(summed_gamete_counts, 7);
+    }
+
+    #[test]
+    fn weight_uses_computed_read_total() {
+        let (result, _cached) =
+            parse_ps4g(Cursor::new(sample_ps4g_bytes()), None, |_| {}).unwrap();
+
+        let by_name: FxHashMap<&str, f64> = result
+            .metadata
+            .gametes
+            .iter()
+            .map(|g| (g.sample_name.as_str(), g.weight))
+            .collect();
+        assert!((by_name["B73"] - 1.0).abs() < 1e-9);
+        assert!((by_name["CML247"] - 0.5).abs() < 1e-9);
+        assert!((by_name["W22"] - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn weight_is_independent_of_header_order() {
+        // Also covers: a keyed metadata line (#TotalUniqueCounts:)
+        // interleaved *after* the gamete records, inside the section,
+        // doesn't close the section or get mistaken for a malformed record.
+        let reordered = b"#gamete\tgameteIndex\tcount\n\
+                           #B73:0\t0\t4\n\
+                           #CML247:0\t1\t2\n\
+                           #W22:0\t2\t1\n\
+                           #TotalUniqueCounts: 4\n\
+                           gameteSet\trefContig\trefPosBinned\tcount\n\
+                           0\tchr1\t1000\t1\n\
+                           0,1\tchr1\t1000\t1\n\
+                           0\tchr1\t2000\t1\n\
+                           0,1,2\tchr1\t2000\t1\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&reordered[..]), None, |_| {}).unwrap();
+
+        let by_name: FxHashMap<&str, f64> = result
+            .metadata
+            .gametes
+            .iter()
+            .map(|g| (g.sample_name.as_str(), g.weight))
+            .collect();
+        assert!((by_name["B73"] - 1.0).abs() < 1e-9);
+        assert!((by_name["CML247"] - 0.5).abs() < 1e-9);
+        assert!((by_name["W22"] - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn computed_total_ignores_disagreeing_header() {
+        let disagreeing = b"#TotalUniqueCounts: 999\n\
+                             #gamete\tgameteIndex\tcount\n\
+                             #B73:0\t0\t4\n\
+                             #CML247:0\t1\t2\n\
+                             #W22:0\t2\t1\n\
+                             gameteSet\trefContig\trefPosBinned\tcount\n\
+                             0\tchr1\t1000\t1\n\
+                             0,1\tchr1\t1000\t1\n\
+                             0\tchr1\t2000\t1\n\
+                             0,1,2\tchr1\t2000\t1\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&disagreeing[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.total_read_count, 4);
+        assert_eq!(result.metadata.total_unique_counts, Some(999));
+    }
+
+    #[test]
+    fn header_only_file_has_zero_total_and_zero_weights() {
+        let header_only = b"#TotalUniqueCounts: 0\n\
+                             #gamete\tgameteIndex\tcount\n\
+                             #B73:0\t0\t0\n\
+                             gameteSet\trefContig\trefPosBinned\tcount\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&header_only[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.total_read_count, 0);
+        assert_eq!(result.summary.total_rows, 0);
+        for g in &result.metadata.gametes {
+            assert_eq!(g.weight, 0.0);
+            assert!(!g.weight.is_nan());
+        }
+    }
+
+    #[test]
+    fn multi_count_rows_sum_correctly() {
+        let multi = b"#TotalUniqueCounts: 5\n\
+                       #gamete\tgameteIndex\tcount\n\
+                       #B73:0\t0\t5\n\
+                       gameteSet\trefContig\trefPosBinned\tcount\n\
+                       0\tchr1\t1000\t5\n";
+        let (result, _cached) = parse_ps4g(Cursor::new(&multi[..]), None, |_| {}).unwrap();
+
+        assert_eq!(result.summary.total_read_count, 5);
+        assert_eq!(result.summary.total_rows, 1);
     }
 
     #[test]
@@ -731,13 +846,5 @@ mod tests {
         let (result, _cached) = parse_ps4g(Cursor::new(&bytes[..]), None, |_| {}).unwrap();
 
         assert_eq!(result.summary.gamete_count, 2);
-    }
-
-    #[test]
-    fn full_file_parses_three_gametes() {
-        let (result, _cached) =
-            parse_ps4g(Cursor::new(sample_ps4g_bytes()), None, |_| {}).unwrap();
-        assert_eq!(result.summary.gamete_count, 3);
-        assert_eq!(result.summary.total_rows, 4);
     }
 }
