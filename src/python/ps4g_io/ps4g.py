@@ -181,19 +181,20 @@ def collapse_ps4g(num_classes, ps4g, unique_positions):
 
 def build_index_lookup(ps4g_file):
     with open(ps4g_file, 'r') as file:
-        comments = [line for line in file if line.startswith('#')]
+        comments = [line.strip() for line in file if line.startswith('#')]
     gamete_data = []
     for line in comments:
-        line = line.strip()
-        if line.startswith("#") and ":" in line and "\t" in line:
-            # Example line: "#B73:0\t1\t10730006"
-            line = line[1:]  # Remove leading "#"
-            gamete_full, idx, count = line.split("\t")
-            gamete_name = gamete_full.split(":")[0]
-            gamete_data.append({
-                "gamete": gamete_name,
-                "gamete_index": int(idx),
-            })
+        # PS4G v2.0 gamete header lines: "#<gamete>\t<gameteIndex>\t<count>"
+        # (the "#gamete\tgameteIndex\tcount" column-name line is skipped since
+        # its gameteIndex field isn't an integer)
+        parts = line[1:].split("\t")
+        if len(parts) != 3 or not parts[1].isdigit():
+            continue
+        gamete_name, idx, _count = parts
+        gamete_data.append({
+            "gamete": gamete_name,
+            "gamete_index": int(idx),
+        })
     index_to_name = {entry["gamete_index"]: entry["gamete"] for entry in gamete_data}
     max_index = max(index_to_name.keys())  # ensure all indices fit
     index_array = [index_to_name[i] for i in range(max_index + 1)]
