@@ -1,0 +1,11 @@
+pair	tag	bin_size	n_wrong	wrong_bp	total_bp	error_pct_noerr	n_wrong_with_error	wrong_bp_with_error	error_pct_with_error	with_error_tag_used
+B73xOh43	unfiltered-bin-noerr	256	200	84160377	2128584579	3.9538	218	90227965	4.239	unfiltered-bin
+B73xOh43	binsize1-noerr	1	274	86564425	2128395850	4.0671	312	90473960	4.2502	binsize1
+B73xCML103	unfiltered-bin-noerr	256	115	28324935	2129307098	1.3302	135	36146554	1.6969	unfiltered-bin
+B73xCML103	binsize1-noerr	1	159	28442347	2129331404	1.3357	178	35605754	1.6722	binsize1
+B97xCML103	unfiltered-bin-noerr	256	96	25155761	2128565423	1.1818	96	25736287	1.2094	unfiltered-bin
+B97xCML103	binsize1-noerr	1	144	25094529	2128458938	1.179	162	29658162	1.3939	binsize1
+Il14HxB97	unfiltered-bin-noerr	256	131	38428166	2126874101	1.8068	158	42169366	1.9817	unfiltered-bin
+Il14HxB97	binsize1-noerr	1	181	40992500	2126895782	1.9273	206	44186452	2.0763	binsize1
+Oh43xIl14H	unfiltered-bin-noerr	256	128	13480530	2127822319	0.6335	142	17659190	0.8299	unfiltered-bin
+Oh43xIl14H	binsize1-noerr	1	199	15794247	2128323642	0.7421	210	18294100	0.8596	binsize1

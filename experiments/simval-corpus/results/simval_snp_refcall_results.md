@@ -1,0 +1,46 @@
+# SNP + RefCall re-score -- simulated-validation 0.1x rung (refmap only)
+
+Indel calls (either side) excluded; see the plan for the exact definition. Not comparable to the published all-sites metric -- always read alongside it.
+
+| dataset_id | kind | individual | snprc_error% | snprc_n | all-sites_error% | all-sites_n | regression |
+|---|---|---|---:|---:|---:|---:|---|
+| IDX-HYB | hybrid | B73xCML103 | 2.849 | 94248763 | 7.298 | 158215780 | MATCH |
+| IDX-HYB | hybrid | B73xOh43 | 3.126 | 99304087 | 8.258 | 157926681 | MATCH |
+| IDX-HYB | hybrid | B97xCML103 | 2.878 | 70617998 | 5.510 | 157089256 | MATCH |
+| IDX-HYB | hybrid | Il14HxB97 | 4.016 | 69832813 | 7.807 | 156273459 | MATCH |
+| IDX-HYB | hybrid | Oh43xIl14H | 4.143 | 70064231 | 7.314 | 156353772 | MATCH |
+| IDX-INBRED | inbred | B73 | 0.000 | 160506060 | 0.000 | 160506060 | MATCH |
+| IDX-INBRED | inbred | B97 | 0.000 | 100564535 | 0.000 | 158846968 | MATCH |
+| IDX-INBRED | inbred | CML103 | 0.000 | 94909668 | 0.000 | 158869852 | MATCH |
+| IDX-INBRED | inbred | Il14H | 0.000 | 95127733 | 0.000 | 158502003 | MATCH |
+| IDX-INBRED | inbred | Oh43 | 0.001 | 99875807 | 0.000 | 158544184 | MATCH |
+| IDX-RIL | ril | B73xCML103 | 2.976 | 103456958 | 7.926 | 158181497 | MATCH |
+| IDX-RIL | ril | B73xOh43 | 2.735 | 111810689 | 7.437 | 157547074 | MATCH |
+| IDX-RIL | ril | B97xCML103 | 3.541 | 80611445 | 7.875 | 156955738 | MATCH |
+| IDX-RIL | ril | Il14HxB97 | 3.854 | 82305638 | 7.935 | 156330330 | MATCH |
+| IDX-RIL | ril | Oh43xIl14H | 3.851 | 80770324 | 7.922 | 155903304 | MATCH |
+| MIX-HYB | hybrid | B73xTx303 | 13.221 | 90106146 | 33.790 | 156543678 | MATCH |
+| MIX-HYB | hybrid | B97xCML459 | 15.011 | 63453270 | 31.101 | 154844764 | MATCH |
+| MIX-HYB | hybrid | CML103xIa453 | 12.542 | 61128018 | 23.786 | 152439866 | MATCH |
+| MIX-HYB | hybrid | Il14HxEP1 | 15.146 | 60960849 | 31.279 | 151571110 | MATCH |
+| MIX-HYB | hybrid | Oh43xA188 | 12.948 | 67950636 | 27.644 | 154687251 | MATCH |
+| MIX-RIL | ril | B73xTx303 | 8.050 | 103622448 | 23.581 | 156412805 | MATCH |
+| MIX-RIL | ril | B97xCML459 | 9.388 | 76683226 | 22.900 | 155062487 | MATCH |
+| MIX-RIL | ril | CML103xIa453 | 8.843 | 73731502 | 18.899 | 153184811 | MATCH |
+| MIX-RIL | ril | Il14HxEP1 | 10.783 | 71540829 | 25.107 | 152374005 | MATCH |
+| MIX-RIL | ril | Oh43xA188 | 9.339 | 77349025 | 21.460 | 154774038 | MATCH |
+| OUT-HYB | hybrid | A188xEP1 | 20.786 | 56553545 | 43.625 | 150383734 | MATCH |
+| OUT-HYB | hybrid | CML459xIa453 | 20.387 | 56034588 | 41.454 | 150838539 | MATCH |
+| OUT-HYB | hybrid | EP1xIa453 | 19.323 | 56596773 | 40.587 | 148336375 | MATCH |
+| OUT-HYB | hybrid | Tx303xA188 | 18.715 | 61764705 | 39.346 | 153626643 | MATCH |
+| OUT-HYB | hybrid | Tx303xCML459 | 19.428 | 58667170 | 40.182 | 153475061 | MATCH |
+| OUT-INBRED | inbred | A188 | 5.214 | 87455954 | 14.060 | 155592607 | MATCH |
+| OUT-INBRED | inbred | CML459 | 6.250 | 81439897 | 16.615 | 155274649 | MATCH |
+| OUT-INBRED | inbred | EP1 | 7.841 | 78396122 | 19.818 | 152200938 | MATCH |
+| OUT-INBRED | inbred | Ia453 | 4.762 | 85579878 | 11.913 | 153459958 | MATCH |
+| OUT-INBRED | inbred | Tx303 | 5.338 | 87741656 | 12.963 | 155975317 | MATCH |
+| OUT-RIL | ril | A188xEP1 | 14.525 | 66527426 | 35.182 | 151584122 | MATCH |
+| OUT-RIL | ril | CML459xIa453 | 12.177 | 69245819 | 29.637 | 151366589 | MATCH |
+| OUT-RIL | ril | EP1xIa453 | 12.901 | 68275635 | 31.394 | 149902814 | MATCH |
+| OUT-RIL | ril | Tx303xA188 | 12.340 | 72944671 | 29.986 | 153451529 | MATCH |
+| OUT-RIL | ril | Tx303xCML459 | 12.179 | 71319725 | 30.223 | 153723285 | MATCH |

@@ -1,0 +1,17 @@
+metric	value	pct_of_2M_input
+total_input_reads	2000000	100.0000
+reads_with_ordinary_row	648075	32.4038
+reads_with_pav_row_any_class	401835	20.0918
+reads_with_pav_insertion_class1	182030	9.1015
+reads_with_pav_diverged_class0	219805	10.9903
+reads_with_ordinary_and_pav_row	0	0.0000
+reads_with_any_row	1049910	52.4955
+reads_with_no_row	950090	47.5045
+reads_recovered_by_lift_vs_baseline	401835	20.0918
+distinct_pav_grid_cells	73337	NA
+total_pav_rows	401835	NA
+mean_rows_per_pav_cell	5.48	NA
+median_rows_per_pav_cell	2	NA
+max_rows_per_pav_cell	148	NA
+pav_cells_with_1_row	25165	34.30_pct_of_cells
+pav_rows_in_cells_with_ge5_rows	309737	77.10_pct_of_pav_rows

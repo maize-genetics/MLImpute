@@ -1,9 +1,107 @@
-# Session handoff — crf-relatedness (2026-07-13, sim→real transfer eval + real-data consistency check)
+# Session handoff — crf-relatedness (2026-08-28, branch consolidation + grits_workdir bring-in)
 
 Status snapshot for resuming work. Full per-experiment detail is in
 [`docs/RESULTS.md`](RESULTS.md); experiment spec in [`docs/PLAN.md`](PLAN.md).
-Older active threads (2026-07-10 checkpoint/eval hardening + sim data regen, 2026-06-28
-whole-genome, 2026-06-26 het, 2026-06-25 IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+Older active threads (2026-07-13 sim→real transfer, 2026-07-10 checkpoint/eval
+hardening + sim data regen, 2026-06-28 whole-genome, 2026-06-26 het, 2026-06-25
+IBD-ceiling, 2026-06-24 E1-maize) are below as history.
+
+## ACTIVE (2026-08-28): branch consolidation + grits_workdir scripts/results brought in — DONE, review pending
+
+**Context.** Several weeks of RIL2 founder-path-decode-error investigation
+happened in a separate, non-version-controlled working directory
+(`grits_workdir`, `/local/workdir/zrm22/HackathonJun2026/grits_workdir`)
+while this repo accumulated 5 uncoordinated feature branches. Before a
+vacation break, both were brought under control in one pass.
+
+**1. Branch sprawl resolved.** 5 branches
+(`tripsacum-tests`, `tier2-constant-pair-individuals`,
+`wholechrom-decode-real-data`, `windowing-quality-filters`,
+`perf-allele-multiset-score`) turned out to be 3 real units with zero
+file-level conflicts (`tripsacum-tests` was the shared base for two of
+them). Unified onto `integration/aug-2026-consolidation` (off the real
+`develop` tip), excluding `windowing-quality-filters` (mixed
+`--max-hit-frac` results — see its own `RESULTS.md` on that branch,
+still present, not deleted) — which also sidesteps a real
+`src/python/crf/eval.py` vs. `eval/` module-shadowing bug that branch
+introduced. The 4 merged branches are deleted, local + `origin`. One
+real merge conflict, in `ps4g_io/ps4g.py`: `develop` had already
+evolved `build_index_lookup` past a stale copy carried by
+`tripsacum-tests`, plus an uncommitted WIP patch to that stale copy sitting
+in the main checkout — resolved by taking `develop`'s already-general
+`distinguish_gametes`-parameterized version wholesale. That uncommitted
+WIP (BED→VCF coordinate/AC-AN/gamete-label correctness fixes, needed for
+AF-binned accuracy tables that have been silently empty/wrong genome-wide)
+is preserved as its own commit, explicitly labeled incomplete (2 known
+test-expectation updates + a missing `VCFInfoHeaderLine` still needed).
+`feat/ps4g-viewer-column-mode` (GUI/Rust/Tauri) confirmed genuinely
+disjoint, left untouched. **Full detail, exact commands, and the
+verification trail: `/home/zrm22/.claude/plans/wondrous-discovering-octopus.md`
+(session-local; if inaccessible, this summary plus `git log
+integration/aug-2026-consolidation` covers it).**
+
+**2. `grits_workdir`'s scripts + results brought into the repo**, on
+branch `bring-in-simval-corpus` (off `integration/aug-2026-consolidation`,
+pushed, **not yet merged — awaiting review**), as five new
+`experiments/` directories matching the existing
+`experiments/refmap-founder-eval/`, `experiments/tripsacum-diploid-crf/`
+convention:
+- **[`experiments/simval-corpus/`](../experiments/simval-corpus/README.md)**
+  — the core pipeline: build/locate the 9-dataset simulated-validation
+  corpus, run one (dataset, coverage) row, SNP+RefCall re-scoring, the
+  canonical RIL2 driver. **Start here for "how do I run RIL2 or any of
+  the other datasets" — this README has copy-pasteable commands and every
+  known gotcha** (a stale `drop_idx=23` default, an unmerged-branch
+  dependency, a TSV-truncation footgun in the RIL2 scorer).
+- **[`experiments/ril2-error-regions/`](../experiments/ril2-error-regions/README.md)**
+  — the founder-path decode-error investigation itself (anchor density,
+  IBD confirmation, zero-error control, position-randomization probes).
+- **[`experiments/crf-model-internals/`](../experiments/crf-model-internals/README.md)**
+  — encoder/CRF internals probing.
+- **[`experiments/reference-bias/`](../experiments/reference-bias/README.md)**
+  — the `refmap` vs. `chain`+PAV reference-bias study.
+- **`experiments/cassava-diploid-crf/`** (new) + a 1-line correctness fix
+  to the existing `experiments/tripsacum-diploid-crf/scripts/tripsacum_recombination.py`
+  (`combo_name` was being called with the wrong signature — would have
+  raised `TypeError` if run).
+Scripts already identical in the repo (the early NAM founder-recovery era
+— `kmer_sweep.py`, `nam_baseline.py`, `nam_diploid.py`, `nam_trim_sweep.py`,
+`trim_reads.py` — and 2 of 3 Tripsacum scripts) were skipped rather than
+duplicated; cross-directory imports (`nam_baseline`, and the ~25 scripts
+across the new dirs that import `simval-corpus`'s core modules) were
+fixed with explicit `sys.path` entries, verified by importing all 84
+moved Python files in isolated subprocesses. Only scripts, `README.md`s,
+and findings docs + small curated summary tables are committed — the raw
+per-row JSON/log/`.npz`/`.png` output these scripts produce (~10MB+
+across the 5 new dirs, most of it hundreds of files deep) was
+deliberately kept out of git and stays local-only, in
+`grits_workdir/results/`, regeneratable via the scripts. `filter_ps4g.py` and
+`run_ril2_windowfilter_test.py` were deliberately left in `grits_workdir`
+(hard-depend on the excluded `windowing-quality-filters` branch).
+
+**3. Next steps — rework the simulator, update the model, retrain.**
+This session also landed a new `refmap` feature on a **separate repo**
+(`ropebwt3-phg`, branch `lift-ridx-ternary-dist-map`, pushed, not yet
+merged): `--anchor-dist-npy` widens PS4G/npy output with a per-founder
+ternary read-sharing state (match/diverged/deletion) and a
+distance-to-nearest-`.lift`-anchor value, targeting the two confirmed
+root causes above (binarization losing the signal that would resolve
+IBD-zone confusion; repetitiveness being invisible to the model). The
+follow-through, in order, **not done yet**:
+1. Rework `src/python/crf/simulate_alleles.py` to emit matching synthetic
+   ternary + distance features (it currently emits strictly binary ones)
+   — needed before any retrain can use the new `refmap` output for real.
+2. Widen `FounderPathEncoder.cell` in `src/python/crf/train_crf.py` from
+   `nn.Linear(1, d_model)` to `nn.Linear(2, d_model)` (a per-cell 2-vector,
+   not a wider founder axis) — checkpoint-compatible via zero-init on the
+   new column, mirroring the existing `ext_bias`/founder-affinity pattern.
+3. Retrain, re-evaluate via `experiments/simval-corpus/`'s SNP+RefCall
+   methodology against the existing baselines (genome-wide 0.0711%,
+   B73xCML103 chr5:86-134Mb IBD-zone 1.181% SNP-class error).
+4. Decide whether to merge `lift-ridx-ternary-dist-map` once (3) shows
+   the feature is worth keeping.
+Whoever picks this up next may only reach step 1 before other commitments
+— if so, leave a note here on exactly where it stopped.
 
 ## ACTIVE (2026-07-13): sim→real transfer eval + real-data consistency check — DONE
 

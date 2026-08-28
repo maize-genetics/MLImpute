@@ -88,7 +88,7 @@ def base_run_dir(a, b):
     """The already-completed tripsacum_diploid.py run for this pair/depth -- reused
     unchanged for reads/refmap/windowing (only the mosaic/mask/label step differs per
     recombination level/seed)."""
-    name = td.combo_name(a, b, DEPTH)
+    name = td.combo_name([a, b], DEPTH)
     d = td.SCRATCH / name
     for f in ("windowed_k18.npy", "raw.npy.bins.tsv", "raw.npy.gametes.tsv"):
         if not (d / f).exists():

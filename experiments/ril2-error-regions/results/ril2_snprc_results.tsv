@@ -1,0 +1,2 @@
+individual	coverage	tag	row_key	snprc_compared_sites	snprc_error_rate	snprc_partial_error_rate	snprc_class_total_HOMREF	snprc_class_mismatch_HOMREF	snprc_class_total_SNP	snprc_class_mismatch_SNP	error_rate	partial_error_rate	compared_sites	wall_seconds	status
+B73xOh43	0.01	unfiltered-bin	IDX-RIL2__B73xOh43__0.01x__unfiltered-bin	121031925	0.00011590330402500015	0.00011590330402500015	108779509	13890	12252416	138	0.0005474796043662966	0.0005474796043662966	155319028	3091.68	ok_cached
